@@ -1,0 +1,25 @@
+name: "CI (CI/CD)"
+description: "GitHub Actions 등 빌드·배포 파이프라인 작업에 사용합니다."
+title: "[CI] "
+labels: ["CI"]
+type: Task
+body:
+  - type: textarea
+    id: overview
+    attributes:
+      label: "Overview"
+      description: "작업의 목적과 배경을 작성합니다."
+      placeholder: "예: GitHub Actions 배포 워크플로우 수정이 필요합니다."
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: "Description"
+      description: "구체적인 작업 내용이나 상황을 작성합니다."
+      placeholder: "예: 빌드 속도 개선을 위해 의존성 캐싱을 적용합니다."
+  - type: textarea
+    id: todo
+    attributes:
+      label: "To do"
+      placeholder: "예: - [ ] workflow 파일 수정"
