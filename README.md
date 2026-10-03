@@ -39,13 +39,33 @@ npm run start:dev       # 개발 서버 (watch 모드)
 
 ```
 src/
-├── common/          # 공통 filter, interceptor, type
+├── common/          # 도메인에 종속되지 않는 공통 코드 (filter, interceptor, type 등)
 ├── config/          # 환경 변수 검증, Swagger 설정
-├── modules/         # 도메인별 모듈 (health, ...)
+├── modules/         # 도메인별 모듈
 ├── app.module.ts
 ├── setup-app.ts     # 전역 설정 (prefix, CORS, pipe, interceptor, filter)
 └── main.ts
 ```
+
+### 도메인 구조
+
+모든 비즈니스 코드는 `src/modules/<도메인>/` 아래에 도메인 단위로 둡니다. `modules/health`가 기준 예시입니다.
+
+```
+modules/users/
+├── dto/
+│   ├── req/                   # 요청 DTO  create-user-req.dto.ts → CreateUserReqDto
+│   └── res/                   # 응답 DTO  user-res.dto.ts        → UserResDto
+├── entities/                  # Entity / Model (DB 연동 후)
+├── repositories/              # (선택) 커스텀 리포지토리
+├── users.controller.ts
+├── users.service.ts
+└── users.module.ts
+```
+
+- DTO는 항상 `dto/req`, `dto/res`로 나눕니다. 파일은 `<동작>-<대상>-req|res.dto.ts`, 클래스는 `...ReqDto` / `...ResDto`로 짓습니다.
+- 다른 도메인의 기능이 필요하면 그 도메인 모듈이 `exports`한 service를 주입받아 씁니다. 다른 도메인의 repository나 entity를 직접 쓰지 않습니다.
+- 여러 도메인에서 쓰는 코드만 `common/`으로 올립니다.
 
 ### 공통 응답 형식
 
