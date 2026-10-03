@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { PrismaModule } from './common/prisma/prisma.module.js';
 import { validateEnv } from './config/env.validation.js';
+import { createLoggerOptions } from './config/logger.config.js';
 import { HealthModule } from './modules/health/health.module.js';
 
 @Module({
@@ -10,6 +13,11 @@ import { HealthModule } from './modules/health/health.module.js';
       cache: true,
       validate: validateEnv,
     }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: createLoggerOptions,
+    }),
+    PrismaModule,
     HealthModule,
   ],
 })
