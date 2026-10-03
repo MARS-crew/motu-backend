@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Max,
@@ -13,6 +14,15 @@ export enum NodeEnv {
   Development = 'development',
   Production = 'production',
   Test = 'test',
+}
+
+export enum LogLevel {
+  Fatal = 'fatal',
+  Error = 'error',
+  Warn = 'warn',
+  Info = 'info',
+  Debug = 'debug',
+  Trace = 'trace',
 }
 
 export class EnvironmentVariables {
@@ -28,6 +38,14 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   CORS_ORIGINS?: string;
+
+  /** PostgreSQL 접속 URL */
+  @IsString()
+  @IsNotEmpty()
+  DATABASE_URL: string;
+
+  @IsEnum(LogLevel)
+  LOG_LEVEL: LogLevel = LogLevel.Info;
 }
 
 /**
