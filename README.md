@@ -3,6 +3,69 @@
 
 <br>
 
+## Getting Started
+
+### 요구 사항
+
+- Node.js 22 이상
+- npm 11 이상 권장 (npm 10에서는 새 패키지 설치 시 `Cannot read properties of null (reading 'edgesOut')` 에러가 날 수 있습니다. `npm ci`는 문제없습니다.)
+
+### 실행
+
+```bash
+npm ci                  # 의존성 설치 (package-lock.json 기준)
+cp .env.example .env    # 환경 변수 파일 생성 후 값 채우기
+npm run start:dev       # 개발 서버 (watch 모드)
+```
+
+| 주소 | 설명 |
+|------|------|
+| `http://localhost:3000/api/health` | 헬스 체크 |
+| `http://localhost:3000/api/docs` | Swagger API 문서 |
+
+### 스크립트
+
+| 명령어 | 설명 |
+|------|------|
+| `npm run start:dev` | 개발 서버 실행 |
+| `npm run build` | 빌드 (`dist/`) |
+| `npm run start:prod` | 빌드 결과물 실행 |
+| `npm run lint` | oxlint 검사 |
+| `npm run format` | Prettier 포맷팅 |
+| `npm test` | 단위 테스트 (vitest) |
+| `npm run test:e2e` | e2e 테스트 |
+
+### 폴더 구조
+
+```
+src/
+├── common/          # 공통 filter, interceptor, type
+├── config/          # 환경 변수 검증, Swagger 설정
+├── modules/         # 도메인별 모듈 (health, ...)
+├── app.module.ts
+├── setup-app.ts     # 전역 설정 (prefix, CORS, pipe, interceptor, filter)
+└── main.ts
+```
+
+### 공통 응답 형식
+
+```jsonc
+// 성공
+{ "success": true, "data": { ... } }
+
+// 실패
+{ "success": false, "error": { "code": "NOT_FOUND", "message": "존재하지 않는 사용자입니다." } }
+
+// 요청 검증 실패 (details 추가)
+{ "success": false, "error": { "code": "BAD_REQUEST", "message": "요청 값이 올바르지 않습니다.", "details": ["email must be an email"] } }
+```
+
+- 컨트롤러는 데이터만 반환하면 됩니다. `ResponseInterceptor`가 감싸줍니다.
+- 비즈니스 에러 코드는 `throw new NotFoundException({ code: 'USER_NOT_FOUND', message: '...' })`처럼 던집니다.
+- 500 에러는 내용을 숨기고 서버 로그에만 남깁니다.
+
+<br>
+
 ## Convention
 
 ### 작업 흐름
