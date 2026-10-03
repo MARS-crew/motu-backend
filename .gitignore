@@ -8,6 +8,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+src/generated/
 
 ### 로그 ###
 logs/
