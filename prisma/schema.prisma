@@ -1,0 +1,12 @@
+// Prisma 스키마. 모델을 추가한 뒤 `npm run db:migrate`로 마이그레이션을 만든다.
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}

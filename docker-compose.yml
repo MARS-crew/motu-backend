@@ -1,0 +1,16 @@
+# 로컬 개발용 PostgreSQL. 운영 DB는 Railway를 사용한다.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: motu-postgres
+    environment:
+      POSTGRES_USER: motu
+      POSTGRES_PASSWORD: motu
+      POSTGRES_DB: motu
+    ports:
+      - '5432:5432'
+    volumes:
+      - motu-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  motu-postgres-data:
