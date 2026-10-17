@@ -17,11 +17,15 @@ enum UserStatus {
   ACTIVE
   LOCKED
   BLOCKED
+
+  @@map("user_status")
 }
 
 enum Role {
   USER
   ADMIN
+
+  @@map("role")
 }
 
 model User {
@@ -49,7 +53,7 @@ model User {
 
   account Account?
 
-  @@map("TB_USER")
+  @@map("users")
 }
 
 // ─── 계좌 ───────────────────────────────────────────
@@ -58,6 +62,8 @@ enum CashLedgerType {
   DEPOSIT
   BUY
   SELL
+
+  @@map("cash_ledger_type")
 }
 
 model Account {
@@ -75,7 +81,7 @@ model Account {
   user    User         @relation(fields: [userId], references: [id])
   ledgers CashLedger[]
 
-  @@map("TB_ACCOUNT")
+  @@map("accounts")
 }
 
 model CashLedger {
@@ -91,7 +97,7 @@ model CashLedger {
   account Account @relation(fields: [accountId], references: [id])
 
   @@index([accountId, createDate])
-  @@map("TB_CASH_LEDGER")
+  @@map("cash_ledgers")
 }
 
 // ─── 인증번호 ───────────────────────────────────────
@@ -99,10 +105,14 @@ model CashLedger {
 enum VerificationChannel {
   EMAIL
   SMS
+
+  @@map("verification_channel")
 }
 
 enum VerificationPurpose {
   SIGNUP
+
+  @@map("verification_purpose")
 }
 
 /// 이메일·SMS 인증번호. 원문은 저장하지 않고 해시만 저장한다.
@@ -122,5 +132,5 @@ model Verification {
   createDate   DateTime            @default(now()) @map("create_date") @db.Timestamptz(3)
 
   @@index([channel, purpose, target, createDate])
-  @@map("TB_VERIFICATION")
+  @@map("verifications")
 }
