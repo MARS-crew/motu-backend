@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   MinLength,
   Max,
   Min,
@@ -62,6 +63,10 @@ export class EnvironmentVariables {
   @IsInt()
   @Min(1)
   JWT_REFRESH_EXPIRES_IN_DAYS: number = 14;
+
+  /** 비밀번호 재설정 메일에 넣을 화면 주소. 뒤에 `?token=...`이 붙는다. */
+  @IsUrl({ require_tld: false })
+  PASSWORD_RESET_URL: string = 'http://localhost:5173/password-reset';
 }
 
 /**
