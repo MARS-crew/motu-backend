@@ -12,16 +12,19 @@ export interface ErrorDefinition {
 }
 
 /**
- * 도메인 에러 정의로 던지는 예외. HttpExceptionFilter가 `{ code, message }` 응답으로 변환한다.
+ * 도메인 에러 정의로 던지는 예외. HttpExceptionFilter가 `{ code, message, details? }` 응답으로 변환한다.
  *
  * 예) throw new BusinessException(UserErrors.EMAIL_DUPLICATED)
  *     throw new BusinessException(VerificationErrors.CODE_MISMATCH, `... (남은 횟수 ${n}회)`)
+ *     throw new BusinessException(AuthErrors.INVALID_CREDENTIALS, undefined, { failCount: 1 })
  */
 export class BusinessException extends HttpException {
   constructor(
     readonly error: ErrorDefinition,
     message: string = error.message,
+    /** 프론트가 화면에 쓸 추가 정보 (예: 남은 시도 횟수) */
+    details?: Record<string, unknown>,
   ) {
-    super({ code: error.code, message }, error.status);
+    super({ code: error.code, message, details }, error.status);
   }
 }
