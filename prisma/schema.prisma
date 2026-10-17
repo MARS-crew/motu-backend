@@ -10,3 +10,127 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// ─── 유저 ───────────────────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  BLOCKED
+
+  @@map("user_status")
+}
+
+enum Role {
+  USER
+  ADMIN
+
+  @@map("role")
+}
+
+model User {
+  id               Int        @id @default(autoincrement()) @map("user_id")
+  loginId          String     @unique @map("login_id") @db.VarChar(20)
+  /// argon2 해시
+  password         String     @db.VarChar(255)
+  email            String     @unique @db.VarChar(255)
+  /// 연락처. SMS 인증 전에는 2차 보안 번호로 쓰지 않는다.
+  phoneNumber      String?    @map("phone_number") @db.VarChar(11)
+  nickname         String     @unique @db.VarChar(10)
+  birthDate        DateTime   @map("birth_date") @db.Date
+  termsAgreed      Boolean    @map("terms_agreed")
+  privacyAgreed    Boolean    @map("privacy_agreed")
+  marketingAgreed  Boolean    @map("marketing_agreed")
+  nightPushEnabled Boolean    @default(true) @map("night_push_enabled")
+  isPushEnabled    Boolean    @default(true) @map("is_push_enabled")
+  userStatus       UserStatus @default(ACTIVE) @map("user_status")
+  role             Role       @default(USER)
+  /// 연속 로그인 실패 횟수. 로그인 성공 시 0으로 초기화한다.
+  loginFailCount   Int        @default(0) @map("login_fail_count")
+  lastLoginDate    DateTime?  @map("last_login_date") @db.Timestamptz(3)
+  createDate       DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate     DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  account Account?
+
+  @@map("users")
+}
+
+// ─── 계좌 ───────────────────────────────────────────
+
+enum CashLedgerType {
+  DEPOSIT
+  BUY
+  SELL
+
+  @@map("cash_ledger_type")
+}
+
+model Account {
+  id           Int      @id @default(autoincrement()) @map("account_id")
+  userId       Int      @unique @map("user_id")
+  /// 예수금 (P)
+  cash         BigInt
+  /// 매수 주문에 묶인 금액
+  lockedCash   BigInt   @default(0) @map("locked_cash")
+  /// 갱신 손실 방지용 버전
+  version      BigInt   @default(0)
+  createDate   DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  user    User         @relation(fields: [userId], references: [id])
+  ledgers CashLedger[]
+
+  @@map("accounts")
+}
+
+model CashLedger {
+  id           BigInt         @id @default(autoincrement()) @map("ledger_id")
+  accountId    Int            @map("account_id")
+  type         CashLedgerType
+  /// 증감 금액 (+ 또는 -)
+  amount       BigInt
+  /// 반영 직후 잔액
+  balanceAfter BigInt         @map("balance_after")
+  createDate   DateTime       @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createDate])
+  @@map("cash_ledgers")
+}
+
+// ─── 인증번호 ───────────────────────────────────────
+
+enum VerificationChannel {
+  EMAIL
+  SMS
+
+  @@map("verification_channel")
+}
+
+enum VerificationPurpose {
+  SIGNUP
+
+  @@map("verification_purpose")
+}
+
+/// 이메일·SMS 인증번호. 원문은 저장하지 않고 해시만 저장한다.
+model Verification {
+  id           Int                 @id @default(autoincrement()) @map("verification_id")
+  channel      VerificationChannel
+  purpose      VerificationPurpose
+  /// 이메일 주소 또는 휴대폰 번호
+  target       String              @db.VarChar(255)
+  codeHash     String              @map("code_hash") @db.VarChar(64)
+  attemptCount Int                 @default(0) @map("attempt_count")
+  expiresAt    DateTime            @map("expires_at") @db.Timestamptz(3)
+  /// 인증 성공 시각
+  verifiedAt   DateTime?           @map("verified_at") @db.Timestamptz(3)
+  /// 인증 결과를 사용한 시각 (회원가입 완료 등). 재발송으로 무효화된 경우에도 기록한다.
+  consumedAt   DateTime?           @map("consumed_at") @db.Timestamptz(3)
+  createDate   DateTime            @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  @@index([channel, purpose, target, createDate])
+  @@map("verifications")
+}

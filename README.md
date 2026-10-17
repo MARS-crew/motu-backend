@@ -18,6 +18,7 @@ npm ci                  # 의존성 설치 (package-lock.json 기준, Prisma Cli
 cp .env.example .env    # 환경 변수 파일 생성 후 값 채우기
 docker compose up -d    # 로컬 PostgreSQL 실행
 npm run db:migrate      # 마이그레이션 적용
+npm run db:seed         # 테스트 계정 생성 (아래 표 참고)
 npm run start:dev       # 개발 서버 (watch 모드)
 ```
 
@@ -25,6 +26,17 @@ npm run start:dev       # 개발 서버 (watch 모드)
 |------|------|
 | `http://localhost:3000/api/health` | 헬스 체크 |
 | `http://localhost:3000/api/docs` | Swagger API 문서 |
+
+### 테스트 계정
+
+`npm run db:seed`로 로컬 DB에 아래 계정이 만들어집니다. 초기 포인트 3,000,000P가 지급된 상태입니다.
+
+| 역할 | 아이디 | 비밀번호 | 닉네임 | 이메일 |
+|------|------|------|------|------|
+| ADMIN | `motuadmin` | `motuadmin1!` | 모투관리자 | `admin@motu.test` |
+| USER | `motuuser` | `motuuser1!` | 모투테스터 | `user@motu.test` |
+
+- 저장소에 공개된 비밀번호라 **로컬 전용**입니다. production(`NODE_ENV=production`)에서는 `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`를 지정하지 않으면 seed가 실행되지 않습니다.
 
 ### 스크립트
 
@@ -40,6 +52,7 @@ npm run start:dev       # 개발 서버 (watch 모드)
 | `npm run db:generate` | Prisma Client 생성 (스키마 변경 후) |
 | `npm run db:migrate` | 마이그레이션 생성 및 적용 (로컬) |
 | `npm run db:deploy` | 마이그레이션 적용 (운영) |
+| `npm run db:seed` | 테스트 계정 생성 (이미 있으면 건너뜀) |
 | `npm run db:studio` | Prisma Studio (DB 조회 GUI) |
 
 ### 폴더 구조
@@ -69,6 +82,7 @@ modules/users/
 ├── repositories/              # (선택) 커스텀 리포지토리
 ├── users.controller.ts
 ├── users.service.ts
+├── users.errors.ts            # 도메인 에러 코드 정의
 └── users.module.ts
 ```
 
@@ -122,8 +136,35 @@ this.logger.log('회원가입 완료');
 ```
 
 - 컨트롤러는 데이터만 반환하면 됩니다. `ResponseInterceptor`가 감싸줍니다.
-- 비즈니스 에러 코드는 `throw new NotFoundException({ code: 'USER_NOT_FOUND', message: '...' })`처럼 던집니다.
 - 500 에러는 내용을 숨기고 서버 로그에만 남깁니다.
+
+### 에러 코드
+
+비즈니스 에러는 도메인별 `<도메인>.errors.ts`에 모아 정의하고 `BusinessException`으로 던집니다.
+
+```ts
+// modules/users/users.errors.ts
+export const UserErrors = {
+  EMAIL_DUPLICATED: {
+    code: 'EMAIL_DUPLICATED',
+    message: '이미 가입된 이메일입니다.',
+    status: HttpStatus.CONFLICT,
+  },
+} as const satisfies Record<string, ErrorDefinition>;
+
+// 서비스
+throw new BusinessException(UserErrors.EMAIL_DUPLICATED);
+
+// 메시지에 값을 넣어야 할 때
+throw new BusinessException(
+  VerificationErrors.CODE_MISMATCH,
+  `${VerificationErrors.CODE_MISMATCH.message} (남은 횟수 ${remaining}회)`,
+);
+```
+
+- `code`는 프론트가 분기할 때 쓰는 값이라 한 번 정하면 바꾸지 않습니다. 대문자 snake_case로 짓고, 다른 도메인과 겹치지 않도록 도메인 이름을 앞에 붙입니다. (예: `VERIFICATION_EXPIRED`)
+- 에러 코드를 문자열로 직접 쓰지 않고 항상 errors 파일에서 가져다 씁니다.
+- 입력값 검증 실패(`BAD_REQUEST`)나 없는 경로(`NOT_FOUND`)처럼 도메인과 관계없는 에러는 HTTP 상태 이름이 코드로 내려갑니다.
 
 <br>
 
