@@ -4,9 +4,7 @@ import {
   CashLedgerType,
   Prisma,
 } from '../../generated/prisma/client.js';
-
-/** 회원가입 시 한 번 지급하는 초기 포인트 */
-export const INITIAL_CASH = 3_000_000n;
+import { INITIAL_CASH } from './accounts.constants.js';
 
 @Injectable()
 export class AccountsService {
