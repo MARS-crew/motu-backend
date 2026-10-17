@@ -73,6 +73,19 @@ describe('HttpExceptionFilter', () => {
       success: false,
       error: { code: 'EMAIL_DUPLICATED', message: '다른 메시지' },
     });
+
+    filter.catch(
+      new BusinessException(error, undefined, { failCount: 1 }),
+      host,
+    );
+    expect(json).toHaveBeenLastCalledWith({
+      success: false,
+      error: {
+        code: 'EMAIL_DUPLICATED',
+        message: '이미 가입된 이메일입니다.',
+        details: { failCount: 1 },
+      },
+    });
   });
 
   it('검증 실패 메시지 배열은 details로 내려준다', () => {
