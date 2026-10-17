@@ -7,6 +7,8 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   Prisma,
+  User,
+  UserStatus,
   VerificationChannel,
   VerificationPurpose,
 } from '../../generated/prisma/client.js';
@@ -15,7 +17,9 @@ import { VerificationsService } from '../verifications/verifications.service.js'
 import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
+import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
+import { MAX_LOGIN_FAIL_COUNT } from './users.constants.js';
 import { UserErrors } from './users.errors.js';
 
 type UniqueField = 'loginId' | 'nickname' | 'email';
@@ -113,6 +117,62 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  async getMyInfo(userId: number): Promise<GetMyInfoResDto> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new BusinessException(UserErrors.NOT_FOUND);
+    }
+    return {
+      userId: user.id,
+      loginId: user.loginId,
+      nickname: user.nickname,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      userStatus: user.userStatus,
+    };
+  }
+
+  /** 로그인용 조회. 비밀번호 해시가 포함되므로 응답에 그대로 내보내지 않는다. */
+  findByLoginId(loginId: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { loginId } });
+  }
+
+  findById(userId: number): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { id: userId } });
+  }
+
+  /**
+   * 로그인 실패 횟수를 1 늘리고, 최대 횟수에 도달하면 계정을 잠근다.
+   * @returns 늘어난 실패 횟수와 잠금 여부
+   */
+  async recordLoginFailure(
+    userId: number,
+  ): Promise<{ failCount: number; locked: boolean }> {
+    const { loginFailCount } = await this.prisma.user.update({
+      where: { id: userId },
+      data: { loginFailCount: { increment: 1 } },
+      select: { loginFailCount: true },
+    });
+
+    const locked = loginFailCount >= MAX_LOGIN_FAIL_COUNT;
+    if (locked) {
+      await this.prisma.user.updateMany({
+        where: { id: userId, userStatus: UserStatus.ACTIVE },
+        data: { userStatus: UserStatus.LOCKED },
+      });
+    }
+    return { failCount: loginFailCount, locked };
+  }
+
+  /** 로그인 성공 시 실패 횟수를 초기화하고 최근 접속일을 갱신한다. */
+  async recordLoginSuccess(userId: number): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { loginFailCount: 0, lastLoginDate: new Date() },
+    });
   }
 
   private async exists(field: UniqueField, value: string): Promise<boolean> {
