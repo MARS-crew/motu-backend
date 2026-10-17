@@ -144,6 +144,18 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { id: userId } });
   }
 
+  findByEmail(email: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { email } });
+  }
+
+  /** 새 비밀번호를 해시해 저장한다. 비밀번호 형식 검증은 요청 DTO에서 한다. */
+  async changePassword(userId: number, newPassword: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await hash(newPassword) },
+    });
+  }
+
   /**
    * 로그인 실패 횟수를 1 늘리고, 최대 횟수에 도달하면 계정을 잠근다.
    * @returns 늘어난 실패 횟수와 잠금 여부
