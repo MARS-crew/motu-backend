@@ -15,8 +15,8 @@ const INTERNAL_ERROR_MESSAGE = '서버 내부 오류가 발생했습니다.';
 /**
  * 모든 예외를 `{ success: false, error: { code, message, details? } }` 형태로 변환한다.
  *
- * 비즈니스 에러 코드가 필요하면 응답 객체에 `code`를 담아 던진다.
- * 예) throw new NotFoundException({ code: 'USER_NOT_FOUND', message: '존재하지 않는 사용자입니다.' })
+ * 비즈니스 에러는 도메인의 `<도메인>.errors.ts`에 정의하고 BusinessException으로 던진다.
+ * 예) throw new BusinessException(UserErrors.EMAIL_DUPLICATED)
  */
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
