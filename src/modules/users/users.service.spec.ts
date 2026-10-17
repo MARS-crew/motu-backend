@@ -12,8 +12,14 @@ describe('UsersService', () => {
   const createInitialAccount = vi.fn();
   const sendEmailCode = vi.fn();
   const consumeVerified = vi.fn();
+  const updateUser = vi.fn();
+  const updateManyUsers = vi.fn();
   const prisma = {
-    user: { count: countUsers },
+    user: {
+      count: countUsers,
+      update: updateUser,
+      updateMany: updateManyUsers,
+    },
     $transaction: vi.fn((fn: (client: typeof tx) => unknown) => fn(tx)),
   } as unknown as PrismaService;
   const accountsService = {
@@ -109,5 +115,30 @@ describe('UsersService', () => {
       response: { code: 'EMAIL_DUPLICATED' },
     });
     expect(sendEmailCode).not.toHaveBeenCalled();
+  });
+
+  describe('recordLoginFailure', () => {
+    it('4회째 실패까지는 잠그지 않는다', async () => {
+      updateUser.mockResolvedValue({ loginFailCount: 4 });
+
+      await expect(service.recordLoginFailure(1)).resolves.toEqual({
+        failCount: 4,
+        locked: false,
+      });
+      expect(updateManyUsers).not.toHaveBeenCalled();
+    });
+
+    it('5회째 실패하면 정상 상태인 계정을 잠근다', async () => {
+      updateUser.mockResolvedValue({ loginFailCount: 5 });
+
+      await expect(service.recordLoginFailure(1)).resolves.toEqual({
+        failCount: 5,
+        locked: true,
+      });
+      expect(updateManyUsers).toHaveBeenCalledWith({
+        where: { id: 1, userStatus: 'ACTIVE' },
+        data: { userStatus: 'LOCKED' },
+      });
+    });
   });
 });
