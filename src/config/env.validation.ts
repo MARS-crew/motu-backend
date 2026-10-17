@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  MinLength,
   Max,
   Min,
   validateSync,
@@ -46,6 +47,21 @@ export class EnvironmentVariables {
 
   @IsEnum(LogLevel)
   LOG_LEVEL: LogLevel = LogLevel.Info;
+
+  /** Access 토큰 서명 키. `openssl rand -base64 32`로 생성한다. */
+  @IsString()
+  @MinLength(32)
+  JWT_ACCESS_SECRET: string;
+
+  /** Access 토큰 유효시간 (초) */
+  @IsInt()
+  @Min(60)
+  JWT_ACCESS_EXPIRES_IN: number = 900;
+
+  /** Refresh 토큰 유효기간 (일) */
+  @IsInt()
+  @Min(1)
+  JWT_REFRESH_EXPIRES_IN_DAYS: number = 14;
 }
 
 /**
