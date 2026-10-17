@@ -19,6 +19,7 @@ const VERIFIED_TTL_MS = 30 * 60 * 1000;
 
 const MAIL_SUBJECTS: Record<VerificationPurpose, string> = {
   [VerificationPurpose.SIGNUP]: '[MOTU] 회원가입 이메일 인증번호',
+  [VerificationPurpose.FIND_LOGIN_ID]: '[MOTU] 아이디 찾기 인증번호',
 };
 
 export interface SentVerification {
