@@ -34,6 +34,18 @@ export const AuthErrors = {
     message: '로그인이 만료되었습니다. 다시 로그인해 주세요.',
     status: HttpStatus.UNAUTHORIZED,
   },
+  EMAIL_NOT_REGISTERED: {
+    code: 'AUTH_EMAIL_NOT_REGISTERED',
+    message:
+      '가입된 계정이 없습니다. 이메일을 확인하거나 회원가입을 진행해 주세요.',
+    status: HttpStatus.NOT_FOUND,
+  },
+  INVALID_PASSWORD_RESET_TOKEN: {
+    code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN',
+    message:
+      '재설정 링크가 만료되었거나 이미 사용되었습니다. 비밀번호 재설정을 다시 요청해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
   FORBIDDEN: {
     code: 'AUTH_FORBIDDEN',
     message: '접근 권한이 없습니다.',
