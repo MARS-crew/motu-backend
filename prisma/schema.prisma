@@ -51,7 +51,8 @@ model User {
   createDate       DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate     DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  account Account?
+  account       Account?
+  refreshTokens RefreshToken[]
 
   @@map("users")
 }
@@ -133,4 +134,22 @@ model Verification {
 
   @@index([channel, purpose, target, createDate])
   @@map("verifications")
+}
+
+// ─── 인증 ───────────────────────────────────────────
+
+/// 로그인 세션별 Refresh 토큰. 원문은 저장하지 않고 해시만 저장한다.
+model RefreshToken {
+  id         Int       @id @default(autoincrement()) @map("refresh_token_id")
+  userId     Int       @map("user_id")
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(64)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  /// 재발급·로그아웃·비밀번호 변경 등으로 폐기된 시각
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createDate DateTime  @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
