@@ -1,5 +1,9 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { hash } from 'argon2';
+import {
+  BusinessException,
+  ErrorDefinition,
+} from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   Prisma,
@@ -12,22 +16,14 @@ import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
+import { UserErrors } from './users.errors.js';
 
 type UniqueField = 'loginId' | 'nickname' | 'email';
 
-const DUPLICATED_ERRORS: Record<
-  UniqueField,
-  { code: string; message: string }
-> = {
-  loginId: {
-    code: 'LOGIN_ID_DUPLICATED',
-    message: '이미 사용 중인 아이디입니다.',
-  },
-  nickname: {
-    code: 'NICKNAME_DUPLICATED',
-    message: '이미 사용 중인 닉네임입니다.',
-  },
-  email: { code: 'EMAIL_DUPLICATED', message: '이미 가입된 이메일입니다.' },
+const DUPLICATED_ERRORS: Record<UniqueField, ErrorDefinition> = {
+  loginId: UserErrors.LOGIN_ID_DUPLICATED,
+  nickname: UserErrors.NICKNAME_DUPLICATED,
+  email: UserErrors.EMAIL_DUPLICATED,
 };
 
 @Injectable()
@@ -113,7 +109,7 @@ export class UsersService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException(this.findDuplicatedError(error));
+        throw new BusinessException(this.findDuplicatedError(error));
       }
       throw error;
     }
@@ -129,18 +125,18 @@ export class UsersService {
     value: string,
   ): Promise<void> {
     if (await this.exists(field, value)) {
-      throw new ConflictException(DUPLICATED_ERRORS[field]);
+      throw new BusinessException(DUPLICATED_ERRORS[field]);
     }
   }
 
-  private findDuplicatedError(error: Prisma.PrismaClientKnownRequestError) {
+  private findDuplicatedError(
+    error: Prisma.PrismaClientKnownRequestError,
+  ): ErrorDefinition {
     const meta = JSON.stringify(error.meta ?? {});
     const field = (Object.keys(DUPLICATED_ERRORS) as UniqueField[]).find(
       (key) => meta.includes(key) || meta.includes(toColumnName(key)),
     );
-    return field
-      ? DUPLICATED_ERRORS[field]
-      : { code: 'USER_DUPLICATED', message: '이미 가입된 정보입니다.' };
+    return field ? DUPLICATED_ERRORS[field] : UserErrors.DUPLICATED;
   }
 }
 
