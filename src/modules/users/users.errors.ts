@@ -17,6 +17,11 @@ export const UserErrors = {
     message: '이미 가입된 이메일입니다.',
     status: HttpStatus.CONFLICT,
   },
+  NOT_FOUND: {
+    code: 'USER_NOT_FOUND',
+    message: '존재하지 않는 사용자입니다.',
+    status: HttpStatus.NOT_FOUND,
+  },
   /** 동시 가입으로 UNIQUE 제약에 걸렸지만 어떤 값이 중복인지 알 수 없는 경우 */
   DUPLICATED: {
     code: 'USER_DUPLICATED',
