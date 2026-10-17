@@ -5,6 +5,7 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
+    seed: 'tsx prisma/seed.ts',
   },
   datasource: {
     // generate는 DB 접속이 필요 없어서 값이 없어도 동작한다.
