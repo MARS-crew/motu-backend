@@ -1,11 +1,6 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
-import {
-  BadRequestException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
@@ -13,6 +8,7 @@ import {
   VerificationChannel,
   VerificationPurpose,
 } from '../../generated/prisma/client.js';
+import { VerificationErrors } from './verifications.errors.js';
 
 const CODE_LENGTH = 6;
 const CODE_TTL_MS = 5 * 60 * 1000;
@@ -55,13 +51,7 @@ export class VerificationsService {
       latest &&
       now.getTime() - latest.createDate.getTime() < RESEND_COOLDOWN_MS
     ) {
-      throw new HttpException(
-        {
-          code: 'VERIFICATION_RESEND_TOO_SOON',
-          message: '잠시 후 인증번호를 다시 요청해 주세요.',
-        },
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      throw new BusinessException(VerificationErrors.RESEND_TOO_SOON);
     }
 
     const code = this.generateCode();
@@ -114,19 +104,13 @@ export class VerificationsService {
     );
 
     if (!verification) {
-      throw new NotFoundException({
-        code: 'VERIFICATION_NOT_FOUND',
-        message: '인증번호를 먼저 요청해 주세요.',
-      });
+      throw new BusinessException(VerificationErrors.NOT_FOUND);
     }
     if (verification.verifiedAt) {
       return;
     }
     if (verification.expiresAt.getTime() <= Date.now()) {
-      throw new BadRequestException({
-        code: 'VERIFICATION_EXPIRED',
-        message: '인증번호가 만료되었습니다. 인증번호를 다시 받아 주세요.',
-      });
+      throw new BusinessException(VerificationErrors.EXPIRED);
     }
     if (verification.attemptCount >= MAX_ATTEMPTS) {
       throw this.attemptsExceeded();
@@ -142,10 +126,10 @@ export class VerificationsService {
       if (count === 0 || remaining <= 0) {
         throw this.attemptsExceeded();
       }
-      throw new BadRequestException({
-        code: 'VERIFICATION_CODE_MISMATCH',
-        message: `인증번호가 일치하지 않습니다. (남은 횟수 ${remaining}회)`,
-      });
+      throw new BusinessException(
+        VerificationErrors.CODE_MISMATCH,
+        `${VerificationErrors.CODE_MISMATCH.message} (남은 횟수 ${remaining}회)`,
+      );
     }
 
     await this.prisma.verification.update({
@@ -175,10 +159,7 @@ export class VerificationsService {
     });
 
     if (count === 0) {
-      throw new BadRequestException({
-        code: 'VERIFICATION_REQUIRED',
-        message: '인증이 완료되지 않았거나 만료되었습니다. 다시 인증해 주세요.',
-      });
+      throw new BusinessException(VerificationErrors.REQUIRED);
     }
   }
 
@@ -207,14 +188,7 @@ export class VerificationsService {
     return timingSafeEqual(Buffer.from(expectedHash), Buffer.from(actualHash));
   }
 
-  private attemptsExceeded(): HttpException {
-    return new HttpException(
-      {
-        code: 'VERIFICATION_ATTEMPTS_EXCEEDED',
-        message:
-          '인증번호 입력 횟수를 초과했습니다. 인증번호를 다시 받아 주세요.',
-      },
-      HttpStatus.TOO_MANY_REQUESTS,
-    );
+  private attemptsExceeded(): BusinessException {
+    return new BusinessException(VerificationErrors.ATTEMPTS_EXCEEDED);
   }
 }
