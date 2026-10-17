@@ -90,7 +90,7 @@ describe('UsersService', () => {
         clientVersion: 'test',
         meta: {
           driverAdapterError: {
-            cause: { constraint: { index: 'TB_USER_nickname_key' } },
+            cause: { constraint: { index: 'users_nickname_key' } },
           },
         },
       }),
