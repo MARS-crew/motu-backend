@@ -15,7 +15,7 @@
 
 ```bash
 npm ci                  # 의존성 설치 (package-lock.json 기준, Prisma Client도 같이 생성)
-cp .env.example .env    # 환경 변수 파일 생성 후 값 채우기
+cp .env.example .env    # 환경 변수 파일 생성 후 값 채우기 (JWT_ACCESS_SECRET은 `openssl rand -base64 32`로 생성)
 docker compose up -d    # 로컬 PostgreSQL 실행
 npm run db:migrate      # 마이그레이션 적용
 npm run db:seed         # 테스트 계정 생성 (아래 표 참고)
@@ -36,6 +36,7 @@ npm run start:dev       # 개발 서버 (watch 모드)
 | ADMIN | `motuadmin` | `motuadmin1!` | 모투관리자 | `admin@motu.test` |
 | USER | `motuuser` | `motuuser1!` | 모투테스터 | `user@motu.test` |
 
+- Swagger에서 `POST /api/auth/login`으로 로그인한 뒤, 응답의 `accessToken`을 오른쪽 위 **Authorize**에 넣으면 로그인이 필요한 API를 호출할 수 있습니다.
 - 저장소에 공개된 비밀번호라 **로컬 전용**입니다. production(`NODE_ENV=production`)에서는 `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`를 지정하지 않으면 seed가 실행되지 않습니다.
 
 ### 스크립트
@@ -122,6 +123,27 @@ this.logger.log('회원가입 완료');
 - 헬스 체크 요청은 로그를 남기지 않습니다. 요청 로그에 헤더(토큰 등)는 남기지 않습니다.
 - 로그 레벨은 `LOG_LEVEL` 환경 변수로 바꿉니다.
 
+### 인증
+
+- 로그인하면 Access 토큰(JWT, 기본 15분)과 Refresh 토큰(기본 14일)을 받습니다. API는 `Authorization: Bearer <accessToken>` 헤더로 호출합니다.
+- Access 토큰이 만료되면 `AUTH_TOKEN_EXPIRED`(401)가 내려옵니다. `POST /api/auth/refresh`로 재발급하고, Refresh 토큰도 응답의 새 값으로 바꿔 저장합니다.
+- **모든 API는 기본으로 로그인이 필요합니다.** 로그인 없이 호출해야 하는 API에만 `@Public()`을 붙입니다.
+
+```ts
+@Public()                         // 로그인 없이 호출 가능
+@Get('notices')
+findNotices() { ... }
+
+@Roles(Role.ADMIN)                // 관리자만 호출 가능
+@Patch(':id/unlock')
+unlock() { ... }
+
+@Get('me')                        // 로그인한 사용자 정보 주입
+getMyInfo(@CurrentUser() user: AuthUser) { ... }
+```
+
+- 데코레이터가 붙은 메서드의 매개변수 타입으로 `AuthUser`를 쓸 때는 `import type { AuthUser } from ...`로 가져와야 빌드됩니다.
+
 ### 공통 응답 형식
 
 ```jsonc
@@ -130,6 +152,9 @@ this.logger.log('회원가입 완료');
 
 // 실패
 { "success": false, "error": { "code": "NOT_FOUND", "message": "존재하지 않는 사용자입니다." } }
+
+// 추가 정보가 필요한 실패 (예: 로그인 실패 횟수)
+{ "success": false, "error": { "code": "AUTH_INVALID_CREDENTIALS", "message": "...", "details": { "failCount": 1, "maxFailCount": 5 } } }
 
 // 요청 검증 실패 (details 추가)
 { "success": false, "error": { "code": "BAD_REQUEST", "message": "요청 값이 올바르지 않습니다.", "details": ["email must be an email"] } }

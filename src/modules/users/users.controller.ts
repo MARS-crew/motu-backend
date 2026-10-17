@@ -8,12 +8,16 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import type { AuthUser } from '../../common/auth/auth-user.type.js';
+import { CurrentUser } from '../../common/auth/current-user.decorator.js';
+import { Public } from '../../common/auth/public.decorator.js';
 import { CheckLoginIdReqDto } from './dto/req/check-login-id-req.dto.js';
 import { CheckNicknameReqDto } from './dto/req/check-nickname-req.dto.js';
 import { ConfirmEmailVerificationReqDto } from './dto/req/confirm-email-verification-req.dto.js';
@@ -22,6 +26,7 @@ import { SendEmailVerificationReqDto } from './dto/req/send-email-verification-r
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
 import { ConfirmEmailVerificationResDto } from './dto/res/confirm-email-verification-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
+import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
 import { UsersService } from './users.service.js';
 
@@ -30,6 +35,15 @@ import { UsersService } from './users.service.js';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Get('me')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '내 정보 조회' })
+  @ApiOkResponse({ type: GetMyInfoResDto })
+  getMyInfo(@CurrentUser() user: AuthUser): Promise<GetMyInfoResDto> {
+    return this.usersService.getMyInfo(user.userId);
+  }
+
+  @Public()
   @Get('login-id/availability')
   @ApiOperation({ summary: '아이디 중복 확인' })
   @ApiOkResponse({ type: CheckAvailabilityResDto })
@@ -39,6 +53,7 @@ export class UsersController {
     return this.usersService.checkLoginId(query.loginId);
   }
 
+  @Public()
   @Get('nickname/availability')
   @ApiOperation({ summary: '닉네임 중복 확인' })
   @ApiOkResponse({ type: CheckAvailabilityResDto })
@@ -48,6 +63,7 @@ export class UsersController {
     return this.usersService.checkNickname(query.nickname);
   }
 
+  @Public()
   @Post('email-verifications')
   @ApiOperation({
     summary: '가입 이메일 인증번호 발송',
@@ -62,6 +78,7 @@ export class UsersController {
     return this.usersService.sendSignupEmailCode(dto.email);
   }
 
+  @Public()
   @Post('email-verifications/confirm')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -77,6 +94,7 @@ export class UsersController {
     return { verified: true };
   }
 
+  @Public()
   @Post()
   @ApiOperation({
     summary: '회원가입',

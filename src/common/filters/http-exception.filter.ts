@@ -60,7 +60,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return { code: defaultCode, message: res };
     }
 
-    const { code, message } = res as { code?: unknown; message?: unknown };
+    const { code, message, details } = res as {
+      code?: unknown;
+      message?: unknown;
+      details?: unknown;
+    };
     const errorCode = typeof code === 'string' ? code : defaultCode;
 
     // ValidationPipe는 message를 문자열 배열로 던진다.
@@ -75,6 +79,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     return {
       code: errorCode,
       message: typeof message === 'string' ? message : exception.message,
+      ...(details !== undefined && { details }),
     };
   }
 }

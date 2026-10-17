@@ -14,3 +14,6 @@ export const NICKNAME_MESSAGE =
 /** 이메일은 앞뒤 공백을 지우고 소문자로 저장한다. */
 export const normalizeEmail = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
+
+/** 비밀번호를 이 횟수만큼 연속으로 틀리면 계정을 잠근다. */
+export const MAX_LOGIN_FAIL_COUNT = 5;
