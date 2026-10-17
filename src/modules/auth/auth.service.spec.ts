@@ -3,8 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash } from 'argon2';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { MailSender } from '../../common/mail/mail-sender.js';
 import { UsersService } from '../users/users.service.js';
-import { AuthService } from './auth.service.js';
+import { VerificationsService } from '../verifications/verifications.service.js';
+import { AuthService, maskLoginId } from './auth.service.js';
 
 const sha256 = (value: string) =>
   createHash('sha256').update(value).digest('hex');
@@ -15,24 +17,59 @@ describe('AuthService', () => {
     updateMany: vi.fn(),
     create: vi.fn(),
   };
-  const prisma = { refreshToken } as unknown as PrismaService;
+  const passwordResetToken = {
+    findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    updateMany: vi.fn(),
+    create: vi.fn(),
+  };
+  const prisma = {
+    refreshToken,
+    passwordResetToken,
+    $transaction: vi.fn((ops: unknown[]) => Promise.all(ops)),
+  } as unknown as PrismaService;
   const signAsync = vi.fn().mockResolvedValue('access-token');
   const jwtService = { signAsync } as unknown as JwtService;
   const config = {
     get: (key: string) =>
-      ({ JWT_ACCESS_EXPIRES_IN: 900, JWT_REFRESH_EXPIRES_IN_DAYS: 14 })[key],
+      ({
+        JWT_ACCESS_EXPIRES_IN: 900,
+        JWT_REFRESH_EXPIRES_IN_DAYS: 14,
+        PASSWORD_RESET_URL: 'http://localhost:5173/password-reset',
+      })[key],
   } as unknown as ConfigService<never, true>;
   const findByLoginId = vi.fn();
   const findById = vi.fn();
   const recordLoginFailure = vi.fn();
   const recordLoginSuccess = vi.fn();
+  const findByEmail = vi.fn();
+  const changePassword = vi.fn();
   const usersService = {
     findByLoginId,
     findById,
+    findByEmail,
     recordLoginFailure,
     recordLoginSuccess,
+    changePassword,
   } as unknown as UsersService;
-  const service = new AuthService(prisma, jwtService, config, usersService);
+  const confirmEmailCode = vi.fn();
+  const consumeVerified = vi.fn();
+  const sendEmailCode = vi.fn();
+  const verificationsService = {
+    confirmEmailCode,
+    consumeVerified,
+    sendEmailCode,
+  } as unknown as VerificationsService;
+  const sendMail = vi.fn();
+  const mailSender = { send: sendMail } as unknown as MailSender;
+  const service = new AuthService(
+    prisma,
+    jwtService,
+    config,
+    usersService,
+    verificationsService,
+    mailSender,
+  );
 
   let user: Record<string, unknown>;
 
@@ -40,6 +77,7 @@ describe('AuthService', () => {
     user = {
       id: 1,
       loginId: 'motuuser',
+      email: 'user@motu.test',
       nickname: '모투테스터',
       role: 'USER',
       userStatus: 'ACTIVE',
@@ -51,7 +89,10 @@ describe('AuthService', () => {
     vi.clearAllMocks();
     findByLoginId.mockResolvedValue(user);
     findById.mockResolvedValue(user);
+    findByEmail.mockResolvedValue(user);
     refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
+    passwordResetToken.findFirst.mockResolvedValue(null);
   });
 
   describe('login', () => {
@@ -186,6 +227,137 @@ describe('AuthService', () => {
       await expect(service.refresh('token')).rejects.toMatchObject({
         response: { code: 'AUTH_ACCOUNT_LOCKED' },
       });
+    });
+  });
+
+  describe('findLoginId', () => {
+    it('인증번호를 확인하고 결과를 사용 처리한 뒤 가린 아이디를 내려준다', async () => {
+      const result = await service.findLoginId('user@motu.test', '123456');
+
+      expect(confirmEmailCode).toHaveBeenCalledWith(
+        'FIND_LOGIN_ID',
+        'user@motu.test',
+        '123456',
+      );
+      expect(consumeVerified).toHaveBeenCalledWith(
+        prisma,
+        'EMAIL',
+        'FIND_LOGIN_ID',
+        'user@motu.test',
+      );
+      expect(result).toEqual({ maskedLoginId: 'mot***er' });
+    });
+
+    it('가입되지 않은 이메일로는 인증번호를 보내지 않는다', async () => {
+      findByEmail.mockResolvedValue(null);
+
+      await expect(
+        service.sendFindLoginIdCode('none@motu.test'),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_EMAIL_NOT_REGISTERED' },
+      });
+      expect(sendEmailCode).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('maskLoginId', () => {
+    it.each([
+      ['minhyuk01', 'min***01'],
+      ['motuuser', 'mot***er'],
+      ['motu01', 'mo***'],
+      ['abcde', 'ab***'],
+    ])('%s → %s', (loginId, masked) => {
+      expect(maskLoginId(loginId)).toBe(masked);
+    });
+  });
+
+  describe('requestPasswordReset', () => {
+    it('정보가 맞으면 이전 링크를 무효화하고 새 링크를 메일로 보낸다', async () => {
+      await service.requestPasswordReset('motuuser', 'user@motu.test');
+
+      expect(passwordResetToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 1, usedAt: null },
+        data: { usedAt: expect.any(Date) },
+      });
+      const { text } = sendMail.mock.calls[0][0] as { text: string };
+      const token = /token=([\w-]+)/.exec(text)?.[1];
+      expect(token).toBeDefined();
+      expect(passwordResetToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 1, tokenHash: sha256(token!) }),
+      });
+    });
+
+    it.each([
+      ['이메일이 다르면', { email: 'other@motu.test' }],
+      ['잠긴 계정이면', { userStatus: 'LOCKED' }],
+    ])('%s 에러 없이 메일을 보내지 않는다', async (_case, overrides) => {
+      findByLoginId.mockResolvedValue({ ...user, ...overrides });
+
+      await expect(
+        service.requestPasswordReset('motuuser', 'user@motu.test'),
+      ).resolves.toBeUndefined();
+      expect(sendMail).not.toHaveBeenCalled();
+    });
+
+    it('1분 안에 다시 요청하면 메일을 보내지 않는다', async () => {
+      passwordResetToken.findFirst.mockResolvedValue({
+        createDate: new Date(Date.now() - 10_000),
+      });
+
+      await service.requestPasswordReset('motuuser', 'user@motu.test');
+
+      expect(sendMail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resetPassword', () => {
+    const savedToken = (overrides: Record<string, unknown> = {}) => ({
+      id: 20,
+      userId: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+      ...overrides,
+    });
+
+    it('비밀번호를 바꾸고 모든 세션을 끊는다', async () => {
+      passwordResetToken.findUnique.mockResolvedValue(savedToken());
+
+      await service.resetPassword('reset-token', 'motunew1!');
+
+      expect(passwordResetToken.findUnique).toHaveBeenCalledWith({
+        where: { tokenHash: sha256('reset-token') },
+      });
+      expect(changePassword).toHaveBeenCalledWith(1, 'motunew1!');
+      expect(refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 1, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it.each([
+      ['사용한 링크', { usedAt: new Date() }],
+      ['만료된 링크', { expiresAt: new Date(Date.now() - 1) }],
+    ])('%s는 거부한다', async (_case, overrides) => {
+      passwordResetToken.findUnique.mockResolvedValue(savedToken(overrides));
+
+      await expect(
+        service.resetPassword('reset-token', 'motunew1!'),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN' },
+      });
+      expect(changePassword).not.toHaveBeenCalled();
+    });
+
+    it('같은 링크로 동시에 요청하면 한 번만 처리한다', async () => {
+      passwordResetToken.findUnique.mockResolvedValue(savedToken());
+      passwordResetToken.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.resetPassword('reset-token', 'motunew1!'),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN' },
+      });
+      expect(changePassword).not.toHaveBeenCalled();
     });
   });
 });
