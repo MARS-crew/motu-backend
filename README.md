@@ -18,6 +18,7 @@ npm ci                  # 의존성 설치 (package-lock.json 기준, Prisma Cli
 cp .env.example .env    # 환경 변수 파일 생성 후 값 채우기
 docker compose up -d    # 로컬 PostgreSQL 실행
 npm run db:migrate      # 마이그레이션 적용
+npm run db:seed         # 테스트 계정 생성 (아래 표 참고)
 npm run start:dev       # 개발 서버 (watch 모드)
 ```
 
@@ -25,6 +26,17 @@ npm run start:dev       # 개발 서버 (watch 모드)
 |------|------|
 | `http://localhost:3000/api/health` | 헬스 체크 |
 | `http://localhost:3000/api/docs` | Swagger API 문서 |
+
+### 테스트 계정
+
+`npm run db:seed`로 로컬 DB에 아래 계정이 만들어집니다. 초기 포인트 3,000,000P가 지급된 상태입니다.
+
+| 역할 | 아이디 | 비밀번호 | 닉네임 | 이메일 |
+|------|------|------|------|------|
+| ADMIN | `motuadmin` | `motuadmin1!` | 모투관리자 | `admin@motu.test` |
+| USER | `motuuser` | `motuuser1!` | 모투테스터 | `user@motu.test` |
+
+- 저장소에 공개된 비밀번호라 **로컬 전용**입니다. production(`NODE_ENV=production`)에서는 `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`를 지정하지 않으면 seed가 실행되지 않습니다.
 
 ### 스크립트
 
@@ -40,6 +52,7 @@ npm run start:dev       # 개발 서버 (watch 모드)
 | `npm run db:generate` | Prisma Client 생성 (스키마 변경 후) |
 | `npm run db:migrate` | 마이그레이션 생성 및 적용 (로컬) |
 | `npm run db:deploy` | 마이그레이션 적용 (운영) |
+| `npm run db:seed` | 테스트 계정 생성 (이미 있으면 건너뜀) |
 | `npm run db:studio` | Prisma Studio (DB 조회 GUI) |
 
 ### 폴더 구조
