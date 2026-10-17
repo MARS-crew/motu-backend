@@ -1,9 +1,11 @@
 import {
   ArgumentsHost,
   BadRequestException,
+  HttpStatus,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { BusinessException } from '../exceptions/business.exception.js';
 import { HttpExceptionFilter } from './http-exception.filter.js';
 
 describe('HttpExceptionFilter', () => {
@@ -49,6 +51,27 @@ describe('HttpExceptionFilter', () => {
     expect(json).toHaveBeenCalledWith({
       success: false,
       error: { code: 'USER_NOT_FOUND', message: '존재하지 않는 사용자입니다.' },
+    });
+  });
+
+  it('BusinessException은 에러 정의의 상태, 코드, 메시지로 변환한다', () => {
+    const error = {
+      code: 'EMAIL_DUPLICATED',
+      message: '이미 가입된 이메일입니다.',
+      status: HttpStatus.CONFLICT,
+    };
+
+    filter.catch(new BusinessException(error), host);
+    expect(status).toHaveBeenCalledWith(409);
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      error: { code: 'EMAIL_DUPLICATED', message: '이미 가입된 이메일입니다.' },
+    });
+
+    filter.catch(new BusinessException(error, '다른 메시지'), host);
+    expect(json).toHaveBeenLastCalledWith({
+      success: false,
+      error: { code: 'EMAIL_DUPLICATED', message: '다른 메시지' },
     });
   });
 
