@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import {
+  IsEmail,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -9,6 +10,7 @@ import {
   MinLength,
   Max,
   Min,
+  ValidateIf,
   validateSync,
 } from 'class-validator';
 
@@ -67,6 +69,27 @@ export class EnvironmentVariables {
   /** 비밀번호 재설정 메일에 넣을 화면 주소. 뒤에 `?token=...`이 붙는다. */
   @IsUrl({ require_tld: false })
   PASSWORD_RESET_URL: string = 'http://localhost:5173/password-reset';
+
+  /** Brevo API 키. 비우면 메일을 보내지 않고 서버 로그에 출력한다. 운영 환경에서는 필수. */
+  @ValidateIf(usesBrevo)
+  @IsString()
+  @IsNotEmpty()
+  BREVO_API_KEY?: string;
+
+  /** 발신자 이메일. Brevo에서 발신자 인증을 마친 주소여야 한다. Brevo로 보낼 때 필수. */
+  @ValidateIf(usesBrevo)
+  @IsEmail()
+  MAIL_FROM_EMAIL?: string;
+
+  /** 받는 사람에게 보이는 발신자 이름 */
+  @IsString()
+  @IsNotEmpty()
+  MAIL_FROM_NAME: string = 'MOTU';
+}
+
+/** 운영 환경이거나 BREVO_API_KEY가 있으면 Brevo로 메일을 보낸다. */
+function usesBrevo(env: EnvironmentVariables): boolean {
+  return env.NODE_ENV === NodeEnv.Production || !!env.BREVO_API_KEY;
 }
 
 /**
