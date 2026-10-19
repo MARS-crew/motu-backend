@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Mail, MailSender } from './mail-sender.js';
 
 /**
- * 메일을 실제로 보내지 않고 서버 로그에 출력한다. 개발용이며 운영 배포 전 실제 구현체로 교체해야 한다.
+ * 메일을 실제로 보내지 않고 서버 로그에 출력한다. BREVO_API_KEY가 없는 로컬·테스트 환경에서 쓴다.
  */
 @Injectable()
 export class ConsoleMailSender extends MailSender {
