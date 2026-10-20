@@ -42,4 +42,11 @@ export class GetPointResetResDto {
     nullable: true,
   })
   nextAvailableAt: Date | null;
+
+  @ApiProperty({
+    description:
+      '7일 제한이 풀릴 때까지 남은 시간(초). 서버 시각 기준이며 제한이 없으면 0',
+    example: 0,
+  })
+  remainingSeconds: number;
 }
