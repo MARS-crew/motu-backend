@@ -112,9 +112,28 @@ describe('AccountsService', () => {
       );
 
       await expect(service.getPointGrantStatus(1)).resolves.toMatchObject({
+        cash: 2_345_678,
         amount: 100_000,
         available: true,
         nextAvailableAt: null,
+        remainingSeconds: 0,
+      });
+    });
+
+    it('24시간 전이면 서버 시각 기준 남은 시간을 초 단위로 알려준다', async () => {
+      vi.useFakeTimers({ now: new Date('2026-10-20T10:00:00.000Z') });
+      account.findUnique.mockResolvedValue(
+        accountOf({ lastPointGrantAt: new Date('2026-10-19T13:36:00.000Z') }),
+      );
+
+      const result = await service.getPointGrantStatus(1);
+      vi.useRealTimers();
+
+      // 다음 지급 가능 2026-10-20T13:36 → 3시간 36분 남음
+      expect(result).toMatchObject({
+        available: false,
+        nextAvailableAt: new Date('2026-10-20T13:36:00.000Z'),
+        remainingSeconds: (3 * 60 + 36) * 60,
       });
     });
   });
@@ -226,6 +245,7 @@ describe('AccountsService', () => {
       expect(result.available).toBe(true);
       expect(result.reason).toBeNull();
       expect(result.nextAvailableAt).toBeNull();
+      expect(result.remainingSeconds).toBe(0);
       expect(result.conditions.every(({ met }) => met)).toBe(true);
     });
 
@@ -247,6 +267,8 @@ describe('AccountsService', () => {
         ],
         nextAvailableAt: new Date(lastPointResetAt.getTime() + 7 * DAY),
       });
+      expect(result.remainingSeconds).toBeGreaterThan(6 * 24 * 60 * 60 - 5);
+      expect(result.remainingSeconds).toBeLessThanOrEqual(6 * 24 * 60 * 60);
     });
   });
 
