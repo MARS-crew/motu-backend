@@ -176,6 +176,7 @@ export class AccountsService {
   /**
    * 보유 포인트를 초기 포인트로 재설정한다. 리셋 조건을 모두 충족해야 한다.
    * 추가 포인트 지급 대기시간은 리셋과 관계없이 유지한다. 실패한 시도도 리셋 이력에 남긴다.
+   * 거래내역 삭제는 주문 테이블이 생기면 추가한다. 관심상품은 리셋해도 유지한다.
    */
   async resetPoint(userId: number): Promise<ResetPointResDto> {
     const account = await this.findAccount(userId);
@@ -383,8 +384,10 @@ export class AccountsService {
   }
 
   /**
-   * 리셋 조건을 화면 순서대로 확인한다. 사유 문구는 기획 확정 전 임시 문구다.
-   * 보유 종목 0개, 미체결 주문 0건 조건은 주문·보유 테이블이 생기면 앞쪽에 추가한다.
+   * 리셋 조건을 화면 순서대로 확인한다. 사유 문구는 기획에서 정한 문구다.
+   * 미체결 주문·처리 중 거래는 예약 포인트가 남아 있는 것과 같은 조건으로 본다.
+   * 보유 종목 0개 조건은 보유 테이블이 생기면 맨 앞에 추가한다.
+   * (문구: "현재 보유 중인 종목이 존재해 리셋이 불가능합니다.")
    */
   private checkResetConditions(
     account: Account,
@@ -394,17 +397,18 @@ export class AccountsService {
       {
         condition: PointResetCondition.NO_LOCKED_CASH,
         met: account.lockedCash === 0n,
-        reason: '주문에 예약된 포인트가 있어 리셋할 수 없습니다.',
+        reason: '현재 미체결 주문이 존재해 리셋이 불가능합니다.',
       },
       {
         condition: PointResetCondition.CASH_BELOW_LIMIT,
         met: account.cash < POINT_RESET_MAX_CASH,
-        reason: `보유 포인트가 ${formatPoint(POINT_RESET_MAX_CASH)} 이상이라 리셋할 수 없습니다.`,
+        reason: `보유 포인트가 리셋 가능 기준(${formatPoint(POINT_RESET_MAX_CASH)}) 이상입니다.`,
       },
       {
         condition: PointResetCondition.RESET_INTERVAL_PASSED,
         met: this.nextResetAt(account, now) === null,
-        reason: '마지막 리셋 후 7일이 지나지 않아 리셋할 수 없습니다.',
+        // 남은 시간(n일 n시간 nn분)은 프론트가 remainingSeconds로 붙여 표시한다.
+        reason: '마지막 리셋으로부터 7일이 지난 후 다시 시도해 주세요.',
       },
     ];
   }
