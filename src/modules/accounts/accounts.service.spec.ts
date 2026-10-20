@@ -1,8 +1,11 @@
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { CashLedgerType } from '../../generated/prisma/client.js';
+import {
+  CashLedgerType,
+  PointResetCondition,
+  PointResetResult,
+} from '../../generated/prisma/client.js';
 import { PointCooldownType } from './accounts.constants.js';
 import { AccountsService } from './accounts.service.js';
-import { PointResetCondition } from './dto/res/get-point-reset-res.dto.js';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -14,10 +17,12 @@ describe('AccountsService', () => {
     update: vi.fn(),
   };
   const cashLedger = { create: vi.fn(), findMany: vi.fn(), count: vi.fn() };
-  const tx = { account, cashLedger };
+  const pointResetHistory = { create: vi.fn() };
+  const tx = { account, cashLedger, pointResetHistory };
   const prisma = {
     account,
     cashLedger,
+    pointResetHistory,
     $transaction: vi.fn((arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
@@ -145,6 +150,14 @@ describe('AccountsService', () => {
           balanceAfter: 3_000_000n,
         }),
       });
+      expect(pointResetHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          result: PointResetResult.SUCCESS,
+          cashBefore: 200_000n,
+          cashAfter: 3_000_000n,
+          failedConditions: [],
+        }),
+      });
     });
 
     it('보유 포인트가 300,000P 이상이면 사유와 함께 거부한다', async () => {
@@ -158,6 +171,27 @@ describe('AccountsService', () => {
         },
       });
       expect(account.updateMany).not.toHaveBeenCalled();
+      expect(pointResetHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          result: PointResetResult.NOT_ALLOWED,
+          cashBefore: 300_000n,
+          cashAfter: undefined,
+          failedConditions: [PointResetCondition.CASH_BELOW_LIMIT],
+        }),
+      });
+    });
+
+    it('동시에 다른 요청이 계좌를 바꿨으면 충돌로 이력을 남긴다', async () => {
+      account.findUnique.mockResolvedValue(accountOf({ cash: 200_000n }));
+      account.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.resetPoint(1)).rejects.toMatchObject({
+        response: { code: 'ACCOUNT_CONCURRENT_UPDATE' },
+      });
+      expect(pointResetHistory.create).toHaveBeenCalledOnce();
+      expect(pointResetHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ result: PointResetResult.CONFLICT }),
+      });
     });
 
     it('예약 포인트가 있거나 7일이 지나지 않았으면 거부한다', async () => {
@@ -171,6 +205,7 @@ describe('AccountsService', () => {
 
       await expect(service.resetPoint(1)).rejects.toMatchObject({
         response: {
+          message: '주문에 예약된 포인트가 있어 리셋할 수 없습니다.',
           details: {
             conditions: [
               PointResetCondition.NO_LOCKED_CASH,
@@ -189,8 +224,29 @@ describe('AccountsService', () => {
       const result = await service.getPointResetStatus(1);
 
       expect(result.available).toBe(true);
+      expect(result.reason).toBeNull();
       expect(result.nextAvailableAt).toBeNull();
       expect(result.conditions.every(({ met }) => met)).toBe(true);
+    });
+
+    it('충족하지 못한 조건이 여러 개면 화면 순서상 첫 번째 사유만 내려준다', async () => {
+      const lastPointResetAt = new Date(Date.now() - DAY);
+      account.findUnique.mockResolvedValue(
+        accountOf({ cash: 500_000n, lastPointResetAt }),
+      );
+
+      const result = await service.getPointResetStatus(1);
+
+      expect(result).toMatchObject({
+        available: false,
+        reason: '보유 포인트가 300,000P 이상이라 리셋할 수 없습니다.',
+        conditions: [
+          { condition: PointResetCondition.NO_LOCKED_CASH, met: true },
+          { condition: PointResetCondition.CASH_BELOW_LIMIT, met: false },
+          { condition: PointResetCondition.RESET_INTERVAL_PASSED, met: false },
+        ],
+        nextAvailableAt: new Date(lastPointResetAt.getTime() + 7 * DAY),
+      });
     });
   });
 
