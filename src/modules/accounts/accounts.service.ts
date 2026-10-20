@@ -4,6 +4,8 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   Account,
   CashLedgerType,
+  PointResetCondition,
+  PointResetResult,
   Prisma,
 } from '../../generated/prisma/client.js';
 import {
@@ -20,15 +22,18 @@ import { GetAccountResDto } from './dto/res/get-account-res.dto.js';
 import { GetLedgersResDto } from './dto/res/get-ledgers-res.dto.js';
 import { GetMyAccountResDto } from './dto/res/get-my-account-res.dto.js';
 import { GetPointGrantResDto } from './dto/res/get-point-grant-res.dto.js';
-import {
-  GetPointResetResDto,
-  PointResetCondition,
-  PointResetConditionResDto,
-} from './dto/res/get-point-reset-res.dto.js';
+import { GetPointResetResDto } from './dto/res/get-point-reset-res.dto.js';
 import { GrantPointResDto } from './dto/res/grant-point-res.dto.js';
 import { ResetPointResDto } from './dto/res/reset-point-res.dto.js';
 
 const formatPoint = (point: bigint) => `${point.toLocaleString('ko-KR')}P`;
+
+interface CheckedResetCondition {
+  condition: PointResetCondition;
+  met: boolean;
+  /** 충족하지 못했을 때 보여줄 리셋 불가 사유 */
+  reason: string;
+}
 
 @Injectable()
 export class AccountsService {
@@ -152,18 +157,20 @@ export class AccountsService {
     const account = await this.findAccount(userId);
     const now = new Date();
     const conditions = this.checkResetConditions(account, now);
+    const unmet = conditions.find(({ met }) => !met);
     return {
       resetCash: Number(INITIAL_CASH),
       cash: Number(account.cash),
-      available: conditions.every(({ met }) => met),
-      conditions,
+      available: !unmet,
+      reason: unmet?.reason ?? null,
+      conditions: conditions.map(({ condition, met }) => ({ condition, met })),
       nextAvailableAt: this.nextResetAt(account, now),
     };
   }
 
   /**
    * 보유 포인트를 초기 포인트로 재설정한다. 리셋 조건을 모두 충족해야 한다.
-   * 추가 포인트 지급 대기시간은 리셋과 관계없이 유지한다.
+   * 추가 포인트 지급 대기시간은 리셋과 관계없이 유지한다. 실패한 시도도 리셋 이력에 남긴다.
    */
   async resetPoint(userId: number): Promise<ResetPointResDto> {
     const account = await this.findAccount(userId);
@@ -172,19 +179,41 @@ export class AccountsService {
       ({ met }) => !met,
     );
     if (unmet.length > 0) {
+      const failedConditions = unmet.map(({ condition }) => condition);
+      await this.recordResetAttempt(this.prisma, account, now, {
+        result: PointResetResult.NOT_ALLOWED,
+        failedConditions,
+      });
       throw new BusinessException(
         AccountErrors.POINT_RESET_NOT_ALLOWED,
-        unmet[0].message,
-        { conditions: unmet.map(({ condition }) => condition) },
+        unmet[0].reason,
+        { conditions: failedConditions },
       );
     }
 
-    await this.updateCash(account, {
-      type: CashLedgerType.RESET,
-      cashAfter: INITIAL_CASH,
-      now,
-      data: { lastPointResetAt: now },
-    });
+    try {
+      await this.updateCash(account, {
+        type: CashLedgerType.RESET,
+        cashAfter: INITIAL_CASH,
+        now,
+        data: { lastPointResetAt: now },
+        afterUpdate: (tx) =>
+          this.recordResetAttempt(tx, account, now, {
+            result: PointResetResult.SUCCESS,
+            cashAfter: INITIAL_CASH,
+          }),
+      });
+    } catch (error) {
+      if (
+        error instanceof BusinessException &&
+        error.error === AccountErrors.CONCURRENT_UPDATE
+      ) {
+        await this.recordResetAttempt(this.prisma, account, now, {
+          result: PointResetResult.CONFLICT,
+        });
+      }
+      throw error;
+    }
 
     return {
       cashBefore: Number(account.cash),
@@ -251,6 +280,8 @@ export class AccountsService {
       cashAfter: bigint;
       now: Date;
       data?: Prisma.AccountUpdateManyMutationInput;
+      /** 포인트를 바꾼 뒤 같은 트랜잭션에서 실행한다. */
+      afterUpdate?: (tx: Prisma.TransactionClient) => Promise<unknown>;
     },
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
@@ -275,6 +306,29 @@ export class AccountsService {
           createDate: change.now,
         },
       });
+      await change.afterUpdate?.(tx);
+    });
+  }
+
+  private recordResetAttempt(
+    client: Prisma.TransactionClient,
+    account: Account,
+    now: Date,
+    attempt: {
+      result: PointResetResult;
+      cashAfter?: bigint;
+      failedConditions?: PointResetCondition[];
+    },
+  ) {
+    return client.pointResetHistory.create({
+      data: {
+        accountId: account.id,
+        result: attempt.result,
+        cashBefore: account.cash,
+        cashAfter: attempt.cashAfter,
+        failedConditions: attempt.failedConditions ?? [],
+        createDate: now,
+      },
     });
   }
 
@@ -317,28 +371,28 @@ export class AccountsService {
   }
 
   /**
-   * 리셋 조건을 확인한다.
-   * 보유 종목 0개, 미체결 주문 0건 조건은 주문·보유 테이블이 생기면 추가한다.
+   * 리셋 조건을 화면 순서대로 확인한다. 사유 문구는 기획 확정 전 임시 문구다.
+   * 보유 종목 0개, 미체결 주문 0건 조건은 주문·보유 테이블이 생기면 앞쪽에 추가한다.
    */
   private checkResetConditions(
     account: Account,
     now: Date,
-  ): PointResetConditionResDto[] {
+  ): CheckedResetCondition[] {
     return [
       {
         condition: PointResetCondition.NO_LOCKED_CASH,
         met: account.lockedCash === 0n,
-        message: '주문에 예약된 포인트가 있어 리셋할 수 없습니다.',
+        reason: '주문에 예약된 포인트가 있어 리셋할 수 없습니다.',
       },
       {
         condition: PointResetCondition.CASH_BELOW_LIMIT,
         met: account.cash < POINT_RESET_MAX_CASH,
-        message: `보유 포인트가 ${formatPoint(POINT_RESET_MAX_CASH)} 이상이라 리셋할 수 없습니다.`,
+        reason: `보유 포인트가 ${formatPoint(POINT_RESET_MAX_CASH)} 이상이라 리셋할 수 없습니다.`,
       },
       {
         condition: PointResetCondition.RESET_INTERVAL_PASSED,
         met: this.nextResetAt(account, now) === null,
-        message: '마지막 리셋 후 7일이 지나지 않아 리셋할 수 없습니다.',
+        reason: '마지막 리셋 후 7일이 지나지 않아 리셋할 수 없습니다.',
       },
     ];
   }
