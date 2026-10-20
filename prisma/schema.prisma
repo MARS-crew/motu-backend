@@ -90,8 +90,9 @@ model Account {
   createDate       DateTime  @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate     DateTime  @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  user    User         @relation(fields: [userId], references: [id])
-  ledgers CashLedger[]
+  user              User                @relation(fields: [userId], references: [id])
+  ledgers           CashLedger[]
+  pointResetHistory PointResetHistory[]
 
   @@map("accounts")
 }
@@ -184,4 +185,44 @@ model PasswordResetToken {
 
   @@index([userId, createDate])
   @@map("password_reset_tokens")
+}
+
+/// 포인트 리셋 조건
+enum PointResetCondition {
+  /// 주문에 예약된 포인트가 0P
+  NO_LOCKED_CASH
+  /// 보유 포인트가 초기 포인트의 10% 미만
+  CASH_BELOW_LIMIT
+  /// 마지막 리셋 후 7일 경과 (리셋한 적이 없으면 충족)
+  RESET_INTERVAL_PASSED
+
+  @@map("point_reset_condition")
+}
+
+enum PointResetResult {
+  SUCCESS
+  /// 리셋 조건 미충족
+  NOT_ALLOWED
+  /// 같은 계좌를 동시에 갱신해 반영하지 못함
+  CONFLICT
+
+  @@map("point_reset_result")
+}
+
+/// 포인트 리셋 시도 이력. 실패한 시도도 남긴다. 성공한 포인트 변경은 cash_ledgers에도 남는다.
+model PointResetHistory {
+  id               BigInt                @id @default(autoincrement()) @map("point_reset_history_id")
+  accountId        Int                   @map("account_id")
+  result           PointResetResult
+  cashBefore       BigInt                @map("cash_before")
+  /// 성공했을 때만 값이 있다.
+  cashAfter        BigInt?               @map("cash_after")
+  /// 충족하지 못한 조건 (NOT_ALLOWED일 때)
+  failedConditions PointResetCondition[] @map("failed_conditions")
+  createDate       DateTime              @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createDate])
+  @@map("point_reset_histories")
 }
