@@ -185,7 +185,7 @@ describe('AccountsService', () => {
       await expect(service.resetPoint(1)).rejects.toMatchObject({
         response: {
           code: 'POINT_RESET_NOT_ALLOWED',
-          message: '보유 포인트가 300,000P 이상이라 리셋할 수 없습니다.',
+          message: '보유 포인트가 리셋 가능 기준(300,000P) 이상입니다.',
           details: { conditions: [PointResetCondition.CASH_BELOW_LIMIT] },
         },
       });
@@ -224,7 +224,7 @@ describe('AccountsService', () => {
 
       await expect(service.resetPoint(1)).rejects.toMatchObject({
         response: {
-          message: '주문에 예약된 포인트가 있어 리셋할 수 없습니다.',
+          message: '현재 미체결 주문이 존재해 리셋이 불가능합니다.',
           details: {
             conditions: [
               PointResetCondition.NO_LOCKED_CASH,
@@ -249,6 +249,23 @@ describe('AccountsService', () => {
       expect(result.conditions.every(({ met }) => met)).toBe(true);
     });
 
+    it('7일만 지나지 않았으면 다시 시도 안내와 남은 시간을 내려준다', async () => {
+      account.findUnique.mockResolvedValue(
+        accountOf({
+          cash: 200_000n,
+          lastPointResetAt: new Date(Date.now() - 6 * DAY),
+        }),
+      );
+
+      const result = await service.getPointResetStatus(1);
+
+      expect(result.reason).toBe(
+        '마지막 리셋으로부터 7일이 지난 후 다시 시도해 주세요.',
+      );
+      expect(result.remainingSeconds).toBeGreaterThan(DAY / 1000 - 5);
+      expect(result.remainingSeconds).toBeLessThanOrEqual(DAY / 1000);
+    });
+
     it('충족하지 못한 조건이 여러 개면 화면 순서상 첫 번째 사유만 내려준다', async () => {
       const lastPointResetAt = new Date(Date.now() - DAY);
       account.findUnique.mockResolvedValue(
@@ -259,7 +276,7 @@ describe('AccountsService', () => {
 
       expect(result).toMatchObject({
         available: false,
-        reason: '보유 포인트가 300,000P 이상이라 리셋할 수 없습니다.',
+        reason: '보유 포인트가 리셋 가능 기준(300,000P) 이상입니다.',
         conditions: [
           { condition: PointResetCondition.NO_LOCKED_CASH, met: true },
           { condition: PointResetCondition.CASH_BELOW_LIMIT, met: false },
