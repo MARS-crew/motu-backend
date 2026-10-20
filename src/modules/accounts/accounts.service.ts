@@ -114,11 +114,14 @@ export class AccountsService {
 
   async getPointGrantStatus(userId: number): Promise<GetPointGrantResDto> {
     const account = await this.findAccount(userId);
-    const nextAvailableAt = this.nextGrantAt(account, new Date());
+    const now = new Date();
+    const nextAvailableAt = this.nextGrantAt(account, now);
     return {
+      cash: Number(account.cash),
       amount: Number(POINT_GRANT_AMOUNT),
       available: nextAvailableAt === null,
       nextAvailableAt,
+      remainingSeconds: this.remainingSeconds(nextAvailableAt, now),
       lastGrantedAt: account.lastPointGrantAt,
     };
   }
@@ -158,13 +161,15 @@ export class AccountsService {
     const now = new Date();
     const conditions = this.checkResetConditions(account, now);
     const unmet = conditions.find(({ met }) => !met);
+    const nextAvailableAt = this.nextResetAt(account, now);
     return {
       resetCash: Number(INITIAL_CASH),
       cash: Number(account.cash),
       available: !unmet,
       reason: unmet?.reason ?? null,
       conditions: conditions.map(({ condition, met }) => ({ condition, met })),
-      nextAvailableAt: this.nextResetAt(account, now),
+      nextAvailableAt,
+      remainingSeconds: this.remainingSeconds(nextAvailableAt, now),
     };
   }
 
@@ -356,6 +361,13 @@ export class AccountsService {
       POINT_RESET_INTERVAL_MS,
       now,
     );
+  }
+
+  /** 기기 시계가 틀려도 남은 시간을 맞게 보여줄 수 있도록 서버 시각 기준으로 계산한다. */
+  private remainingSeconds(nextAvailableAt: Date | null, now: Date): number {
+    return nextAvailableAt
+      ? Math.ceil((nextAvailableAt.getTime() - now.getTime()) / 1000)
+      : 0;
   }
 
   private nextAvailableAt(
