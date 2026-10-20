@@ -64,21 +64,31 @@ enum CashLedgerType {
   DEPOSIT
   BUY
   SELL
+  /// 추가 포인트 지급
+  GRANT
+  /// 포인트 리셋
+  RESET
+  /// 관리자 포인트 조정
+  ADJUST
 
   @@map("cash_ledger_type")
 }
 
 model Account {
-  id           Int      @id @default(autoincrement()) @map("account_id")
-  userId       Int      @unique @map("user_id")
-  /// 예수금 (P)
-  cash         BigInt
+  id               Int       @id @default(autoincrement()) @map("account_id")
+  userId           Int       @unique @map("user_id")
+  /// 예수금 (P). 주문에 묶인 금액(lockedCash)을 포함한 전체 보유 포인트
+  cash             BigInt
   /// 매수 주문에 묶인 금액
-  lockedCash   BigInt   @default(0) @map("locked_cash")
+  lockedCash       BigInt    @default(0) @map("locked_cash")
   /// 갱신 손실 방지용 버전
-  version      BigInt   @default(0)
-  createDate   DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
-  modifiedDate DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+  version          BigInt    @default(0)
+  /// 마지막 추가 포인트 지급 시각. 24시간 제한 기준이다.
+  lastPointGrantAt DateTime? @map("last_point_grant_at") @db.Timestamptz(3)
+  /// 마지막 포인트 리셋 시각. 7일 제한 기준이다.
+  lastPointResetAt DateTime? @map("last_point_reset_at") @db.Timestamptz(3)
+  createDate       DateTime  @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate     DateTime  @updatedAt @map("modified_date") @db.Timestamptz(3)
 
   user    User         @relation(fields: [userId], references: [id])
   ledgers CashLedger[]
