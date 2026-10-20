@@ -4,7 +4,7 @@ import { PointResetCondition } from '../../../../generated/prisma/client.js';
 export class PointResetConditionResDto {
   @ApiProperty({
     description:
-      'NO_LOCKED_CASH 예약 포인트 0P, CASH_BELOW_LIMIT 보유 포인트 300,000P 미만, RESET_INTERVAL_PASSED 마지막 리셋 후 7일 경과',
+      'NO_LOCKED_CASH 미체결 주문 없음(예약 포인트 0P), CASH_BELOW_LIMIT 보유 포인트 300,000P 미만, RESET_INTERVAL_PASSED 마지막 리셋 후 7일 경과',
     enum: PointResetCondition,
     example: PointResetCondition.CASH_BELOW_LIMIT,
   })
@@ -27,7 +27,7 @@ export class GetPointResetResDto {
   @ApiPropertyOptional({
     description:
       '리셋 불가 사유. 충족하지 못한 조건 중 화면 순서상 첫 번째 사유이며, 리셋할 수 있으면 null',
-    example: '보유 포인트가 300,000P 이상이라 리셋할 수 없습니다.',
+    example: '보유 포인트가 리셋 가능 기준(300,000P) 이상입니다.',
     nullable: true,
   })
   reason: string | null;
