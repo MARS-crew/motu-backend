@@ -11,6 +11,12 @@ export const NICKNAME_PATTERN = /^[가-힣A-Za-z0-9]{2,10}$/;
 export const NICKNAME_MESSAGE =
   '닉네임은 2~10자의 한글·영문·숫자로 입력해 주세요.';
 
+/** 오늘 날짜(한국 시간, YYYY-MM-DD) */
+export const todayInKorea = (): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(
+    new Date(),
+  );
+
 /** 이메일은 앞뒤 공백을 지우고 소문자로 저장한다. */
 export const normalizeEmail = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
