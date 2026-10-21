@@ -171,12 +171,37 @@ async function createSectors(): Promise<void> {
   console.log(`카테고리: ${seedSectors.length}개`);
 }
 
+/**
+ * 앞쪽 6개 상품에만 주요 서비스 지표를 넣는다. 나머지는 "정보없음" 표시를 확인하는 용도다.
+ */
+function metricsOf(index: number) {
+  if (index >= 6) {
+    return {};
+  }
+  const scale = BigInt(index + 1);
+  return {
+    mau: 50_000n * scale,
+    dau: 10_000n * scale,
+    revenue: 300_000_000n * scale,
+    transactionVolume: index % 2 === 0 ? 1_000_000_000n * scale : null,
+    metricsStartDate: new Date('2025-10-01'),
+    metricsEndDate: new Date('2026-09-30'),
+  };
+}
+
 async function createStocks(): Promise<void> {
   const now = Date.now();
   for (const [index, seed] of seedStocks.entries()) {
     const stockCode = `MOTU${String(index + 1).padStart(4, '0')}`;
     const existing = await prisma.stock.findUnique({ where: { stockCode } });
     if (existing) {
+      // 지표 컬럼이 나중에 추가되어, 이미 만든 테스트 상품에는 지표만 채운다.
+      if (existing.mau === null) {
+        await prisma.stock.update({
+          where: { stockCode },
+          data: metricsOf(index),
+        });
+      }
       console.log(`이미 있음: ${stockCode} ${seed.name}`);
       continue;
     }
@@ -195,6 +220,7 @@ async function createStocks(): Promise<void> {
         basePrice: BigInt(seed.basePrice),
         listingDate: new Date(now - seed.daysAgo * DAY),
         tradeStatus: seed.tradeStatus ?? TradeStatus.ACTIVE,
+        ...metricsOf(index),
       },
     });
     console.log(`생성: ${stockCode} ${seed.name}`);
