@@ -1,6 +1,7 @@
 import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService, TokenExpiredError } from '@nestjs/jwt';
+import { IS_OPTIONAL_AUTH_KEY } from '../../../common/auth/optional-auth.decorator.js';
 import { BusinessException } from '../../../common/exceptions/business.exception.js';
 import { AuthErrors } from '../auth.errors.js';
 import { AuthService } from '../auth.service.js';
@@ -34,6 +35,43 @@ describe('JwtAuthGuard', () => {
     await expect(guard.canActivate(contextWith({ headers: {} }))).resolves.toBe(
       true,
     );
+  });
+
+  describe('@OptionalAuth() API', () => {
+    beforeEach(() => {
+      getAllAndOverride.mockImplementation(
+        (key: string) => key === IS_OPTIONAL_AUTH_KEY,
+      );
+    });
+
+    it('토큰이 없으면 비회원으로 통과한다', async () => {
+      const request = { headers: {} };
+
+      await expect(guard.canActivate(contextWith(request))).resolves.toBe(true);
+      expect(request).not.toHaveProperty('user');
+    });
+
+    it('토큰이 있으면 회원으로 처리한다', async () => {
+      verifyAsync.mockResolvedValue({ sub: 1, role: 'USER' });
+      const request = { headers: { authorization: 'Bearer valid' } };
+
+      await guard.canActivate(contextWith(request));
+
+      expect(assertUserActive).toHaveBeenCalledWith(1);
+      expect(request).toMatchObject({ user: { userId: 1, role: 'USER' } });
+    });
+
+    it('토큰이 만료되었으면 비회원으로 처리하지 않고 AUTH_TOKEN_EXPIRED', async () => {
+      verifyAsync.mockRejectedValue(
+        new TokenExpiredError('jwt expired', new Date()),
+      );
+
+      await expect(
+        guard.canActivate(
+          contextWith({ headers: { authorization: 'Bearer expired' } }),
+        ),
+      ).rejects.toMatchObject({ response: { code: 'AUTH_TOKEN_EXPIRED' } });
+    });
   });
 
   it('토큰이 없으면 AUTH_UNAUTHORIZED', async () => {
