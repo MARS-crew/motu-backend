@@ -5,7 +5,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseIntPipe,
   Put,
   Query,
 } from '@nestjs/common';
@@ -20,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
+import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { GetWishlistsReqDto } from './dto/req/get-wishlists-req.dto.js';
 import { GetWishlistsResDto } from './dto/res/get-wishlists-res.dto.js';
 import { StocksService } from './stocks.service.js';
@@ -54,7 +54,7 @@ export class WishlistsController {
   @ApiNotFoundResponse({ description: 'STOCK_NOT_FOUND' })
   addWishlist(
     @CurrentUser() user: AuthUser,
-    @Param('stockId', ParseIntPipe) stockId: number,
+    @Param('stockId', ParseIdPipe) stockId: number,
   ): Promise<void> {
     return this.stocksService.addWishlist(user.userId, stockId);
   }
@@ -68,7 +68,7 @@ export class WishlistsController {
   @ApiNoContentResponse()
   removeWishlist(
     @CurrentUser() user: AuthUser,
-    @Param('stockId', ParseIntPipe) stockId: number,
+    @Param('stockId', ParseIdPipe) stockId: number,
   ): Promise<void> {
     return this.stocksService.removeWishlist(user.userId, stockId);
   }
