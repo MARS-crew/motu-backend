@@ -4,11 +4,17 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { Prisma, Sector, Stock } from '../../generated/prisma/client.js';
 import { SearchHistoriesService } from '../search-histories/search-histories.service.js';
 import { GetNewListingsResDto } from './dto/res/get-new-listings-res.dto.js';
+import { GetRecentlyViewedResDto } from './dto/res/get-recently-viewed-res.dto.js';
+import { GetStockResDto } from './dto/res/get-stock-res.dto.js';
 import {
   GetStocksResDto,
   StockItemResDto,
 } from './dto/res/get-stocks-res.dto.js';
-import { NEW_LISTING_BADGE_MS, StockSort } from './stocks.constants.js';
+import {
+  MAX_VIEW_HISTORIES,
+  NEW_LISTING_BADGE_MS,
+  StockSort,
+} from './stocks.constants.js';
 import { StockErrors } from './stocks.errors.js';
 
 type StockWithSector = Stock & { sector: Sector };
@@ -96,6 +102,103 @@ export class StocksService {
       ),
       nextCursor,
     };
+  }
+
+  /**
+   * 상품 상세. 거래 종료 상품도 볼 수 있다. 로그인한 회원이면 최근 본 종목에 남긴다.
+   */
+  async getStock(
+    userId: number | undefined,
+    stockId: number,
+  ): Promise<GetStockResDto> {
+    const stock = await this.prisma.stock.findFirst({
+      where: { id: stockId, isDeleted: false },
+      include: { sector: true },
+    });
+    if (!stock) {
+      throw new BusinessException(StockErrors.NOT_FOUND);
+    }
+
+    if (userId !== undefined) {
+      await this.recordView(userId, stock.id);
+    }
+
+    const { currentPrice, changeAmount, changeRate } = this.toItem(stock);
+    return {
+      stockId: stock.id,
+      stockCode: stock.stockCode,
+      name: stock.name,
+      summary: stock.summary,
+      description: stock.description,
+      sectorCode: stock.sectorCode,
+      sectorName: stock.sector.name,
+      logoImageUrl: stock.logoImageUrl,
+      mainImageUrl: stock.mainImageUrl,
+      officialUrl: stock.officialUrl,
+      operatorName: stock.operatorName,
+      metrics: {
+        mau: this.toNumberOrNull(stock.mau),
+        dau: this.toNumberOrNull(stock.dau),
+        revenue: this.toNumberOrNull(stock.revenue),
+        transactionVolume: this.toNumberOrNull(stock.transactionVolume),
+        startDate: this.toDateOrNull(stock.metricsStartDate),
+        endDate: this.toDateOrNull(stock.metricsEndDate),
+      },
+      listingDate: stock.listingDate,
+      tradeStatus: stock.tradeStatus,
+      currentPrice,
+      changeAmount,
+      changeRate,
+    };
+  }
+
+  /** 최근 본 종목을 최근 본 순서로 최대 3개 내려준다. 삭제된 상품은 뺀다. */
+  async getRecentlyViewed(userId: number): Promise<GetRecentlyViewedResDto> {
+    const histories = await this.prisma.viewHistory.findMany({
+      where: { userId, stock: { isDeleted: false } },
+      include: { stock: { include: { sector: true } } },
+      orderBy: { modifiedDate: 'desc' },
+      take: MAX_VIEW_HISTORIES,
+    });
+    return { items: histories.map(({ stock }) => this.toItem(stock)) };
+  }
+
+  /**
+   * 최근 본 종목을 남긴다. 같은 상품은 맨 위로 올리고, 최근 3개를 넘는 기록은 지운다.
+   */
+  private async recordView(userId: number, stockId: number): Promise<void> {
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.viewHistory.upsert({
+        where: { userId_stockId: { userId, stockId } },
+        create: { userId, stockId, createDate: now, modifiedDate: now },
+        update: { modifiedDate: now },
+      });
+
+      const overflow = await tx.viewHistory.findMany({
+        where: { userId },
+        orderBy: { modifiedDate: 'desc' },
+        skip: MAX_VIEW_HISTORIES,
+        select: { stockId: true },
+      });
+      if (overflow.length > 0) {
+        await tx.viewHistory.deleteMany({
+          where: {
+            userId,
+            stockId: { in: overflow.map((history) => history.stockId) },
+          },
+        });
+      }
+    });
+  }
+
+  private toNumberOrNull(value: bigint | null): number | null {
+    return value === null ? null : Number(value);
+  }
+
+  /** DATE 컬럼은 UTC 자정으로 읽히므로 날짜 부분만 내려준다. */
+  private toDateOrNull(value: Date | null): string | null {
+    return value ? value.toISOString().slice(0, 10) : null;
   }
 
   /**
