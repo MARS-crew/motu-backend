@@ -2,8 +2,10 @@ import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash } from 'argon2';
+import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
+import { MailErrors } from '../../common/mail/mail.errors.js';
 import { UsersService } from '../users/users.service.js';
 import { VerificationsService } from '../verifications/verifications.service.js';
 import { AuthService, maskLoginId } from './auth.service.js';
@@ -323,6 +325,16 @@ describe('AuthService', () => {
         service.requestPasswordReset('motuuser', 'user@motu.test'),
       ).resolves.toBeUndefined();
       expect(sendMail).not.toHaveBeenCalled();
+    });
+
+    it('메일 발송에 실패해도 가입 여부가 드러나지 않도록 같은 응답을 준다', async () => {
+      sendMail.mockRejectedValueOnce(
+        new BusinessException(MailErrors.SEND_FAILED),
+      );
+
+      await expect(
+        service.requestPasswordReset('motuuser', 'user@motu.test'),
+      ).resolves.toBeUndefined();
     });
 
     it('1분 안에 다시 요청하면 메일을 보내지 않는다', async () => {
