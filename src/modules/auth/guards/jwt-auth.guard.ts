@@ -6,6 +6,7 @@ import { IS_PUBLIC_KEY } from '../../../common/auth/public.decorator.js';
 import { BusinessException } from '../../../common/exceptions/business.exception.js';
 import { Role } from '../../../generated/prisma/client.js';
 import { AuthErrors } from '../auth.errors.js';
+import { AuthService } from '../auth.service.js';
 
 interface AccessTokenPayload {
   sub: number;
@@ -14,12 +15,14 @@ interface AccessTokenPayload {
 
 /**
  * 전역 Guard. `@Public()`이 없는 API는 `Authorization: Bearer <accessToken>`이 있어야 통과한다.
+ * 토큰이 유효해도 잠김·정지 회원이면 막는다.
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly jwtService: JwtService,
+    private readonly authService: AuthService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -37,11 +40,9 @@ export class JwtAuthGuard implements CanActivate {
       throw new BusinessException(AuthErrors.UNAUTHORIZED);
     }
 
+    let payload: AccessTokenPayload;
     try {
-      const payload =
-        await this.jwtService.verifyAsync<AccessTokenPayload>(token);
-      request.user = { userId: payload.sub, role: payload.role };
-      return true;
+      payload = await this.jwtService.verifyAsync<AccessTokenPayload>(token);
     } catch (error) {
       throw new BusinessException(
         error instanceof TokenExpiredError
@@ -49,5 +50,9 @@ export class JwtAuthGuard implements CanActivate {
           : AuthErrors.UNAUTHORIZED,
       );
     }
+
+    await this.authService.assertUserActive(payload.sub);
+    request.user = { userId: payload.sub, role: payload.role };
+    return true;
   }
 }

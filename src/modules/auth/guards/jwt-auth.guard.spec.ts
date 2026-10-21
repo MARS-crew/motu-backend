@@ -1,14 +1,19 @@
 import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService, TokenExpiredError } from '@nestjs/jwt';
+import { BusinessException } from '../../../common/exceptions/business.exception.js';
+import { AuthErrors } from '../auth.errors.js';
+import { AuthService } from '../auth.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 
 describe('JwtAuthGuard', () => {
   const getAllAndOverride = vi.fn();
   const verifyAsync = vi.fn();
+  const assertUserActive = vi.fn();
   const guard = new JwtAuthGuard(
     { getAllAndOverride } as unknown as Reflector,
     { verifyAsync } as unknown as JwtService,
+    { assertUserActive } as unknown as AuthService,
   );
 
   const contextWith = (request: Record<string, unknown>) =>
@@ -44,7 +49,21 @@ describe('JwtAuthGuard', () => {
     await guard.canActivate(contextWith(request));
 
     expect(verifyAsync).toHaveBeenCalledWith('valid');
+    expect(assertUserActive).toHaveBeenCalledWith(1);
     expect(request).toMatchObject({ user: { userId: 1, role: 'ADMIN' } });
+  });
+
+  it('토큰이 유효해도 잠긴 회원이면 막는다', async () => {
+    verifyAsync.mockResolvedValue({ sub: 1, role: 'USER' });
+    assertUserActive.mockRejectedValue(
+      new BusinessException(AuthErrors.ACCOUNT_LOCKED),
+    );
+    const request = { headers: { authorization: 'Bearer valid' } };
+
+    await expect(guard.canActivate(contextWith(request))).rejects.toMatchObject(
+      { response: { code: 'AUTH_ACCOUNT_LOCKED' } },
+    );
+    expect(request).not.toHaveProperty('user');
   });
 
   it('만료된 토큰이면 AUTH_TOKEN_EXPIRED', async () => {
@@ -57,5 +76,6 @@ describe('JwtAuthGuard', () => {
         contextWith({ headers: { authorization: 'Bearer expired' } }),
       ),
     ).rejects.toMatchObject({ response: { code: 'AUTH_TOKEN_EXPIRED' } });
+    expect(assertUserActive).not.toHaveBeenCalled();
   });
 });

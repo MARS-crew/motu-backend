@@ -230,6 +230,32 @@ describe('AuthService', () => {
     });
   });
 
+  describe('assertUserActive', () => {
+    it('정상 회원이면 통과한다', async () => {
+      await expect(service.assertUserActive(1)).resolves.toBeUndefined();
+      expect(findById).toHaveBeenCalledWith(1);
+    });
+
+    it.each([
+      ['잠긴 회원', 'LOCKED', 'AUTH_ACCOUNT_LOCKED'],
+      ['정지된 회원', 'BLOCKED', 'AUTH_ACCOUNT_BLOCKED'],
+    ])('%s이면 막는다', async (_name, userStatus, code) => {
+      findById.mockResolvedValue({ ...user, userStatus });
+
+      await expect(service.assertUserActive(1)).rejects.toMatchObject({
+        response: { code },
+      });
+    });
+
+    it('회원이 없으면 로그인이 필요하다고 막는다', async () => {
+      findById.mockResolvedValue(null);
+
+      await expect(service.assertUserActive(1)).rejects.toMatchObject({
+        response: { code: 'AUTH_UNAUTHORIZED' },
+      });
+    });
+  });
+
   describe('findLoginId', () => {
     it('인증번호를 확인하고 결과를 사용 처리한 뒤 가린 아이디를 내려준다', async () => {
       const result = await service.findLoginId('user@motu.test', '123456');

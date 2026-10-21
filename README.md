@@ -128,6 +128,7 @@ this.logger.log('회원가입 완료');
 - 로그인하면 Access 토큰(JWT, 기본 15분)과 Refresh 토큰(기본 14일)을 받습니다. API는 `Authorization: Bearer <accessToken>` 헤더로 호출합니다.
 - Access 토큰이 만료되면 `AUTH_TOKEN_EXPIRED`(401)가 내려옵니다. `POST /api/auth/refresh`로 재발급하고, Refresh 토큰도 응답의 새 값으로 바꿔 저장합니다.
 - **모든 API는 기본으로 로그인이 필요합니다.** 로그인 없이 호출해야 하는 API에만 `@Public()`을 붙입니다.
+- 토큰이 유효해도 잠긴 회원은 `AUTH_ACCOUNT_LOCKED`(403), 정지된 회원은 `AUTH_ACCOUNT_BLOCKED`(403)로 막힙니다. 회원 상태는 요청마다 DB에서 확인합니다.
 
 ```ts
 @Public()                         // 로그인 없이 호출 가능

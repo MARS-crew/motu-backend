@@ -251,6 +251,18 @@ export class AuthService {
     return saved;
   }
 
+  /**
+   * 로그인한 회원이 계속 이용할 수 있는 상태인지 확인한다. 인증 Guard가 요청마다 호출한다.
+   * Access 토큰을 받은 뒤 잠기거나 정지된 회원을 막기 위해서다.
+   */
+  async assertUserActive(userId: number): Promise<void> {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new BusinessException(AuthErrors.UNAUTHORIZED);
+    }
+    this.assertLoginAllowed(user);
+  }
+
   private assertLoginAllowed(user: User): void {
     if (user.userStatus === UserStatus.LOCKED) {
       throw new BusinessException(AuthErrors.ACCOUNT_LOCKED);
