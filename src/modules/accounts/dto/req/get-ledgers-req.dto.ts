@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import { LEDGER_PAGE_SIZE } from '../../accounts.constants.js';
+import { INVALID_REQUEST_MESSAGE } from '../../../../common/constants/validation.constants.js';
 
 export class GetLedgersReqDto {
   @ApiPropertyOptional({
@@ -11,8 +12,8 @@ export class GetLedgersReqDto {
   })
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
-  @Min(1)
+  @IsInt({ message: INVALID_REQUEST_MESSAGE })
+  @Min(1, { message: INVALID_REQUEST_MESSAGE })
   page: number = 1;
 
   @ApiPropertyOptional({
@@ -22,8 +23,8 @@ export class GetLedgersReqDto {
   })
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
+  @IsInt({ message: INVALID_REQUEST_MESSAGE })
+  @Min(1, { message: INVALID_REQUEST_MESSAGE })
+  @Max(100, { message: INVALID_REQUEST_MESSAGE })
   size: number = LEDGER_PAGE_SIZE;
 }
