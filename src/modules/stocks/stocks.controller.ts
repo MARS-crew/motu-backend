@@ -10,7 +10,6 @@ import {
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { OptionalAuth } from '../../common/auth/optional-auth.decorator.js';
-import { Public } from '../../common/auth/public.decorator.js';
 import { GetNewListingsReqDto } from './dto/req/get-new-listings-req.dto.js';
 import { GetStocksReqDto } from './dto/req/get-stocks-req.dto.js';
 import { SearchStocksReqDto } from './dto/req/search-stocks-req.dto.js';
@@ -26,16 +25,20 @@ import { StocksService } from './stocks.service.js';
 export class StocksController {
   constructor(private readonly stocksService: StocksService) {}
 
-  @Public()
+  @OptionalAuth()
   @Get()
+  @ApiBearerAuth()
   @ApiOperation({
     summary: '상품 목록 (마켓)',
     description:
-      '카테고리별로 조회하고 정렬한다. 시세 값은 체결 작업 전까지 현재가=기준가, 나머지 0이며 모든 정렬이 최근 상장순으로 동작한다.',
+      '카테고리별로 조회하고 정렬한다. 토큰 없이도 호출할 수 있고, 로그인했으면 관심 여부를 채운다. 시세 값은 체결 작업 전까지 현재가=기준가, 나머지 0이며 모든 정렬이 최근 상장순으로 동작한다.',
   })
   @ApiOkResponse({ type: GetStocksResDto })
-  getStocks(@Query() query: GetStocksReqDto): Promise<GetStocksResDto> {
-    return this.stocksService.getStocks(query);
+  getStocks(
+    @CurrentUser() user: AuthUser | undefined,
+    @Query() query: GetStocksReqDto,
+  ): Promise<GetStocksResDto> {
+    return this.stocksService.getStocks(user?.userId, query);
   }
 
   @OptionalAuth()
@@ -54,17 +57,20 @@ export class StocksController {
     return this.stocksService.searchStocks(user?.userId, query);
   }
 
-  @Public()
+  @OptionalAuth()
   @Get('new-listings')
+  @ApiBearerAuth()
   @ApiOperation({
     summary: '신규 상장 목록',
-    description: '최근 상장순. 홈 화면은 size=3으로 호출한다.',
+    description:
+      '최근 상장순. 홈 화면은 size=3으로 호출한다. 토큰 없이도 호출할 수 있고, 로그인했으면 관심 여부를 채운다.',
   })
   @ApiOkResponse({ type: GetNewListingsResDto })
   getNewListings(
+    @CurrentUser() user: AuthUser | undefined,
     @Query() query: GetNewListingsReqDto,
   ): Promise<GetNewListingsResDto> {
-    return this.stocksService.getNewListings(query);
+    return this.stocksService.getNewListings(user?.userId, query);
   }
 
   @Get('recently-viewed')
