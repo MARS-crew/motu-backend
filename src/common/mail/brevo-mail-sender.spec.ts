@@ -40,13 +40,22 @@ describe('BrevoMailSender', () => {
     });
   });
 
-  it('Brevo가 실패 응답을 주면 에러를 던진다', async () => {
+  it('Brevo가 실패 응답을 주면 503 MAIL_SEND_FAILED로 알린다', async () => {
     fetchMock.mockResolvedValue(
       new Response('{"code":"unauthorized"}', { status: 401 }),
     );
 
-    await expect(sender.send(mail)).rejects.toThrow(
-      'Brevo 메일 발송 실패: 401',
-    );
+    await expect(sender.send(mail)).rejects.toMatchObject({
+      response: { code: 'MAIL_SEND_FAILED' },
+      status: 503,
+    });
+  });
+
+  it('요청 자체가 실패해도(시간 초과 등) 503 MAIL_SEND_FAILED로 알린다', async () => {
+    fetchMock.mockRejectedValue(new Error('The operation was aborted'));
+
+    await expect(sender.send(mail)).rejects.toMatchObject({
+      response: { code: 'MAIL_SEND_FAILED' },
+    });
   });
 });

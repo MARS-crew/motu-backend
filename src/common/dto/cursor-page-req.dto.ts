@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { INVALID_REQUEST_MESSAGE } from '../constants/validation.constants.js';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 50;
@@ -14,7 +15,7 @@ export class CursorPageReqDto {
     description: '이전 응답의 nextCursor. 첫 페이지는 비운다.',
   })
   @IsOptional()
-  @IsString()
+  @IsString({ message: INVALID_REQUEST_MESSAGE })
   cursor?: string;
 
   @ApiPropertyOptional({
@@ -24,8 +25,8 @@ export class CursorPageReqDto {
   })
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(MAX_PAGE_SIZE)
+  @IsInt({ message: INVALID_REQUEST_MESSAGE })
+  @Min(1, { message: INVALID_REQUEST_MESSAGE })
+  @Max(MAX_PAGE_SIZE, { message: INVALID_REQUEST_MESSAGE })
   size: number = DEFAULT_PAGE_SIZE;
 }

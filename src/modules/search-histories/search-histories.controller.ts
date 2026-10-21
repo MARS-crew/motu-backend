@@ -5,7 +5,6 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -17,6 +16,7 @@ import {
 } from '@nestjs/swagger';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
+import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { GetSearchHistoriesResDto } from './dto/res/get-search-histories-res.dto.js';
 import { SearchHistoriesService } from './search-histories.service.js';
 
@@ -56,7 +56,7 @@ export class SearchHistoriesController {
   @ApiNotFoundResponse({ description: 'SEARCH_HISTORY_NOT_FOUND' })
   deleteSearchHistory(
     @CurrentUser() user: AuthUser,
-    @Param('searchHistoryId', ParseIntPipe) searchHistoryId: number,
+    @Param('searchHistoryId', ParseIdPipe) searchHistoryId: number,
   ): Promise<void> {
     return this.searchHistoriesService.deleteSearchHistory(
       user.userId,

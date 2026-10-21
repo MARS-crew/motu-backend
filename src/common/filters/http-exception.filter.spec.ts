@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { BusinessException } from '../exceptions/business.exception.js';
 import { HttpExceptionFilter } from './http-exception.filter.js';
@@ -116,6 +117,38 @@ describe('HttpExceptionFilter', () => {
       success: false,
       error: {
         code: 'INTERNAL_SERVER_ERROR',
+        message: '서버 내부 오류가 발생했습니다.',
+      },
+    });
+  });
+
+  it('직접 정의한 5xx 에러는 코드와 안내 문구를 그대로 내려준다', () => {
+    filter.catch(
+      new BusinessException({
+        code: 'MAIL_SEND_FAILED',
+        message: '메일 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+      }),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(503);
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        code: 'MAIL_SEND_FAILED',
+        message: '메일 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+      },
+    });
+  });
+
+  it('Nest 기본 5xx 예외는 내용을 숨긴다', () => {
+    filter.catch(new ServiceUnavailableException('db down'), host);
+
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        code: 'SERVICE_UNAVAILABLE',
         message: '서버 내부 오류가 발생했습니다.',
       },
     });

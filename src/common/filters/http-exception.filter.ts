@@ -7,9 +7,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { INVALID_REQUEST_MESSAGE } from '../constants/validation.constants.js';
+import { BusinessException } from '../exceptions/business.exception.js';
 import { ApiErrorBody, ApiErrorResponse } from '../types/api-response.type.js';
 
-const VALIDATION_ERROR_MESSAGE = '요청 값이 올바르지 않습니다.';
 const INTERNAL_ERROR_MESSAGE = '서버 내부 오류가 발생했습니다.';
 
 /**
@@ -51,7 +52,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private toErrorBody(exception: unknown, status: number): ApiErrorBody {
     const defaultCode = HttpStatus[status] ?? 'UNKNOWN_ERROR';
 
-    if (!(exception instanceof HttpException) || status >= 500) {
+    // 직접 정의한 5xx 에러(메일 발송 실패 등)는 코드와 안내 문구를 그대로 내려준다.
+    if (
+      !(exception instanceof HttpException) ||
+      (status >= 500 && !(exception instanceof BusinessException))
+    ) {
       return { code: defaultCode, message: INTERNAL_ERROR_MESSAGE };
     }
 
@@ -71,7 +76,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (Array.isArray(message)) {
       return {
         code: errorCode,
-        message: VALIDATION_ERROR_MESSAGE,
+        message: INVALID_REQUEST_MESSAGE,
         details: message,
       };
     }

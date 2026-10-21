@@ -7,6 +7,6 @@ export class SendLoginIdVerificationReqDto {
   @ApiProperty({ description: '가입 이메일', example: 'user@motu.test' })
   @Transform(normalizeEmail)
   @IsEmail({}, { message: '이메일 형식이 올바르지 않습니다.' })
-  @MaxLength(255)
+  @MaxLength(255, { message: '이메일 형식이 올바르지 않습니다.' })
   email: string;
 }

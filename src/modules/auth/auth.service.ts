@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { verify } from 'argon2';
@@ -8,6 +8,7 @@ import { BusinessException } from '../../common/exceptions/business.exception.js
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { EnvironmentVariables } from '../../config/env.validation.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
+import { MailErrors } from '../../common/mail/mail.errors.js';
 import {
   User,
   UserStatus,
@@ -33,6 +34,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -206,11 +209,23 @@ export class AuthService {
 
     const url = new URL(this.config.get('PASSWORD_RESET_URL', { infer: true }));
     url.searchParams.set('token', token);
-    await this.mailSender.send({
-      to: email,
-      subject: '[MOTU] 비밀번호 재설정 안내',
-      text: `아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 30분 동안 한 번만 사용할 수 있습니다.\n${url.toString()}`,
-    });
+    try {
+      await this.mailSender.send({
+        to: email,
+        subject: '[MOTU] 비밀번호 재설정 안내',
+        text: `아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 30분 동안 한 번만 사용할 수 있습니다.\n${url.toString()}`,
+      });
+    } catch (error) {
+      // 발송 실패를 알리면 정보가 맞는 계정이라는 사실이 드러나므로 다른 경우와 같은 응답을 준다.
+      if (
+        error instanceof BusinessException &&
+        error.error === MailErrors.SEND_FAILED
+      ) {
+        this.logger.warn(`비밀번호 재설정 메일 발송 실패: userId=${user.id}`);
+        return;
+      }
+      throw error;
+    }
   }
 
   /** 재설정 링크를 열었을 때 사용할 수 있는 링크인지 확인한다. */

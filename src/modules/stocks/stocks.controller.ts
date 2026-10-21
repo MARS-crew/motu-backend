@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -10,6 +10,7 @@ import {
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { OptionalAuth } from '../../common/auth/optional-auth.decorator.js';
+import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { GetNewListingsReqDto } from './dto/req/get-new-listings-req.dto.js';
 import { GetStocksReqDto } from './dto/req/get-stocks-req.dto.js';
 import { SearchStocksReqDto } from './dto/req/search-stocks-req.dto.js';
@@ -100,7 +101,7 @@ export class StocksController {
   @ApiNotFoundResponse({ description: 'STOCK_NOT_FOUND' })
   getStock(
     @CurrentUser() user: AuthUser | undefined,
-    @Param('stockId', ParseIntPipe) stockId: number,
+    @Param('stockId', ParseIdPipe) stockId: number,
   ): Promise<GetStockResDto> {
     return this.stocksService.getStock(user?.userId, stockId);
   }

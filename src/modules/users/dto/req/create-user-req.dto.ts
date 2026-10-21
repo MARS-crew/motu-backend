@@ -62,7 +62,7 @@ export class CreateUserReqDto {
   })
   @Transform(normalizeEmail)
   @IsEmail({}, { message: '이메일 형식이 올바르지 않습니다.' })
-  @MaxLength(255)
+  @MaxLength(255, { message: '이메일 형식이 올바르지 않습니다.' })
   email: string;
 
   @ApiPropertyOptional({
@@ -98,6 +98,6 @@ export class CreateUserReqDto {
   privacyAgreed: boolean;
 
   @ApiProperty({ description: '마케팅 정보 수신 동의 (선택)', example: false })
-  @IsBoolean()
+  @IsBoolean({ message: '마케팅 정보 수신 동의 여부를 선택해 주세요.' })
   marketingAgreed: boolean;
 }
