@@ -8,7 +8,19 @@ const DAY = 24 * 60 * 60 * 1000;
 
 describe('StocksService', () => {
   const findMany = vi.fn();
-  const prisma = { stock: { findMany } } as unknown as PrismaService;
+  const findFirst = vi.fn();
+  const viewHistory = {
+    upsert: vi.fn(),
+    findMany: vi.fn(),
+    deleteMany: vi.fn(),
+  };
+  const prisma = {
+    stock: { findMany, findFirst },
+    viewHistory,
+    $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ viewHistory }),
+    ),
+  } as unknown as PrismaService;
   const record = vi.fn();
   const service = new StocksService(prisma, {
     record,
@@ -30,6 +42,7 @@ describe('StocksService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    viewHistory.findMany.mockResolvedValue([]);
   });
 
   describe('getStocks', () => {
@@ -184,5 +197,101 @@ describe('StocksService', () => {
         { stockId: 1, isNew: false },
       ]);
     });
+  });
+
+  describe('getStock', () => {
+    const detailOf = (overrides: Record<string, unknown> = {}) =>
+      stockOf(5, {
+        description: '상세 설명입니다.',
+        mainImageUrl: 'https://example.com/main.png',
+        officialUrl: null,
+        operatorName: '마스외전',
+        mau: 100_000n,
+        dau: null,
+        revenue: 1_200_000_000n,
+        transactionVolume: null,
+        metricsStartDate: new Date('2025-10-01T00:00:00.000Z'),
+        metricsEndDate: null,
+        ...overrides,
+      });
+
+    it('상세 정보와 지표를 내려주고, 없는 지표는 null로 내려준다', async () => {
+      findFirst.mockResolvedValue(detailOf());
+
+      const result = await service.getStock(undefined, 5);
+
+      expect(findFirst).toHaveBeenCalledWith({
+        where: { id: 5, isDeleted: false },
+        include: { sector: true },
+      });
+      expect(result).toMatchObject({
+        stockId: 5,
+        summary: '한 줄 소개입니다.',
+        description: '상세 설명입니다.',
+        operatorName: '마스외전',
+        officialUrl: null,
+        currentPrice: 4_350,
+        changeAmount: 0,
+        changeRate: 0,
+        metrics: {
+          mau: 100_000,
+          dau: null,
+          revenue: 1_200_000_000,
+          transactionVolume: null,
+          startDate: '2025-10-01',
+          endDate: null,
+        },
+      });
+    });
+
+    it('비회원이면 최근 본 종목에 남기지 않는다', async () => {
+      findFirst.mockResolvedValue(detailOf());
+
+      await service.getStock(undefined, 5);
+
+      expect(viewHistory.upsert).not.toHaveBeenCalled();
+    });
+
+    it('회원이면 최근 본 종목에 남기고, 3개를 넘는 기록은 지운다', async () => {
+      findFirst.mockResolvedValue(detailOf());
+      viewHistory.findMany.mockResolvedValue([{ stockId: 1 }]);
+
+      await service.getStock(7, 5);
+
+      expect(viewHistory.upsert).toHaveBeenCalledWith({
+        where: { userId_stockId: { userId: 7, stockId: 5 } },
+        create: expect.objectContaining({ userId: 7, stockId: 5 }),
+        update: { modifiedDate: expect.any(Date) },
+      });
+      expect(viewHistory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 7 }, skip: 3 }),
+      );
+      expect(viewHistory.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 7, stockId: { in: [1] } },
+      });
+    });
+
+    it('없거나 삭제된 상품이면 404', async () => {
+      findFirst.mockResolvedValue(null);
+
+      await expect(service.getStock(7, 99)).rejects.toMatchObject({
+        response: { code: 'STOCK_NOT_FOUND' },
+      });
+      expect(viewHistory.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  it('최근 본 종목을 최근 본 순서로 3개까지, 삭제된 상품은 빼고 내려준다', async () => {
+    viewHistory.findMany.mockResolvedValue([{ stock: stockOf(2) }]);
+
+    const result = await service.getRecentlyViewed(7);
+
+    expect(viewHistory.findMany).toHaveBeenCalledWith({
+      where: { userId: 7, stock: { isDeleted: false } },
+      include: { stock: { include: { sector: true } } },
+      orderBy: { modifiedDate: 'desc' },
+      take: 3,
+    });
+    expect(result.items).toMatchObject([{ stockId: 2, currentPrice: 4_350 }]);
   });
 });
