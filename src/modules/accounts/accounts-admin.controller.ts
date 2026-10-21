@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,7 +8,6 @@ import {
   HttpStatus,
   Param,
   ParseEnumPipe,
-  ParseIntPipe,
   Patch,
   Query,
 } from '@nestjs/common';
@@ -22,6 +22,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Roles } from '../../common/auth/roles.decorator.js';
+import { INVALID_REQUEST_MESSAGE } from '../../common/constants/validation.constants.js';
+import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { Role } from '../../generated/prisma/client.js';
 import { PointCooldownType } from './accounts.constants.js';
 import { AccountsService } from './accounts.service.js';
@@ -43,7 +45,7 @@ export class AccountsAdminController {
   @ApiOperation({ summary: '회원 계좌 조회' })
   @ApiOkResponse({ type: GetAccountResDto })
   getAccount(
-    @Param('userId', ParseIntPipe) userId: number,
+    @Param('userId', ParseIdPipe) userId: number,
   ): Promise<GetAccountResDto> {
     return this.accountsService.getAccount(userId);
   }
@@ -52,7 +54,7 @@ export class AccountsAdminController {
   @ApiOperation({ summary: '회원 포인트 변경 이력 조회' })
   @ApiOkResponse({ type: GetLedgersResDto })
   getLedgers(
-    @Param('userId', ParseIntPipe) userId: number,
+    @Param('userId', ParseIdPipe) userId: number,
     @Query() query: GetLedgersReqDto,
   ): Promise<GetLedgersResDto> {
     return this.accountsService.getLedgers(userId, query.page, query.size);
@@ -67,7 +69,7 @@ export class AccountsAdminController {
   @ApiOkResponse({ type: AdjustCashResDto })
   @ApiBadRequestResponse({ description: 'ACCOUNT_INSUFFICIENT_CASH' })
   adjustCash(
-    @Param('userId', ParseIntPipe) userId: number,
+    @Param('userId', ParseIdPipe) userId: number,
     @Body() dto: AdjustCashReqDto,
   ): Promise<AdjustCashResDto> {
     return this.accountsService.adjustCash(userId, dto.amount);
@@ -82,8 +84,14 @@ export class AccountsAdminController {
   @ApiParam({ name: 'type', enum: PointCooldownType })
   @ApiNoContentResponse()
   clearPointCooldown(
-    @Param('userId', ParseIntPipe) userId: number,
-    @Param('type', new ParseEnumPipe(PointCooldownType))
+    @Param('userId', ParseIdPipe) userId: number,
+    @Param(
+      'type',
+      new ParseEnumPipe(PointCooldownType, {
+        exceptionFactory: () =>
+          new BadRequestException(INVALID_REQUEST_MESSAGE),
+      }),
+    )
     type: PointCooldownType,
   ): Promise<void> {
     return this.accountsService.clearPointCooldown(userId, type);
