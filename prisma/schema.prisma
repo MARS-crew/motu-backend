@@ -56,6 +56,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   searchHistories     SearchHistory[]
   viewHistories       ViewHistory[]
+  wishlists           Wishlist[]
 
   @@map("users")
 }
@@ -296,6 +297,7 @@ model Stock {
 
   sector        Sector        @relation(fields: [sectorCode], references: [code])
   viewHistories ViewHistory[]
+  wishlists     Wishlist[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -331,4 +333,19 @@ model ViewHistory {
   @@id([userId, stockId])
   @@index([userId, modifiedDate])
   @@map("view_histories")
+}
+
+/// 관심상품. createDate가 관심상품으로 등록한 시각이다.
+model Wishlist {
+  userId       Int      @map("user_id")
+  stockId      Int      @map("stock_id")
+  createDate   DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  @@id([userId, stockId])
+  @@index([userId, createDate])
+  @@map("wishlists")
 }
