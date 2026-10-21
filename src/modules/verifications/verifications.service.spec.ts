@@ -178,6 +178,7 @@ describe('VerificationsService', () => {
         response: {
           code: 'VERIFICATION_CODE_MISMATCH',
           message: expect.stringContaining('남은 횟수 3회'),
+          details: { remainingAttempts: 3 },
         },
       });
       expect(verification.updateMany).toHaveBeenCalledWith({
