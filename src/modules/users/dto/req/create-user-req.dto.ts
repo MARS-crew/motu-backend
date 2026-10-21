@@ -8,6 +8,7 @@ import {
   IsOptional,
   Matches,
   MaxLength,
+  ValidateBy,
 } from 'class-validator';
 import {
   LOGIN_ID_MESSAGE,
@@ -17,7 +18,21 @@ import {
   PASSWORD_MESSAGE,
   PASSWORD_PATTERN,
   normalizeEmail,
+  todayInKorea,
 } from '../../users.constants.js';
+
+/** 오늘(한국 시간) 이후 날짜를 막는다. 값은 YYYY-MM-DD 문자열이라 문자열로 비교한다. */
+const IsNotFutureDate = (message: string) =>
+  ValidateBy(
+    {
+      name: 'isNotFutureDate',
+      validator: {
+        validate: (value: unknown) =>
+          typeof value === 'string' && value <= todayInKorea(),
+      },
+    },
+    { message },
+  );
 
 export class CreateUserReqDto {
   @ApiProperty({
@@ -71,6 +86,7 @@ export class CreateUserReqDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
     message: '생년월일은 YYYY-MM-DD 형식으로 입력해 주세요.',
   })
+  @IsNotFutureDate('생년월일은 오늘 이후 날짜로 입력할 수 없습니다.')
   birthDate: string;
 
   @ApiProperty({ description: '이용약관 동의 (필수)', example: true })

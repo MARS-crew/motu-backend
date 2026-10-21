@@ -218,7 +218,10 @@ export class AuthService {
     await this.findUsableResetToken(token);
   }
 
-  /** 비밀번호를 바꾸고 모든 기기에서 로그아웃시킨다. */
+  /**
+   * 비밀번호를 바꾸고 모든 기기에서 로그아웃시킨다.
+   * 현재 비밀번호와 같으면 거부하며, 이때 링크는 사용 처리하지 않아 다시 시도할 수 있다.
+   */
   async resetPassword(token: string, newPassword: string): Promise<void> {
     const saved = await this.findUsableResetToken(token);
 
@@ -227,6 +230,9 @@ export class AuthService {
       throw new BusinessException(AuthErrors.INVALID_PASSWORD_RESET_TOKEN);
     }
     this.assertLoginAllowed(user);
+    if (await verify(user.password, newPassword)) {
+      throw new BusinessException(AuthErrors.SAME_AS_CURRENT_PASSWORD);
+    }
 
     // 같은 링크로 동시에 요청해도 한 번만 처리한다.
     const { count } = await this.prisma.passwordResetToken.updateMany({

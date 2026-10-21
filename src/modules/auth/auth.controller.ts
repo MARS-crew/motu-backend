@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
@@ -122,7 +123,11 @@ export class AuthController {
   @ApiOperation({
     summary: '새 비밀번호 설정',
     description:
-      '비밀번호를 바꾸고 모든 기기에서 로그아웃시킨다. 링크는 한 번만 사용할 수 있다.',
+      '비밀번호를 바꾸고 모든 기기에서 로그아웃시킨다. 링크는 한 번만 사용할 수 있다. 현재 비밀번호와 같으면 400 AUTH_SAME_AS_CURRENT_PASSWORD이며 같은 링크로 다시 시도할 수 있다.',
+  })
+  @ApiBadRequestResponse({
+    description:
+      'AUTH_INVALID_PASSWORD_RESET_TOKEN / AUTH_SAME_AS_CURRENT_PASSWORD',
   })
   async resetPassword(@Body() dto: ResetPasswordReqDto): Promise<null> {
     await this.authService.resetPassword(dto.token, dto.newPassword);
