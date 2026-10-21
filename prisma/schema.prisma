@@ -55,6 +55,7 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   searchHistories     SearchHistory[]
+  viewHistories       ViewHistory[]
 
   @@map("users")
 }
@@ -257,30 +258,44 @@ enum TradeStatus {
 
 /// 상장된 상품(종목). 상장 신청이 승인되면 만들어진다. 상세 화면에 보여줄 신청 정보도 함께 둔다.
 model Stock {
-  id           Int         @id @default(autoincrement()) @map("stock_id")
-  stockCode    String      @unique @map("stock_code") @db.VarChar(20)
-  sectorCode   Int         @map("sector_code")
-  name         String      @map("stock_name") @db.VarChar(30)
+  id                Int         @id @default(autoincrement()) @map("stock_id")
+  stockCode         String      @unique @map("stock_code") @db.VarChar(20)
+  sectorCode        Int         @map("sector_code")
+  name              String      @map("stock_name") @db.VarChar(30)
   /// 한 줄 소개
-  summary      String      @db.VarChar(60)
+  summary           String      @db.VarChar(60)
   /// 상세 설명
-  description  String?     @db.VarChar(500)
-  logoImageUrl String?     @map("logo_image_url") @db.VarChar(500)
-  mainImageUrl String      @map("main_image_url") @db.VarChar(500)
-  officialUrl  String?     @map("official_url") @db.VarChar(500)
-  operatorName String      @map("operator_name") @db.VarChar(50)
+  description       String?     @db.VarChar(500)
+  logoImageUrl      String?     @map("logo_image_url") @db.VarChar(500)
+  mainImageUrl      String      @map("main_image_url") @db.VarChar(500)
+  officialUrl       String?     @map("official_url") @db.VarChar(500)
+  operatorName      String      @map("operator_name") @db.VarChar(50)
   /// 상장 주식 수 (상장 신청의 총 발행 수량)
-  listedShares BigInt      @map("listed_shares")
+  listedShares      BigInt      @map("listed_shares")
   /// 기준가 (최종 상장가). 체결이 없으면 현재가로 쓴다.
-  basePrice    BigInt      @map("base_price")
-  listingDate  DateTime    @map("listing_date") @db.Timestamptz(3)
-  tradeStatus  TradeStatus @map("trade_status")
-  isDeleted    Boolean     @default(false) @map("is_deleted")
-  deletedDate  DateTime?   @map("deleted_date") @db.Timestamptz(3)
-  createDate   DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
-  modifiedDate DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
+  basePrice         BigInt      @map("base_price")
+  listingDate       DateTime    @map("listing_date") @db.Timestamptz(3)
+  tradeStatus       TradeStatus @map("trade_status")
+  /// 주요 서비스 지표 (상장 신청에서 입력한 값, 없으면 null)
+  /// 월간 활성 사용자 수
+  mau               BigInt?
+  /// 일간 활성 사용자 수
+  dau               BigInt?
+  /// 연간 매출 (원, 최근 완료 회계연도)
+  revenue           BigInt?
+  /// 거래액 (원, 최근 12개월 결제 완료액 - 취소·환불)
+  transactionVolume BigInt?     @map("transaction_volume")
+  /// 지표 집계 시작일
+  metricsStartDate  DateTime?   @map("metrics_start_date") @db.Date
+  /// 지표 집계 종료일
+  metricsEndDate    DateTime?   @map("metrics_end_date") @db.Date
+  isDeleted         Boolean     @default(false) @map("is_deleted")
+  deletedDate       DateTime?   @map("deleted_date") @db.Timestamptz(3)
+  createDate        DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate      DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  sector Sector @relation(fields: [sectorCode], references: [code])
+  sector        Sector        @relation(fields: [sectorCode], references: [code])
+  viewHistories ViewHistory[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -300,4 +315,20 @@ model SearchHistory {
   @@unique([userId, keyword])
   @@index([userId, modifiedDate])
   @@map("search_histories")
+}
+
+/// 최근 본 종목. 회원마다 최근 3개만 남긴다. 같은 상품을 다시 보면 modifiedDate만 갱신한다.
+model ViewHistory {
+  userId       Int      @map("user_id")
+  stockId      Int      @map("stock_id")
+  createDate   DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+  /// 마지막으로 본 시각
+  modifiedDate DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  @@id([userId, stockId])
+  @@index([userId, modifiedDate])
+  @@map("view_histories")
 }

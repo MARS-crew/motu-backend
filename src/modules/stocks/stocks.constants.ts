@@ -16,3 +16,6 @@ export enum StockSort {
   /** 최근 상장순 */
   LISTING_DATE = 'LISTING_DATE',
 }
+
+/** 회원마다 남기는 최근 본 종목 수 */
+export const MAX_VIEW_HISTORIES = 3;
