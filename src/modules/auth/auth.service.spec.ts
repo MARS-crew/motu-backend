@@ -374,6 +374,18 @@ describe('AuthService', () => {
       expect(changePassword).not.toHaveBeenCalled();
     });
 
+    it('현재 비밀번호와 같으면 거부하고 링크는 다시 쓸 수 있게 둔다', async () => {
+      passwordResetToken.findUnique.mockResolvedValue(savedToken());
+
+      await expect(
+        service.resetPassword('reset-token', 'motuuser1!'),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_SAME_AS_CURRENT_PASSWORD' },
+      });
+      expect(passwordResetToken.updateMany).not.toHaveBeenCalled();
+      expect(changePassword).not.toHaveBeenCalled();
+    });
+
     it('같은 링크로 동시에 요청하면 한 번만 처리한다', async () => {
       passwordResetToken.findUnique.mockResolvedValue(savedToken());
       passwordResetToken.updateMany.mockResolvedValue({ count: 0 });
