@@ -54,6 +54,7 @@ model User {
   account             Account?
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  searchHistories     SearchHistory[]
 
   @@map("users")
 }
@@ -225,4 +226,78 @@ model PointResetHistory {
 
   @@index([accountId, createDate])
   @@map("point_reset_histories")
+}
+
+// ─── 상품 ───────────────────────────────────────────
+
+/// 상품 카테고리. 상장 신청에서 고르는 9개 값으로 고정한다.
+model Sector {
+  code         Int      @id @map("sector_code")
+  name         String   @unique @map("sector_name") @db.VarChar(30)
+  createDate   DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  stocks Stock[]
+
+  @@map("sectors")
+}
+
+enum TradeStatus {
+  /// 거래 대기 (상장 승인 후 거래 시작 전)
+  PENDING
+  /// 거래 가능
+  ACTIVE
+  /// 거래 중지
+  PAUSED
+  /// 거래 종료
+  CLOSED
+
+  @@map("trade_status")
+}
+
+/// 상장된 상품(종목). 상장 신청이 승인되면 만들어진다. 상세 화면에 보여줄 신청 정보도 함께 둔다.
+model Stock {
+  id           Int         @id @default(autoincrement()) @map("stock_id")
+  stockCode    String      @unique @map("stock_code") @db.VarChar(20)
+  sectorCode   Int         @map("sector_code")
+  name         String      @map("stock_name") @db.VarChar(30)
+  /// 한 줄 소개
+  summary      String      @db.VarChar(60)
+  /// 상세 설명
+  description  String?     @db.VarChar(500)
+  logoImageUrl String?     @map("logo_image_url") @db.VarChar(500)
+  mainImageUrl String      @map("main_image_url") @db.VarChar(500)
+  officialUrl  String?     @map("official_url") @db.VarChar(500)
+  operatorName String      @map("operator_name") @db.VarChar(50)
+  /// 상장 주식 수 (상장 신청의 총 발행 수량)
+  listedShares BigInt      @map("listed_shares")
+  /// 기준가 (최종 상장가). 체결이 없으면 현재가로 쓴다.
+  basePrice    BigInt      @map("base_price")
+  listingDate  DateTime    @map("listing_date") @db.Timestamptz(3)
+  tradeStatus  TradeStatus @map("trade_status")
+  isDeleted    Boolean     @default(false) @map("is_deleted")
+  deletedDate  DateTime?   @map("deleted_date") @db.Timestamptz(3)
+  createDate   DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  sector Sector @relation(fields: [sectorCode], references: [code])
+
+  @@index([sectorCode])
+  @@index([listingDate])
+  @@map("stocks")
+}
+
+/// 최근 검색어. 회원마다 최근 5개만 남긴다. 같은 검색어를 다시 검색하면 modifiedDate만 갱신한다.
+model SearchHistory {
+  id           Int      @id @default(autoincrement()) @map("search_id")
+  userId       Int      @map("user_id")
+  keyword      String   @db.VarChar(50)
+  createDate   DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, keyword])
+  @@index([userId, modifiedDate])
+  @@map("search_histories")
 }
