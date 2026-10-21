@@ -7,6 +7,9 @@ import { validateEnv } from './config/env.validation.js';
 import { createLoggerOptions } from './config/logger.config.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { SearchHistoriesModule } from './modules/search-histories/search-histories.module.js';
+import { SectorsModule } from './modules/sectors/sectors.module.js';
+import { StocksModule } from './modules/stocks/stocks.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 
 @Module({
@@ -25,6 +28,9 @@ import { UsersModule } from './modules/users/users.module.js';
     HealthModule,
     UsersModule,
     AuthModule,
+    SectorsModule,
+    StocksModule,
+    SearchHistoriesModule,
   ],
 })
 export class AppModule {}

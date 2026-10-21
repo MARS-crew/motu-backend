@@ -149,6 +149,10 @@ this.logger.log('회원가입 완료');
 @Get('notices')
 findNotices() { ... }
 
+@OptionalAuth()                   // 로그인 없이도 호출 가능, 토큰을 보내면 회원으로 처리
+@Get('search')
+search(@CurrentUser() user: AuthUser | undefined) { ... }
+
 @Roles(Role.ADMIN)                // 관리자만 호출 가능
 @Patch(':id/unlock')
 unlock() { ... }
@@ -157,6 +161,7 @@ unlock() { ... }
 getMyInfo(@CurrentUser() user: AuthUser) { ... }
 ```
 
+- `@OptionalAuth()`는 토큰이 없을 때만 비회원(`user`가 undefined)으로 통과합니다. 토큰이 만료되었거나 잘못되었으면 401로 막아서, 프론트가 재발급 후 다시 호출하게 합니다.
 - 데코레이터가 붙은 메서드의 매개변수 타입으로 `AuthUser`를 쓸 때는 `import type { AuthUser } from ...`로 가져와야 빌드됩니다.
 
 ### 공통 응답 형식
