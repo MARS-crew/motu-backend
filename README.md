@@ -27,6 +27,8 @@ npm run start:dev       # 개발 서버 (watch 모드)
 | `http://localhost:3000/api/health` | 헬스 체크 |
 | `http://localhost:3000/api/docs` | Swagger API 문서 |
 
+화면별 API 사용법과 에러 처리는 [API 명세서](docs/api/README.md)에 도메인별로 정리되어 있습니다. API를 바꾸는 PR에서는 해당 도메인 문서도 같이 고쳐 주세요.
+
 ### 테스트 계정
 
 `npm run db:seed`로 로컬 DB에 아래 계정이 만들어집니다. 초기 포인트 3,000,000P가 지급된 상태입니다.
