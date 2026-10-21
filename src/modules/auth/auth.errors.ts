@@ -46,6 +46,11 @@ export const AuthErrors = {
       '재설정 링크가 만료되었거나 이미 사용되었습니다. 비밀번호 재설정을 다시 요청해 주세요.',
     status: HttpStatus.BAD_REQUEST,
   },
+  SAME_AS_CURRENT_PASSWORD: {
+    code: 'AUTH_SAME_AS_CURRENT_PASSWORD',
+    message: '현재 비밀번호와 다른 비밀번호를 입력해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
   FORBIDDEN: {
     code: 'AUTH_FORBIDDEN',
     message: '접근 권한이 없습니다.',
