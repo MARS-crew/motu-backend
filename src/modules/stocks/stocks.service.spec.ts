@@ -14,9 +14,15 @@ describe('StocksService', () => {
     findMany: vi.fn(),
     deleteMany: vi.fn(),
   };
+  const wishlist = {
+    findMany: vi.fn(),
+    upsert: vi.fn(),
+    deleteMany: vi.fn(),
+  };
   const prisma = {
     stock: { findMany, findFirst },
     viewHistory,
+    wishlist,
     $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) =>
       fn({ viewHistory }),
     ),
@@ -43,13 +49,14 @@ describe('StocksService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     viewHistory.findMany.mockResolvedValue([]);
+    wishlist.findMany.mockResolvedValue([]);
   });
 
   describe('getStocks', () => {
     it('삭제되지 않은 상품을 카테고리로 걸러 최근 상장순으로 조회하고 현재가는 기준가로 내려준다', async () => {
       findMany.mockResolvedValue([stockOf(1)]);
 
-      const result = await service.getStocks({
+      const result = await service.getStocks(undefined, {
         sectorCode: 1,
         sort: StockSort.TRADE_AMOUNT,
         size: 20,
@@ -81,7 +88,7 @@ describe('StocksService', () => {
     it('다음 페이지가 있으면 커서를 내려주고, 그 커서로 이어서 조회한다', async () => {
       findMany.mockResolvedValueOnce([stockOf(3), stockOf(2), stockOf(1)]);
 
-      const first = await service.getStocks({
+      const first = await service.getStocks(undefined, {
         sort: StockSort.TRADE_AMOUNT,
         size: 2,
       });
@@ -90,7 +97,7 @@ describe('StocksService', () => {
       expect(first.nextCursor).toEqual(expect.any(String));
 
       findMany.mockResolvedValueOnce([stockOf(1)]);
-      await service.getStocks({
+      await service.getStocks(undefined, {
         sort: StockSort.TRADE_AMOUNT,
         cursor: first.nextCursor!,
         size: 2,
@@ -112,13 +119,13 @@ describe('StocksService', () => {
 
     it('정렬을 바꾼 뒤 이전 커서를 쓰면 처음부터 다시 불러오라고 한다', async () => {
       findMany.mockResolvedValueOnce([stockOf(2), stockOf(1)]);
-      const { nextCursor } = await service.getStocks({
+      const { nextCursor } = await service.getStocks(undefined, {
         sort: StockSort.TRADE_AMOUNT,
         size: 1,
       });
 
       await expect(
-        service.getStocks({
+        service.getStocks(undefined, {
           sort: StockSort.VOLUME,
           cursor: nextCursor!,
           size: 1,
@@ -128,7 +135,7 @@ describe('StocksService', () => {
 
     it('잘못된 커서는 거부한다', async () => {
       await expect(
-        service.getStocks({
+        service.getStocks(undefined, {
           sort: StockSort.TRADE_AMOUNT,
           cursor: 'not-a-cursor',
           size: 20,
@@ -190,7 +197,7 @@ describe('StocksService', () => {
         stockOf(1, { listingDate: new Date(Date.now() - 8 * DAY) }),
       ]);
 
-      const result = await service.getNewListings({ size: 3 });
+      const result = await service.getNewListings(undefined, { size: 3 });
 
       expect(result.items).toMatchObject([
         { stockId: 2, isNew: true, summary: '한 줄 소개입니다.' },
@@ -293,5 +300,129 @@ describe('StocksService', () => {
       take: 3,
     });
     expect(result.items).toMatchObject([{ stockId: 2, currentPrice: 4_350 }]);
+  });
+
+  describe('관심 여부', () => {
+    it('회원이면 조회한 상품 중 관심상품만 true로 내려준다', async () => {
+      findMany.mockResolvedValue([stockOf(2), stockOf(1)]);
+      wishlist.findMany.mockResolvedValue([{ stockId: 1 }]);
+
+      const result = await service.getStocks(7, {
+        sort: StockSort.TRADE_AMOUNT,
+        size: 20,
+      });
+
+      expect(wishlist.findMany).toHaveBeenCalledWith({
+        where: { userId: 7, stockId: { in: [2, 1] } },
+        select: { stockId: true },
+      });
+      expect(result.items).toMatchObject([
+        { stockId: 2, isWishlisted: false },
+        { stockId: 1, isWishlisted: true },
+      ]);
+    });
+
+    it('비회원이면 관심상품을 조회하지 않고 모두 false다', async () => {
+      findMany.mockResolvedValue([stockOf(1)]);
+
+      const result = await service.getNewListings(undefined, { size: 3 });
+
+      expect(wishlist.findMany).not.toHaveBeenCalled();
+      expect(result.items[0].isWishlisted).toBe(false);
+    });
+  });
+
+  describe('관심상품 등록·해제', () => {
+    it('등록은 이미 있어도 같은 결과가 되도록 upsert한다', async () => {
+      findFirst.mockResolvedValue({ id: 5 });
+
+      await service.addWishlist(7, 5);
+
+      expect(findFirst).toHaveBeenCalledWith({
+        where: { id: 5, isDeleted: false },
+        select: { id: true },
+      });
+      expect(wishlist.upsert).toHaveBeenCalledWith({
+        where: { userId_stockId: { userId: 7, stockId: 5 } },
+        create: { userId: 7, stockId: 5 },
+        update: {},
+      });
+    });
+
+    it('없거나 삭제된 상품은 등록할 수 없다', async () => {
+      findFirst.mockResolvedValue(null);
+
+      await expect(service.addWishlist(7, 99)).rejects.toMatchObject({
+        response: { code: 'STOCK_NOT_FOUND' },
+      });
+      expect(wishlist.upsert).not.toHaveBeenCalled();
+    });
+
+    it('해제는 등록되어 있지 않아도 에러 없이 처리한다', async () => {
+      wishlist.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.removeWishlist(7, 5)).resolves.toBeUndefined();
+      expect(wishlist.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 7, stockId: 5 },
+      });
+    });
+  });
+
+  describe('getWishlists', () => {
+    const wishlistOf = (stockId: number, createDate: string) => ({
+      userId: 7,
+      stockId,
+      createDate: new Date(createDate),
+      stock: stockOf(stockId),
+    });
+
+    it('최근에 추가한 순서로 삭제되지 않은 관심상품을 내려주고 다음 커서로 이어서 조회한다', async () => {
+      wishlist.findMany.mockResolvedValueOnce([
+        wishlistOf(3, '2026-10-21T03:00:00.000Z'),
+        wishlistOf(1, '2026-10-21T02:00:00.000Z'),
+        wishlistOf(2, '2026-10-21T01:00:00.000Z'),
+      ]);
+
+      const first = await service.getWishlists(7, { size: 2 });
+
+      expect(wishlist.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 7, stock: { isDeleted: false } },
+          orderBy: [{ createDate: 'desc' }, { stockId: 'desc' }],
+          take: 3,
+        }),
+      );
+      expect(first.items).toMatchObject([
+        { stockId: 3, isWishlisted: true },
+        { stockId: 1, isWishlisted: true },
+      ]);
+      expect(first.nextCursor).toEqual(expect.any(String));
+
+      wishlist.findMany.mockResolvedValueOnce([
+        wishlistOf(2, '2026-10-21T01:00:00.000Z'),
+      ]);
+      const second = await service.getWishlists(7, {
+        cursor: first.nextCursor!,
+        size: 2,
+      });
+
+      const { where } = wishlist.findMany.mock.calls[1][0] as {
+        where: Record<string, unknown>;
+      };
+      expect(where.OR).toEqual([
+        { createDate: { lt: new Date('2026-10-21T02:00:00.000Z') } },
+        {
+          createDate: new Date('2026-10-21T02:00:00.000Z'),
+          stockId: { lt: 1 },
+        },
+      ]);
+      expect(second.nextCursor).toBeNull();
+    });
+
+    it('잘못된 커서는 거부한다', async () => {
+      await expect(
+        service.getWishlists(7, { cursor: 'bad', size: 20 }),
+      ).rejects.toMatchObject({ response: { code: 'STOCK_INVALID_CURSOR' } });
+    });
   });
 });
