@@ -39,6 +39,20 @@ npm run start:dev       # 개발 서버 (watch 모드)
 - Swagger에서 `POST /api/auth/login`으로 로그인한 뒤, 응답의 `accessToken`을 오른쪽 위 **Authorize**에 넣으면 로그인이 필요한 API를 호출할 수 있습니다.
 - 저장소에 공개된 비밀번호라 **로컬 전용**입니다. production(`NODE_ENV=production`)에서는 `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`를 지정하지 않으면 seed가 실행되지 않습니다.
 
+#### 관리자로 포인트 테스트하기
+
+`motuadmin`으로 로그인하면 아래 API로 회원 포인트를 바꿀 수 있습니다. `userId`는 `GET /api/users/me`로 확인합니다.
+
+| API | 설명 |
+|------|------|
+| `GET /api/admin/accounts/:userId` | 회원 계좌와 마지막 추가 지급·리셋 시각 조회 |
+| `GET /api/admin/accounts/:userId/ledgers` | 회원 포인트 변경 이력 조회 |
+| `PATCH /api/admin/accounts/:userId/cash` | 포인트 지급/차감 (`{ "amount": -2800000 }`처럼 음수면 차감) |
+| `DELETE /api/admin/accounts/:userId/cooldowns/grant` | 추가 지급 24시간 대기시간 초기화 |
+| `DELETE /api/admin/accounts/:userId/cooldowns/reset` | 포인트 리셋 7일 대기시간 초기화 |
+
+예) 리셋을 테스트하려면 포인트를 300,000P 미만으로 차감한 뒤 `POST /api/accounts/me/point-reset`을 호출합니다.
+
 ### 스크립트
 
 | 명령어 | 설명 |
