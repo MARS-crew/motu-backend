@@ -6,6 +6,7 @@ import { SearchHistoriesService } from '../search-histories/search-histories.ser
 import { GetNewListingsResDto } from './dto/res/get-new-listings-res.dto.js';
 import { GetRecentlyViewedResDto } from './dto/res/get-recently-viewed-res.dto.js';
 import { GetStockResDto } from './dto/res/get-stock-res.dto.js';
+import { GetWishlistsResDto } from './dto/res/get-wishlists-res.dto.js';
 import {
   GetStocksResDto,
   StockItemResDto,
@@ -26,6 +27,12 @@ interface StockPageQuery {
   size: number;
 }
 
+/** 관심 상품 목록 커서에 담는 값 */
+interface WishlistCursor {
+  createDate: string;
+  stockId: number;
+}
+
 /** 커서에 담는 값. 정렬이 바뀌면 이전 커서는 쓸 수 없다. */
 interface StockCursor {
   sort: StockSort;
@@ -40,19 +47,26 @@ export class StocksService {
     private readonly searchHistoriesService: SearchHistoriesService,
   ) {}
 
-  async getStocks(query: {
-    sectorCode?: number;
-    sort: StockSort;
-    cursor?: string;
-    size: number;
-  }): Promise<GetStocksResDto> {
+  async getStocks(
+    userId: number | undefined,
+    query: {
+      sectorCode?: number;
+      sort: StockSort;
+      cursor?: string;
+      size: number;
+    },
+  ): Promise<GetStocksResDto> {
     const { items, nextCursor } = await this.findPage({
       where: query.sectorCode ? { sectorCode: query.sectorCode } : {},
       sort: query.sort,
       cursor: query.cursor,
       size: query.size,
     });
-    return { items: items.map((stock) => this.toItem(stock)), nextCursor };
+    const wishlisted = await this.findWishlisted(userId, items);
+    return {
+      items: items.map((stock) => this.toItem(stock, wishlisted)),
+      nextCursor,
+    };
   }
 
   /**
@@ -79,23 +93,28 @@ export class StocksService {
       await this.searchHistoriesService.record(userId, keyword);
     }
 
-    return { items: items.map((stock) => this.toItem(stock)), nextCursor };
+    const wishlisted = await this.findWishlisted(userId, items);
+    return {
+      items: items.map((stock) => this.toItem(stock, wishlisted)),
+      nextCursor,
+    };
   }
 
-  async getNewListings(query: {
-    cursor?: string;
-    size: number;
-  }): Promise<GetNewListingsResDto> {
+  async getNewListings(
+    userId: number | undefined,
+    query: { cursor?: string; size: number },
+  ): Promise<GetNewListingsResDto> {
     const { items, nextCursor } = await this.findPage({
       where: {},
       sort: StockSort.LISTING_DATE,
       cursor: query.cursor,
       size: query.size,
     });
+    const wishlisted = await this.findWishlisted(userId, items);
     const newSince = Date.now() - NEW_LISTING_BADGE_MS;
     return {
       items: items.map((stock) =>
-        Object.assign(this.toItem(stock), {
+        Object.assign(this.toItem(stock, wishlisted), {
           summary: stock.summary,
           isNew: stock.listingDate.getTime() > newSince,
         }),
@@ -123,7 +142,9 @@ export class StocksService {
       await this.recordView(userId, stock.id);
     }
 
-    const { currentPrice, changeAmount, changeRate } = this.toItem(stock);
+    const wishlisted = await this.findWishlisted(userId, [stock]);
+    const { currentPrice, changeAmount, changeRate, isWishlisted } =
+      this.toItem(stock, wishlisted);
     return {
       stockId: stock.id,
       stockCode: stock.stockCode,
@@ -149,6 +170,7 @@ export class StocksService {
       currentPrice,
       changeAmount,
       changeRate,
+      isWishlisted,
     };
   }
 
@@ -160,7 +182,87 @@ export class StocksService {
       orderBy: { modifiedDate: 'desc' },
       take: MAX_VIEW_HISTORIES,
     });
-    return { items: histories.map(({ stock }) => this.toItem(stock)) };
+    const stocks = histories.map(({ stock }) => stock);
+    const wishlisted = await this.findWishlisted(userId, stocks);
+    return { items: stocks.map((stock) => this.toItem(stock, wishlisted)) };
+  }
+
+  /** 관심상품으로 등록한다. 이미 등록되어 있어도 성공으로 처리한다. */
+  async addWishlist(userId: number, stockId: number): Promise<void> {
+    const stock = await this.prisma.stock.findFirst({
+      where: { id: stockId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!stock) {
+      throw new BusinessException(StockErrors.NOT_FOUND);
+    }
+
+    await this.prisma.wishlist.upsert({
+      where: { userId_stockId: { userId, stockId } },
+      create: { userId, stockId },
+      update: {},
+    });
+  }
+
+  /** 관심상품에서 뺀다. 등록되어 있지 않아도 성공으로 처리한다. */
+  async removeWishlist(userId: number, stockId: number): Promise<void> {
+    await this.prisma.wishlist.deleteMany({ where: { userId, stockId } });
+  }
+
+  /** 관심 상품 목록. 최근에 추가한 순서이며 삭제된 상품은 뺀다. */
+  async getWishlists(
+    userId: number,
+    query: { cursor?: string; size: number },
+  ): Promise<GetWishlistsResDto> {
+    const after = query.cursor
+      ? this.decodeWishlistCursor(query.cursor)
+      : undefined;
+
+    const wishlists = await this.prisma.wishlist.findMany({
+      where: {
+        userId,
+        stock: { isDeleted: false },
+        ...(after && {
+          OR: [
+            { createDate: { lt: after.createDate } },
+            { createDate: after.createDate, stockId: { lt: after.stockId } },
+          ],
+        }),
+      },
+      include: { stock: { include: { sector: true } } },
+      orderBy: [{ createDate: 'desc' }, { stockId: 'desc' }],
+      take: query.size + 1,
+    });
+
+    const hasNext = wishlists.length > query.size;
+    const page = hasNext ? wishlists.slice(0, query.size) : wishlists;
+    const last = page.at(-1);
+    const wishlisted = new Set(page.map(({ stockId }) => stockId));
+    return {
+      items: page.map(({ stock }) => this.toItem(stock, wishlisted)),
+      nextCursor:
+        hasNext && last
+          ? this.encode({
+              createDate: last.createDate.toISOString(),
+              stockId: last.stockId,
+            } satisfies WishlistCursor)
+          : null,
+    };
+  }
+
+  /** 비회원이면 빈 집합이다. */
+  private async findWishlisted(
+    userId: number | undefined,
+    stocks: Stock[],
+  ): Promise<Set<number>> {
+    if (userId === undefined || stocks.length === 0) {
+      return new Set();
+    }
+    const wishlists = await this.prisma.wishlist.findMany({
+      where: { userId, stockId: { in: stocks.map(({ id }) => id) } },
+      select: { stockId: true },
+    });
+    return new Set(wishlists.map(({ stockId }) => stockId));
   }
 
   /**
@@ -243,29 +345,55 @@ export class StocksService {
   }
 
   private encodeCursor(sort: StockSort, stock: Stock): string {
-    const cursor: StockCursor = {
+    return this.encode({
       sort,
       listingDate: stock.listingDate.toISOString(),
       id: stock.id,
-    };
-    return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+    } satisfies StockCursor);
   }
 
   private decodeCursor(
     value: string,
     sort: StockSort,
   ): { listingDate: Date; id: number } {
+    const cursor = this.decode<StockCursor>(value);
+    const listingDate = new Date(cursor.listingDate ?? '');
+    if (
+      cursor.sort !== sort ||
+      !Number.isInteger(cursor.id) ||
+      Number.isNaN(listingDate.getTime())
+    ) {
+      throw new BusinessException(StockErrors.INVALID_CURSOR);
+    }
+    return { listingDate, id: cursor.id! };
+  }
+
+  private decodeWishlistCursor(value: string): {
+    createDate: Date;
+    stockId: number;
+  } {
+    const cursor = this.decode<WishlistCursor>(value);
+    const createDate = new Date(cursor.createDate ?? '');
+    if (
+      !Number.isInteger(cursor.stockId) ||
+      Number.isNaN(createDate.getTime())
+    ) {
+      throw new BusinessException(StockErrors.INVALID_CURSOR);
+    }
+    return { createDate, stockId: cursor.stockId! };
+  }
+
+  private encode(cursor: object): string {
+    return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+  }
+
+  private decode<T>(value: string): Partial<T> {
     try {
-      const cursor = JSON.parse(
+      const parsed: unknown = JSON.parse(
         Buffer.from(value, 'base64url').toString('utf8'),
-      ) as Partial<StockCursor>;
-      const listingDate = new Date(cursor.listingDate ?? '');
-      if (
-        cursor.sort === sort &&
-        Number.isInteger(cursor.id) &&
-        !Number.isNaN(listingDate.getTime())
-      ) {
-        return { listingDate, id: cursor.id! };
+      );
+      if (typeof parsed === 'object' && parsed !== null) {
+        return parsed as Partial<T>;
       }
     } catch {
       // 아래에서 공통으로 처리한다.
@@ -274,7 +402,10 @@ export class StocksService {
   }
 
   /** 체결 데이터가 생기기 전까지 현재가는 기준가, 나머지 시세 값은 0이다. */
-  private toItem(stock: StockWithSector): StockItemResDto {
+  private toItem(
+    stock: StockWithSector,
+    wishlisted: Set<number>,
+  ): StockItemResDto {
     return {
       stockId: stock.id,
       stockCode: stock.stockCode,
@@ -289,6 +420,7 @@ export class StocksService {
       tradeAmount: 0,
       listingDate: stock.listingDate,
       tradeStatus: stock.tradeStatus,
+      isWishlisted: wishlisted.has(stock.id),
     };
   }
 }

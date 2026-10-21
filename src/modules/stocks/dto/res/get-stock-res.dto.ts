@@ -112,4 +112,10 @@ export class GetStockResDto {
 
   @ApiProperty({ description: '등락률 (%)', example: 0 })
   changeRate: number;
+
+  @ApiProperty({
+    description: '관심상품 여부. 비회원이면 false',
+    example: false,
+  })
+  isWishlisted: boolean;
 }

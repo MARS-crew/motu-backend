@@ -48,6 +48,12 @@ export class StockItemResDto {
     example: TradeStatus.ACTIVE,
   })
   tradeStatus: TradeStatus;
+
+  @ApiProperty({
+    description: '관심상품 여부. 비회원이면 false',
+    example: false,
+  })
+  isWishlisted: boolean;
 }
 
 export class GetStocksResDto {
