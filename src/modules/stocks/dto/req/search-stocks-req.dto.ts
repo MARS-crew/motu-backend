@@ -12,8 +12,10 @@ export class SearchStocksReqDto extends CursorPageReqDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
-  @IsString()
+  @IsString({ message: '검색어를 입력해 주세요.' })
   @IsNotEmpty({ message: '검색어를 입력해 주세요.' })
-  @MaxLength(MAX_SEARCH_KEYWORD_LENGTH)
+  @MaxLength(MAX_SEARCH_KEYWORD_LENGTH, {
+    message: `검색어는 ${MAX_SEARCH_KEYWORD_LENGTH}자 이하로 입력해 주세요.`,
+  })
   keyword: string;
 }
