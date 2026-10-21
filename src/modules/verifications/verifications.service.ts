@@ -153,6 +153,7 @@ export class VerificationsService {
       throw new BusinessException(
         VerificationErrors.CODE_MISMATCH,
         `${VerificationErrors.CODE_MISMATCH.message} (남은 횟수 ${remaining}회)`,
+        { remainingAttempts: remaining },
       );
     }
 
