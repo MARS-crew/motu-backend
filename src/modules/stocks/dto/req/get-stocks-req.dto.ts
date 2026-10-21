@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, Min } from 'class-validator';
 import { CursorPageReqDto } from '../../../../common/dto/cursor-page-req.dto.js';
 import { StockSort } from '../../stocks.constants.js';
+import { INVALID_REQUEST_MESSAGE } from '../../../../common/constants/validation.constants.js';
 
 export class GetStocksReqDto extends CursorPageReqDto {
   @ApiPropertyOptional({
@@ -11,8 +12,8 @@ export class GetStocksReqDto extends CursorPageReqDto {
   })
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
-  @Min(1)
+  @IsInt({ message: INVALID_REQUEST_MESSAGE })
+  @Min(1, { message: INVALID_REQUEST_MESSAGE })
   sectorCode?: number;
 
   @ApiPropertyOptional({
@@ -22,6 +23,6 @@ export class GetStocksReqDto extends CursorPageReqDto {
     default: StockSort.TRADE_AMOUNT,
   })
   @IsOptional()
-  @IsEnum(StockSort)
+  @IsEnum(StockSort, { message: INVALID_REQUEST_MESSAGE })
   sort: StockSort = StockSort.TRADE_AMOUNT;
 }
