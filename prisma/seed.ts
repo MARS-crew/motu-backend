@@ -237,7 +237,7 @@ async function createStocks(): Promise<void> {
  */
 const seedNotices = [
   {
-    type: NoticeType.SERVICE,
+    type: NoticeType.ALL,
     title: '모투 서비스 오픈 안내',
     isImportant: true,
     daysAgo: 30,
@@ -245,7 +245,7 @@ const seedNotices = [
       '안녕하세요. 모투(MOTU)입니다.\n\n모의투자 서비스 모투가 문을 열었습니다. 가입하면 3,000,000P를 지급해 드리며, 포인트는 서비스 안에서만 쓰는 가상 자산입니다.',
   },
   {
-    type: NoticeType.SERVICE,
+    type: NoticeType.ALL,
     title: '서비스 이용약관 개정 안내',
     isImportant: true,
     daysAgo: 2,
@@ -267,34 +267,34 @@ const seedNotices = [
       'CloudNote의 거래가 종료되었습니다. 보유 수량은 그대로 유지됩니다.',
   },
   {
-    type: NoticeType.SERVICE,
+    type: NoticeType.ALL,
     title: '서버 점검 안내',
     daysAgo: 7,
     content:
       '서버 점검으로 02:00 ~ 04:00 동안 서비스 이용이 제한됩니다. 이용에 불편을 드려 죄송합니다.',
   },
   {
-    type: NoticeType.SERVICE,
+    type: NoticeType.ALL,
     title: '포인트 리셋 기능 안내',
     daysAgo: 10,
     content:
       '보유 포인트가 300,000P 미만이고 미체결 주문이 없으면 자산관리에서 포인트를 3,000,000P로 리셋할 수 있습니다. 리셋은 7일에 한 번 가능합니다.',
   },
   {
-    type: NoticeType.SERVICE,
+    type: NoticeType.ALL,
     title: '추가 포인트 지급 안내',
     daysAgo: 12,
     content: '자산관리에서 24시간마다 100,000P를 추가로 받을 수 있습니다.',
   },
   {
-    type: NoticeType.SERVICE,
+    type: NoticeType.ALL,
     title: '[게시 종료] 추석 연휴 고객센터 운영 안내',
     daysAgo: 20,
     postDays: 3,
     content: '게시 기간이 끝나 목록에 나오지 않아야 하는 공지입니다.',
   },
   {
-    type: NoticeType.SERVICE,
+    type: NoticeType.ALL,
     title: '[게시 예정] 신규 기능 업데이트 안내',
     daysAgo: -3,
     content: '아직 게시 전이라 목록에 나오지 않아야 하는 공지입니다.',
