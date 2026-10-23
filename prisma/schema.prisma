@@ -354,7 +354,7 @@ model Wishlist {
 
 enum NoticeType {
   /// 전체 서비스 공지
-  SERVICE
+  ALL
   /// 상품 공지
   STOCK
 
