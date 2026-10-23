@@ -13,6 +13,7 @@ import { OrdersModule } from './modules/orders/orders.module.js';
 import { SearchHistoriesModule } from './modules/search-histories/search-histories.module.js';
 import { SectorsModule } from './modules/sectors/sectors.module.js';
 import { StocksModule } from './modules/stocks/stocks.module.js';
+import { TradesModule } from './modules/trades/trades.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 
 @Module({
@@ -37,6 +38,7 @@ import { UsersModule } from './modules/users/users.module.js';
     OrdersModule,
     HoldingsModule,
     MatchingModule,
+    TradesModule,
   ],
 })
 export class AppModule {}
