@@ -15,7 +15,7 @@ export class FaqsController {
   @ApiOperation({
     summary: 'FAQ 목록',
     description:
-      '카테고리로 거르고, 비우면 전체다. 건수가 적어 페이지 없이 한 번에 내려준다.',
+      '필터 6개(전체, 거래/주문, 포인트/자산, 계정/보안, 상장, 기타)로 거른다. 비우면 전체다. 건수가 적어 페이지 없이 한 번에 내려준다.',
   })
   @ApiOkResponse({ type: GetFaqsResDto })
   getFaqs(@Query() query: GetFaqsReqDto): Promise<GetFaqsResDto> {
