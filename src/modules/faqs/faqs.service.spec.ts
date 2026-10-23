@@ -1,5 +1,6 @@
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { FaqCategory } from '../../generated/prisma/client.js';
+import { FaqCategoryFilter } from './faqs.constants.js';
 import { FaqsService } from './faqs.service.js';
 
 describe('FaqsService', () => {
@@ -39,8 +40,8 @@ describe('FaqsService', () => {
     });
   });
 
-  it('카테고리가 없으면 전체를 조회한다', async () => {
-    await service.getFaqs();
+  it('ALL이면 전체를 조회한다', async () => {
+    await service.getFaqs(FaqCategoryFilter.ALL);
 
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { isDeleted: false } }),
