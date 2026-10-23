@@ -10,6 +10,9 @@ coverage/
 *.tsbuildinfo
 src/generated/
 
+### 로컬 업로드 ###
+.data/
+
 ### 로그 ###
 logs/
 *.log
