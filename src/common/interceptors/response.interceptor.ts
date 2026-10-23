@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   NestInterceptor,
+  StreamableFile,
 } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
 import { ApiSuccessResponse } from '../types/api-response.type.js';
@@ -13,17 +14,21 @@ import { ApiSuccessResponse } from '../types/api-response.type.js';
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<
   T,
-  ApiSuccessResponse<T | null>
+  ApiSuccessResponse<T | null> | StreamableFile
 > {
   intercept(
     _context: ExecutionContext,
     next: CallHandler<T>,
-  ): Observable<ApiSuccessResponse<T | null>> {
+  ): Observable<ApiSuccessResponse<T | null> | StreamableFile> {
     return next.handle().pipe(
-      map((data) => ({
-        success: true,
-        data: data ?? null,
-      })),
+      map((data) =>
+        data instanceof StreamableFile
+          ? data
+          : {
+              success: true,
+              data: data ?? null,
+            },
+      ),
     );
   }
 }
