@@ -25,7 +25,7 @@ describe('NoticesService', () => {
 
   const noticeOf = (id: number, overrides: Record<string, unknown> = {}) => ({
     id,
-    type: NoticeType.SERVICE,
+    type: NoticeType.ALL,
     title: `공지${id}`,
     content: `내용${id}`,
     isImportant: false,
@@ -68,7 +68,7 @@ describe('NoticesService', () => {
         items: [
           {
             noticeId: 2,
-            type: NoticeType.SERVICE,
+            type: NoticeType.ALL,
             title: '공지2',
             isImportant: true,
             postDate: new Date('2026-10-20T00:00:00.000Z'),
