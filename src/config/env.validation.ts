@@ -81,6 +81,29 @@ export class EnvironmentVariables {
   @IsEmail()
   MAIL_FROM_EMAIL?: string;
 
+  @IsEnum({ local: 'local', s3: 's3' })
+  FILE_STORAGE_DRIVER: string = 'local';
+
+  /** 운영에서 local을 사용하지 못하도록 검증한다. */
+  @ValidateIf((env) => env.FILE_STORAGE_DRIVER === 's3')
+  @IsUrl({ require_tld: false })
+  S3_ENDPOINT?: string;
+
+  @ValidateIf((env) => env.FILE_STORAGE_DRIVER === 's3')
+  @IsString()
+  @IsNotEmpty()
+  S3_BUCKET?: string;
+
+  @ValidateIf((env) => env.FILE_STORAGE_DRIVER === 's3')
+  @IsString()
+  @IsNotEmpty()
+  S3_ACCESS_KEY_ID?: string;
+
+  @ValidateIf((env) => env.FILE_STORAGE_DRIVER === 's3')
+  @IsString()
+  @IsNotEmpty()
+  S3_SECRET_ACCESS_KEY?: string;
+
   /** 받는 사람에게 보이는 발신자 이름 */
   @IsString()
   @IsNotEmpty()
@@ -101,6 +124,13 @@ export function validateEnv(
   const validated = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });
+  if (
+    validated.NODE_ENV === NodeEnv.Production &&
+    validated.FILE_STORAGE_DRIVER !== 's3'
+  )
+    throw new Error(
+      '운영 환경에서는 FILE_STORAGE_DRIVER=s3 설정이 필요합니다.',
+    );
   const errors = validateSync(validated, { skipMissingProperties: false });
 
   if (errors.length > 0) {
