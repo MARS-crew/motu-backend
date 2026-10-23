@@ -6,6 +6,7 @@ import { PrismaModule } from './common/prisma/prisma.module.js';
 import { validateEnv } from './config/env.validation.js';
 import { createLoggerOptions } from './config/logger.config.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { ChartsModule } from './modules/charts/charts.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { HoldingsModule } from './modules/holdings/holdings.module.js';
 import { MatchingModule } from './modules/matching/matching.module.js';
@@ -39,6 +40,7 @@ import { UsersModule } from './modules/users/users.module.js';
     HoldingsModule,
     MatchingModule,
     TradesModule,
+    ChartsModule,
   ],
 })
 export class AppModule {}
