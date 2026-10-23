@@ -11,7 +11,7 @@
 | 필드 | 설명 |
 |------|------|
 | `noticeId` | 공지 ID |
-| `type` | `SERVICE` 전체 서비스 공지 / `STOCK` 상품 공지 |
+| `type` | `ALL` 전체 서비스 공지 / `STOCK` 상품 공지 |
 | `title` | 제목 |
 | `isImportant` | 중요 공지 여부 (true면 중요 배지) |
 | `postDate` | 게시일 |
@@ -67,12 +67,12 @@
 | 화면 | USR-HOME-01-03 (FAQ 탭) |
 | API | `GET /api/faqs?category=` |
 | 로그인 | 불필요 |
-| 요청 | `category` (비우면 전체) |
+| 요청 | `category` (기본 `ALL` 전체) |
 | 응답 | `items[] { faqId, category, question, answer }` — 노출 순서대로 |
 
 | 필터 | `category` |
 |------|------|
-| 전체 | (비움) |
+| 전체 | `ALL` (비워도 전체) |
 | 거래/주문 | `TRADE` |
 | 포인트/자산 | `POINT` |
 | 계정/보안 | `ACCOUNT` |
