@@ -6,9 +6,9 @@ export class NoticeItemResDto {
   noticeId: number;
 
   @ApiProperty({
-    description: '공지 구분 (SERVICE 전체 서비스 공지, STOCK 상품 공지)',
+    description: '공지 구분 (ALL 전체 서비스 공지, STOCK 상품 공지)',
     enum: NoticeType,
-    example: NoticeType.SERVICE,
+    example: NoticeType.ALL,
   })
   type: NoticeType;
 
