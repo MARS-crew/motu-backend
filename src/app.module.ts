@@ -10,6 +10,7 @@ import { ChartsModule } from './modules/charts/charts.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { HoldingsModule } from './modules/holdings/holdings.module.js';
 import { MatchingModule } from './modules/matching/matching.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
 import { PriceAlertsModule } from './modules/price-alerts/price-alerts.module.js';
 import { SearchHistoriesModule } from './modules/search-histories/search-histories.module.js';
@@ -43,6 +44,7 @@ import { UsersModule } from './modules/users/users.module.js';
     TradesModule,
     ChartsModule,
     PriceAlertsModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}
