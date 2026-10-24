@@ -10,6 +10,7 @@ import {
   TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
+import { ChartsService } from '../charts/charts.service.js';
 import { MatchingService } from '../matching/matching.service.js';
 import { SettlementService } from '../matching/settlement.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
@@ -75,6 +76,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly matching: MatchingService,
     private readonly settlement: SettlementService,
+    private readonly charts: ChartsService,
   ) {}
 
   /**
@@ -159,7 +161,16 @@ export class OrdersService {
                   lockedAmount,
                 },
               });
-              return this.settlement.settle(tx, created, match.fills);
+              const result = await this.settlement.settle(
+                tx,
+                created,
+                match.fills,
+              );
+              await this.charts.recordTrades(
+                tx,
+                result.trades.map(({ trade }) => trade),
+              );
+              return result;
             }),
         );
 

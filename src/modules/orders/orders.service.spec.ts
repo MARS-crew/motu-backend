@@ -8,6 +8,7 @@ import {
   TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
+import { ChartsService } from '../charts/charts.service.js';
 import { MatchingService } from '../matching/matching.service.js';
 import { SettlementService } from '../matching/settlement.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
@@ -62,10 +63,12 @@ describe('OrdersService', () => {
     lockAccounts: vi.fn(),
     settle: vi.fn(),
   };
+  const charts = { recordTrades: vi.fn() };
   const service = new OrdersService(
     prisma,
     matching as unknown as MatchingService,
     settlement as unknown as SettlementService,
+    charts as unknown as ChartsService,
   );
 
   const stockOf = (overrides: Record<string, unknown> = {}) => ({
@@ -417,6 +420,47 @@ describe('OrdersService', () => {
       await service.placeOrder(USER_ID, buyOf(5_000, 200));
 
       expect(matching.reloadBook).not.toHaveBeenCalled();
+    });
+
+    it('정산한 체결을 같은 트랜잭션에서 차트 봉에 반영한다', async () => {
+      matching.match.mockReturnValue({
+        selfTrade: false,
+        fills,
+        remainingQty: 120n,
+      });
+      const trade1 = { id: 101n };
+      const trade2 = { id: 102n };
+      settlement.settle.mockImplementation((_, created: object) =>
+        Promise.resolve({
+          order: created,
+          trades: [{ trade: trade1 }, { trade: trade2 }],
+        }),
+      );
+
+      await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      expect(charts.recordTrades).toHaveBeenCalledWith(tx, [trade1, trade2]);
+      expect(charts.recordTrades.mock.invocationCallOrder[0]).toBeGreaterThan(
+        settlement.settle.mock.invocationCallOrder[0],
+      );
+      expect(charts.recordTrades.mock.invocationCallOrder[0]).toBeLessThan(
+        matching.apply.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('차트 봉 반영이 실패하면 주문 전체를 되돌리고 호가창에 반영하지 않는다', async () => {
+      matching.match.mockReturnValue({
+        selfTrade: false,
+        fills,
+        remainingQty: 120n,
+      });
+      charts.recordTrades.mockRejectedValueOnce(new Error('봉 갱신 실패'));
+
+      await expect(
+        service.placeOrder(USER_ID, buyOf(5_000, 200)),
+      ).rejects.toThrow('봉 갱신 실패');
+      expect(matching.apply).not.toHaveBeenCalled();
+      expect(matching.publishTrades).not.toHaveBeenCalled();
     });
 
     it('트랜잭션이 실패하면 호가창에 반영하지 않고 체결도 알리지 않는다', async () => {

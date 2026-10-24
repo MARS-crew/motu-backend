@@ -5,5 +5,6 @@ import { ChartsService } from './charts.service.js';
 @Module({
   controllers: [ChartsController],
   providers: [ChartsService],
+  exports: [ChartsService],
 })
 export class ChartsModule {}
