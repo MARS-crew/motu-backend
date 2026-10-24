@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseUUIDPipe,
   Post,
   Put,
   StreamableFile,
@@ -24,6 +23,7 @@ import {
 import { memoryStorage } from 'multer';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
+import { ParseUuidPipe } from '../../common/pipes/parse-uuid.pipe.js';
 import { CreateCollectionReqDto } from './dto/req/create-collection-req.dto.js';
 import { CreateLinkReqDto } from './dto/req/create-link-req.dto.js';
 import { SaveCollectionReqDto } from './dto/req/save-collection-req.dto.js';
@@ -47,10 +47,7 @@ export class FilesController {
   }
   @Get(':id')
   @ApiOkResponse({ type: CollectionResDto })
-  get(
-    @CurrentUser() user: AuthUser,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-  ) {
+  get(@CurrentUser() user: AuthUser, @Param('id', ParseUuidPipe) id: string) {
     return this.files.get(user.userId, id);
   }
   @Post(':id/uploads')
@@ -82,7 +79,7 @@ export class FilesController {
   )
   upload(
     @CurrentUser() user: AuthUser,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     return this.files.upload(user.userId, id, files);
@@ -94,7 +91,7 @@ export class FilesController {
   @ApiCreatedResponse({ type: AttachmentResDto })
   link(
     @CurrentUser() user: AuthUser,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() dto: CreateLinkReqDto,
   ) {
     return this.files.addLink(user.userId, id, dto.url);
@@ -108,7 +105,7 @@ export class FilesController {
   @ApiOkResponse({ type: CollectionResDto })
   save(
     @CurrentUser() user: AuthUser,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() dto: SaveCollectionReqDto,
   ) {
     return this.files.save(user.userId, id, dto);
@@ -117,8 +114,8 @@ export class FilesController {
   @ApiOperation({ summary: '파일 또는 외부 링크 삭제' })
   remove(
     @CurrentUser() user: AuthUser,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-    @Param('attachmentId', new ParseUUIDPipe({ version: '4' }))
+    @Param('id', ParseUuidPipe) id: string,
+    @Param('attachmentId', ParseUuidPipe)
     attachmentId: string,
   ) {
     return this.files.remove(user.userId, id, attachmentId);
@@ -127,8 +124,8 @@ export class FilesController {
   @ApiOperation({ summary: '소유자 전용 파일 다운로드' })
   async download(
     @CurrentUser() user: AuthUser,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-    @Param('attachmentId', new ParseUUIDPipe({ version: '4' }))
+    @Param('id', ParseUuidPipe) id: string,
+    @Param('attachmentId', ParseUuidPipe)
     attachmentId: string,
   ) {
     const file = await this.files.download(user.userId, id, attachmentId);
