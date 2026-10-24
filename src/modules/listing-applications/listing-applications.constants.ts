@@ -1,0 +1,4 @@
+export const MAX_LISTING_DRAFTS = 5;
+export const LISTING_DRAFT_LIFETIME_MS = 90 * 24 * 60 * 60 * 1000;
+export const LISTING_DRAFT_WARNING_MS = 7 * 24 * 60 * 60 * 1000;
+export const LISTING_DRAFT_SWEEP_INTERVAL_MS = 15 * 60 * 1000;

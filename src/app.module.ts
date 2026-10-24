@@ -9,6 +9,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { FaqsModule } from './modules/faqs/faqs.module.js';
 import { FilesModule } from './modules/files/files.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { ListingApplicationsModule } from './modules/listing-applications/listing-applications.module.js';
 import { NoticesModule } from './modules/notices/notices.module.js';
 import { SearchHistoriesModule } from './modules/search-histories/search-histories.module.js';
 import { SectorsModule } from './modules/sectors/sectors.module.js';
@@ -30,6 +31,7 @@ import { UsersModule } from './modules/users/users.module.js';
     MailModule,
     HealthModule,
     FilesModule,
+    ListingApplicationsModule,
     UsersModule,
     AuthModule,
     SectorsModule,
