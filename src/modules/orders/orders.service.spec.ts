@@ -22,6 +22,7 @@ describe('OrdersService', () => {
   const tx = {
     $queryRaw: vi.fn(),
     account: { update: vi.fn() },
+    holding: { update: vi.fn() },
     order: { create: vi.fn() },
   };
   const transaction = vi.fn((fn: (client: typeof tx) => Promise<unknown>) =>
@@ -46,13 +47,21 @@ describe('OrdersService', () => {
     { account_id: ACCOUNT_ID, cash, locked_cash: lockedCash },
   ];
 
-  const buyOf = (price: number, qty: number): CreateOrderReqDto => ({
-    clientOrderId: CLIENT_ORDER_ID,
-    stockId: 1,
-    side: OrderSide.BUY,
-    price,
-    qty,
-  });
+  const lockedHoldingOf = (qty: bigint, lockedQty: bigint) => [
+    { holding_id: 11, account_id: ACCOUNT_ID, qty, locked_qty: lockedQty },
+  ];
+
+  const orderOf =
+    (side: OrderSide) =>
+    (price: number, qty: number): CreateOrderReqDto => ({
+      clientOrderId: CLIENT_ORDER_ID,
+      stockId: 1,
+      side,
+      price,
+      qty,
+    });
+  const buyOf = orderOf(OrderSide.BUY);
+  const sellOf = orderOf(OrderSide.SELL);
 
   const errorOf = async (promise: Promise<unknown>) => {
     try {
@@ -188,6 +197,93 @@ describe('OrdersService', () => {
       );
 
       expect(error.error).toBe(AccountErrors.NOT_FOUND);
+    });
+  });
+
+  describe('placeOrder (매도)', () => {
+    it('주문 수량만큼 보유 수량을 예약하고 접수 상태의 주문을 만든다', async () => {
+      tx.$queryRaw.mockResolvedValue(lockedHoldingOf(10n, 0n));
+
+      const result = await service.placeOrder(USER_ID, sellOf(5_000, 4));
+
+      expect(tx.holding.update).toHaveBeenCalledWith({
+        where: { id: 11 },
+        data: { lockedQty: { increment: 4n } },
+      });
+      expect(tx.order.create).toHaveBeenCalledWith({
+        data: {
+          accountId: ACCOUNT_ID,
+          stockId: 1,
+          clientOrderId: CLIENT_ORDER_ID,
+          side: OrderSide.SELL,
+          price: 5_000n,
+          qty: 4n,
+          lockedAmount: 0n,
+        },
+      });
+      expect(tx.account.update).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        side: OrderSide.SELL,
+        qty: 4,
+        remainingQty: 4,
+        lockedAmount: 0,
+        status: OrderStatus.ACCEPTED,
+      });
+    });
+
+    it('이미 예약된 수량을 빼고 매도 가능 수량을 계산한다', async () => {
+      // 매도 가능 수량 = 10 - 7 = 3 < 4
+      tx.$queryRaw.mockResolvedValue(lockedHoldingOf(10n, 7n));
+
+      const error = await errorOf(
+        service.placeOrder(USER_ID, sellOf(5_000, 4)),
+      );
+
+      expect(error.error).toBe(OrderErrors.INSUFFICIENT_QTY);
+      expect(error.getResponse()).toMatchObject({
+        details: { sellableQty: 3 },
+      });
+      expect(tx.holding.update).not.toHaveBeenCalled();
+      expect(tx.order.create).not.toHaveBeenCalled();
+    });
+
+    it('매도 가능 수량과 주문 수량이 같으면 주문할 수 있다', async () => {
+      tx.$queryRaw.mockResolvedValue(lockedHoldingOf(10n, 6n));
+
+      await service.placeOrder(USER_ID, sellOf(5_000, 4));
+
+      expect(tx.order.create).toHaveBeenCalled();
+    });
+
+    it('보유하지 않은 상품은 매도 가능 수량이 0이다', async () => {
+      tx.$queryRaw.mockResolvedValue([]);
+
+      const error = await errorOf(
+        service.placeOrder(USER_ID, sellOf(5_000, 1)),
+      );
+
+      expect(error.error).toBe(OrderErrors.INSUFFICIENT_QTY);
+      expect(error.getResponse()).toMatchObject({
+        details: { sellableQty: 0 },
+      });
+    });
+
+    it('보유 행을 잠근 뒤 수량을 확인한다', async () => {
+      tx.$queryRaw.mockResolvedValue(lockedHoldingOf(10n, 0n));
+
+      await service.placeOrder(USER_ID, sellOf(5_000, 4));
+
+      const [sql] = tx.$queryRaw.mock.calls[0] as [TemplateStringsArray];
+      expect(sql.join('?')).toMatch(/FROM holdings[\s\S]*FOR UPDATE/);
+    });
+
+    it('주문 규칙을 어기면 수량을 예약하지 않는다', async () => {
+      const error = await errorOf(
+        service.placeOrder(USER_ID, sellOf(5_005, 4)),
+      );
+
+      expect(error.error).toBe(OrderErrors.INVALID_PRICE_TICK);
+      expect(transaction).not.toHaveBeenCalled();
     });
   });
 });

@@ -27,4 +27,9 @@ export const OrderErrors = {
     message: '사용 가능 포인트가 부족합니다.',
     status: HttpStatus.BAD_REQUEST,
   },
+  INSUFFICIENT_QTY: {
+    code: 'ORDER_INSUFFICIENT_QTY',
+    message: '매도 가능 수량이 부족합니다.',
+    status: HttpStatus.BAD_REQUEST,
+  },
 } as const satisfies Record<string, ErrorDefinition>;

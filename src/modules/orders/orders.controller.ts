@@ -24,12 +24,12 @@ export class OrdersController {
   @ApiOperation({
     summary: '주문하기',
     description:
-      '지정가 주문을 접수한다. 매수는 주문 금액과 수수료만큼 포인트를 예약한다. 규칙에 어긋나면 details에 해당 규칙 값을 담는다.',
+      '지정가 주문을 접수한다. 매수는 주문 금액과 수수료만큼 포인트를, 매도는 주문 수량만큼 보유 수량을 예약한다. 규칙에 어긋나면 details에 해당 규칙 값을 담는다.',
   })
   @ApiCreatedResponse({ type: OrderResDto })
   @ApiBadRequestResponse({
     description:
-      'BAD_REQUEST / ORDER_INVALID_PRICE_TICK / ORDER_PRICE_TOO_LOW / ORDER_QTY_TOO_LOW / ORDER_INSUFFICIENT_CASH',
+      'BAD_REQUEST / ORDER_INVALID_PRICE_TICK / ORDER_PRICE_TOO_LOW / ORDER_QTY_TOO_LOW / ORDER_INSUFFICIENT_CASH / ORDER_INSUFFICIENT_QTY',
   })
   @ApiNotFoundResponse({ description: 'STOCK_NOT_FOUND / ACCOUNT_NOT_FOUND' })
   @ApiConflictResponse({ description: 'ORDER_STOCK_NOT_TRADABLE' })

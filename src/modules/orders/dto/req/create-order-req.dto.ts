@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsInt, IsUUID, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsUUID, Max, Min } from 'class-validator';
 import { INVALID_REQUEST_MESSAGE } from '../../../../common/constants/validation.constants.js';
 import { OrderSide } from '../../../../generated/prisma/client.js';
 
@@ -18,11 +18,11 @@ export class CreateOrderReqDto {
   stockId: number;
 
   @ApiProperty({
-    description: '주문 방향. 지금은 매수만 받는다.',
-    enum: [OrderSide.BUY],
+    description: '주문 방향 (BUY 매수, SELL 매도)',
+    enum: OrderSide,
     example: OrderSide.BUY,
   })
-  @IsIn([OrderSide.BUY], { message: INVALID_REQUEST_MESSAGE })
+  @IsEnum(OrderSide, { message: INVALID_REQUEST_MESSAGE })
   side: OrderSide;
 
   @ApiProperty({
