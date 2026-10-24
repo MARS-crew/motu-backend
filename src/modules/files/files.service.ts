@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
@@ -45,7 +45,7 @@ export class FilesService {
   }
   async upload(userId: number, id: string, files: Express.Multer.File[]) {
     const collection = await this.get(userId, id);
-    if (!files?.length) throw new BadRequestException('파일을 선택해 주세요.');
+    if (!files?.length) throw new BusinessException(FileErrors.REQUIRED);
     const maximum = collection.purpose === AttachmentPurpose.EVIDENCE ? 10 : 1;
     if (collection.attachments.length + files.length > maximum)
       throw new BusinessException(FileErrors.COUNT);
@@ -116,9 +116,7 @@ export class FilesService {
           description.trim().length < 10 ||
           description.length > 500)
       )
-        throw new BadRequestException(
-          '자료 설명은 10자 이상 500자 이하로 입력해 주세요.',
-        );
+        throw new BusinessException(FileErrors.DESCRIPTION);
       const count = await tx.attachment.count({
         where: { collectionId: id, id: { in: dto.attachmentIds } },
       });
