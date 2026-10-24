@@ -19,6 +19,18 @@ export function calculateFee(
 }
 
 /**
+ * 매수 주문에 예약할 포인트. 주문 금액(가격 × 수량)에 수수료를 더한다.
+ */
+export function calculateBuyLockAmount(
+  price: bigint,
+  qty: bigint,
+  feeRateBps: bigint = FEE_RATE_BPS,
+): bigint {
+  const amount = price * qty;
+  return amount + calculateFee(amount, feeRateBps);
+}
+
+/**
  * 상품의 거래 상태와 주문 규칙(호가 단위, 최소 주문 가격·수량)을 확인한다.
  * 포인트·보유 수량과 자기 체결 여부는 여기서 보지 않는다.
  */

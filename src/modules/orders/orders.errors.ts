@@ -22,4 +22,9 @@ export const OrderErrors = {
     message: '최소 주문 수량보다 적게 주문할 수 없습니다.',
     status: HttpStatus.BAD_REQUEST,
   },
+  INSUFFICIENT_CASH: {
+    code: 'ORDER_INSUFFICIENT_CASH',
+    message: '사용 가능 포인트가 부족합니다.',
+    status: HttpStatus.BAD_REQUEST,
+  },
 } as const satisfies Record<string, ErrorDefinition>;

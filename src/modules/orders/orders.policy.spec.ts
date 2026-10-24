@@ -1,7 +1,11 @@
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { TradeStatus } from '../../generated/prisma/client.js';
 import { OrderErrors } from './orders.errors.js';
-import { calculateFee, validateOrderRules } from './orders.policy.js';
+import {
+  calculateBuyLockAmount,
+  calculateFee,
+  validateOrderRules,
+} from './orders.policy.js';
 
 describe('calculateFee', () => {
   it('체결 금액에 수수료율(bp)을 곱한다', () => {
@@ -15,6 +19,17 @@ describe('calculateFee', () => {
 
   it('수수료율을 넘기지 않으면 현재 수수료율(0%)을 쓴다', () => {
     expect(calculateFee(1_000_000n)).toBe(0n);
+  });
+});
+
+describe('calculateBuyLockAmount', () => {
+  it('주문 금액(가격 × 수량)에 수수료를 더한다', () => {
+    // 5,000 × 200 = 1,000,000, 수수료 0.15% = 1,500
+    expect(calculateBuyLockAmount(5_000n, 200n, 15n)).toBe(1_001_500n);
+  });
+
+  it('수수료율을 넘기지 않으면 현재 수수료율(0%)을 쓴다', () => {
+    expect(calculateBuyLockAmount(5_000n, 200n)).toBe(1_000_000n);
   });
 });
 
