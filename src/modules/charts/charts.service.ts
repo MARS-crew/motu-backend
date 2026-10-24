@@ -5,7 +5,10 @@ import { ChartInterval, Prisma, Trade } from '../../generated/prisma/client.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { candleStartOf } from './candle-time.js';
 import { ChartErrors } from './charts.errors.js';
-import { GetCandlesResDto } from './dto/res/get-candles-res.dto.js';
+import {
+  CandleResDto,
+  GetCandlesResDto,
+} from './dto/res/get-candles-res.dto.js';
 import { GetDailySummaryResDto } from './dto/res/get-daily-summary-res.dto.js';
 
 /** 체결마다 갱신하는 봉 단위 */
@@ -198,6 +201,38 @@ export class ChartsService {
           ? this.encodeCursor({ candleTime: oldest.candleTime.toISOString() })
           : null,
     };
+  }
+
+  /**
+   * 그 시각이 속한 분·시간·일·주·월 봉. 체결 직후 실시간 전송에 쓴다. 아직 없는 봉은 빠진다.
+   */
+  async getCurrentCandles(
+    stockId: number,
+    at: Date,
+  ): Promise<(CandleResDto & { interval: ChartInterval })[]> {
+    const candles = await this.prisma.chart.findMany({
+      where: {
+        stockId,
+        OR: INTERVALS.map((interval) => ({
+          interval,
+          candleTime: candleStartOf(at, interval),
+        })),
+      },
+    });
+    return candles
+      .sort(
+        (a, b) => INTERVALS.indexOf(a.interval) - INTERVALS.indexOf(b.interval),
+      )
+      .map((candle) => ({
+        interval: candle.interval,
+        time: candle.candleTime,
+        openPrice: Number(candle.openPrice),
+        highPrice: Number(candle.highPrice),
+        lowPrice: Number(candle.lowPrice),
+        closePrice: Number(candle.closePrice),
+        volume: Number(candle.volume),
+        tradeAmount: Number(candle.tradeAmount),
+      }));
   }
 
   private encodeCursor(cursor: CandleCursor): string {

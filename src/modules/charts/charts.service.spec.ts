@@ -526,6 +526,75 @@ describe('ChartsService 기간별 차트', () => {
   });
 });
 
+describe('ChartsService 현재 봉', () => {
+  const chart = { findMany: vi.fn() };
+  const prisma = { chart } as unknown as PrismaService;
+  const service = new ChartsService(prisma);
+
+  it('그 시각이 속한 분·시간·일·주·월 봉을 한 번에 읽어 단위 순서로 돌려준다', async () => {
+    const at = new Date('2026-10-24T05:37:42.000Z');
+    const candleOf = (interval: ChartInterval, time: string) => ({
+      stockId: 7,
+      interval,
+      candleTime: new Date(time),
+      openPrice: 4_300n,
+      highPrice: 4_400n,
+      lowPrice: 4_250n,
+      closePrice: 4_380n,
+      volume: 6n,
+      tradeAmount: 26_050n,
+    });
+    chart.findMany.mockResolvedValue([
+      candleOf(ChartInterval.DAY, '2026-10-23T15:00:00.000Z'),
+      candleOf(ChartInterval.MINUTE, '2026-10-24T05:37:00.000Z'),
+    ]);
+
+    const result = await service.getCurrentCandles(7, at);
+
+    expect(chart.findMany).toHaveBeenCalledWith({
+      where: {
+        stockId: 7,
+        OR: [
+          {
+            interval: ChartInterval.MINUTE,
+            candleTime: new Date('2026-10-24T05:37:00.000Z'),
+          },
+          {
+            interval: ChartInterval.HOUR,
+            candleTime: new Date('2026-10-24T05:00:00.000Z'),
+          },
+          {
+            interval: ChartInterval.DAY,
+            candleTime: new Date('2026-10-23T15:00:00.000Z'),
+          },
+          {
+            interval: ChartInterval.WEEK,
+            candleTime: new Date('2026-10-18T15:00:00.000Z'),
+          },
+          {
+            interval: ChartInterval.MONTH,
+            candleTime: new Date('2026-09-30T15:00:00.000Z'),
+          },
+        ],
+      },
+    });
+    expect(result.map(({ interval }) => interval)).toEqual([
+      ChartInterval.MINUTE,
+      ChartInterval.DAY,
+    ]);
+    expect(result[0]).toEqual({
+      interval: ChartInterval.MINUTE,
+      time: new Date('2026-10-24T05:37:00.000Z'),
+      openPrice: 4_300,
+      highPrice: 4_400,
+      lowPrice: 4_250,
+      closePrice: 4_380,
+      volume: 6,
+      tradeAmount: 26_050,
+    });
+  });
+});
+
 function chunk<T>(values: T[], size: number): T[][] {
   const rows: T[][] = [];
   for (let i = 0; i < values.length; i += size) {

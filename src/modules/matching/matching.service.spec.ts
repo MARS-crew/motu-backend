@@ -272,6 +272,52 @@ describe('MatchingService', () => {
     });
   });
 
+  describe('bookChanged$', () => {
+    const bookOrder = {
+      orderId: 11n,
+      accountId: 2,
+      side: OrderSide.SELL,
+      price: 4_900n,
+      remainingQty: 3n,
+    };
+
+    it('호가창을 바꾸면 그 종목 ID를 알린다', async () => {
+      const prisma = {
+        order: { findMany: vi.fn().mockResolvedValue([]) },
+      } as unknown as PrismaService;
+      const matching = new MatchingService(prisma);
+      const changed: number[] = [];
+      matching.bookChanged$.subscribe((stockId) => changed.push(stockId));
+      matching.getBook(7).add(bookOrder);
+
+      matching.apply(
+        7,
+        {
+          id: 20n,
+          accountId: 1,
+          stockId: 7,
+          clientOrderId: '3f2a9c1e-8b7d-4c5e-9f10-2a3b4c5d6e7f',
+          side: OrderSide.BUY,
+          orderType: OrderType.LIMIT,
+          price: 4_900n,
+          qty: 1n,
+          filledQty: 1n,
+          lockedAmount: 0n,
+          status: OrderStatus.FILLED,
+          canceledDate: null,
+          createDate: new Date(),
+          modifiedDate: new Date(),
+        },
+        [{ makerOrderId: 11n, makerAccountId: 2, price: 4_900n, qty: 1n }],
+      );
+      matching.removeOrder(7, 11n);
+      matching.clearBook(8);
+      await matching.reloadBook(9);
+
+      expect(changed).toEqual([7, 7, 8, 9]);
+    });
+  });
+
   describe('publishTrades', () => {
     it('체결마다 체결 이벤트를 발행한다', () => {
       const matching = new MatchingService({} as PrismaService);

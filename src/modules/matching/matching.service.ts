@@ -43,6 +43,10 @@ export class MatchingService implements OnModuleInit {
   /** 체결 이벤트. 체결이 DB에 커밋된 뒤에만 발행한다. */
   readonly tradeExecuted$: Observable<TradeExecutedEvent> =
     this.tradeExecuted.asObservable();
+  private readonly bookChanged = new Subject<number>();
+
+  /** 호가창이 바뀐 종목 ID. 커밋된 주문·체결·취소를 호가창에 반영한 뒤 발행한다. */
+  readonly bookChanged$: Observable<number> = this.bookChanged.asObservable();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -77,6 +81,7 @@ export class MatchingService implements OnModuleInit {
       this.addToBook(book, order);
     }
     this.books.set(stockId, book);
+    this.bookChanged.next(stockId);
     this.logger.warn(
       `호가창 다시 만들기: 종목 ${stockId}, 미체결 주문 ${orders.length}건`,
     );
@@ -116,6 +121,7 @@ export class MatchingService implements OnModuleInit {
     if (OPEN_STATUSES.includes(order.status)) {
       this.addToBook(book, order);
     }
+    this.bookChanged.next(stockId);
   }
 
   /** 좋은 가격부터 count단계의 매도·매수 호가 */
@@ -133,11 +139,13 @@ export class MatchingService implements OnModuleInit {
   /** DB 커밋에 성공한 거래 종료를 호가창에 반영한다. 그 종목의 호가창을 비운다. */
   clearBook(stockId: number): void {
     this.books.set(stockId, new OrderBook());
+    this.bookChanged.next(stockId);
   }
 
   /** DB 커밋에 성공한 취소를 호가창에 반영한다. 호가창에 없으면 아무것도 하지 않는다. */
   removeOrder(stockId: number, orderId: bigint): void {
     this.getBook(stockId).remove(orderId);
+    this.bookChanged.next(stockId);
   }
 
   private findOpenOrders(where: Prisma.OrderWhereInput) {
