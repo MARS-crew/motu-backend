@@ -79,6 +79,11 @@ export class MatchingService {
     }
   }
 
+  /** DB 커밋에 성공한 취소를 호가창에 반영한다. 호가창에 없으면 아무것도 하지 않는다. */
+  removeOrder(stockId: number, orderId: bigint): void {
+    this.getBook(stockId).remove(orderId);
+  }
+
   /** DB 커밋에 성공한 체결을 알린다. */
   publishTrades(trades: ExecutedTrade[]): void {
     for (const { trade, buyAccountId, sellAccountId } of trades) {

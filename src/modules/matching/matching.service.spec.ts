@@ -176,6 +176,29 @@ describe('MatchingService', () => {
     });
   });
 
+  describe('removeOrder', () => {
+    it('그 종목의 호가창에서 주문을 뺀다', () => {
+      const matching = new MatchingService({} as PrismaService);
+      matching.getBook(7).add({
+        orderId: 11n,
+        accountId: 2,
+        side: OrderSide.SELL,
+        price: 4_900n,
+        remainingQty: 3n,
+      });
+
+      matching.removeOrder(7, 11n);
+
+      expect(matching.getBook(7).get(11n)).toBeUndefined();
+    });
+
+    it('호가창에 없는 주문이면 아무것도 하지 않는다', () => {
+      const matching = new MatchingService({} as PrismaService);
+
+      expect(() => matching.removeOrder(7, 11n)).not.toThrow();
+    });
+  });
+
   describe('publishTrades', () => {
     it('체결마다 체결 이벤트를 발행한다', () => {
       const matching = new MatchingService({} as PrismaService);

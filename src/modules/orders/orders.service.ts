@@ -171,58 +171,80 @@ export class OrdersService {
    * 이미 취소된 주문이면 그대로 돌려준다.
    */
   async cancelOrder(userId: number, orderId: number): Promise<OrderResDto> {
-    const order = await this.prisma.$transaction(async (tx) => {
-      // 같은 주문의 취소가 동시에 들어와도 예약을 한 번만 풀도록 주문 행을 잠근다.
-      const [locked] = await tx.$queryRaw<{ order_id: bigint }[]>`
-        SELECT o.order_id
-        FROM orders o
-        JOIN accounts a ON a.account_id = o.account_id
-        WHERE o.order_id = ${BigInt(orderId)} AND a.user_id = ${userId}
-        FOR UPDATE OF o
-      `;
-      if (!locked) {
-        throw new BusinessException(OrderErrors.NOT_FOUND);
-      }
+    const owned = await this.prisma.order.findFirst({
+      where: { id: BigInt(orderId), account: { userId } },
+      select: { stockId: true },
+    });
+    if (!owned) {
+      throw new BusinessException(OrderErrors.NOT_FOUND);
+    }
 
-      const current = await tx.order.findUniqueOrThrow({
-        where: { id: locked.order_id },
-      });
-      if (current.status === OrderStatus.CANCELED) {
-        return current;
-      }
-      if (current.status === OrderStatus.FILLED) {
-        throw new BusinessException(OrderErrors.NOT_CANCELABLE);
-      }
+    // 같은 종목의 체결과 겹치지 않도록 종목별 순서 안에서 취소한다. 먼저 처리된 쪽만 반영된다.
+    const order = await this.matching.runExclusive(owned.stockId, async () => {
+      const { order: result, canceled } = await this.prisma.$transaction(
+        async (tx) => {
+          // 같은 주문의 취소가 동시에 들어와도 예약을 한 번만 풀도록 주문 행을 잠근다.
+          const [locked] = await tx.$queryRaw<{ order_id: bigint }[]>`
+            SELECT o.order_id
+            FROM orders o
+            JOIN accounts a ON a.account_id = o.account_id
+            WHERE o.order_id = ${BigInt(orderId)} AND a.user_id = ${userId}
+            FOR UPDATE OF o
+          `;
+          if (!locked) {
+            throw new BusinessException(OrderErrors.NOT_FOUND);
+          }
 
-      if (current.side === OrderSide.BUY) {
-        // 포인트 지급·리셋의 버전 검사에 걸리도록 version도 올린다.
-        await tx.account.update({
-          where: { id: current.accountId },
-          data: {
-            lockedCash: { decrement: current.lockedAmount },
-            version: { increment: 1 },
-          },
-        });
-      } else {
-        await tx.holding.update({
-          where: {
-            accountId_stockId: {
-              accountId: current.accountId,
-              stockId: current.stockId,
+          const current = await tx.order.findUniqueOrThrow({
+            where: { id: locked.order_id },
+          });
+          if (current.status === OrderStatus.CANCELED) {
+            return { order: current, canceled: false };
+          }
+          if (current.status === OrderStatus.FILLED) {
+            throw new BusinessException(OrderErrors.NOT_CANCELABLE);
+          }
+
+          if (current.side === OrderSide.BUY) {
+            // 포인트 지급·리셋의 버전 검사에 걸리도록 version도 올린다.
+            await tx.account.update({
+              where: { id: current.accountId },
+              data: {
+                lockedCash: { decrement: current.lockedAmount },
+                version: { increment: 1 },
+              },
+            });
+          } else {
+            await tx.holding.update({
+              where: {
+                accountId_stockId: {
+                  accountId: current.accountId,
+                  stockId: current.stockId,
+                },
+              },
+              data: {
+                lockedQty: { decrement: current.qty - current.filledQty },
+              },
+            });
+          }
+
+          const updated = await tx.order.update({
+            where: { id: current.id },
+            data: {
+              status: OrderStatus.CANCELED,
+              lockedAmount: 0n,
+              canceledDate: new Date(),
             },
-          },
-          data: { lockedQty: { decrement: current.qty - current.filledQty } },
-        });
-      }
-
-      return tx.order.update({
-        where: { id: current.id },
-        data: {
-          status: OrderStatus.CANCELED,
-          lockedAmount: 0n,
-          canceledDate: new Date(),
+          });
+          return { order: updated, canceled: true };
         },
-      });
+      );
+
+      // 커밋에 성공한 취소만 호가창에 반영한다.
+      if (canceled) {
+        this.matching.removeOrder(result.stockId, result.id);
+      }
+      return result;
     });
 
     return this.toOrderRes(order);

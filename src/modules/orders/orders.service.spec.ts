@@ -53,6 +53,7 @@ describe('OrdersService', () => {
     match: vi.fn(),
     apply: vi.fn(),
     publishTrades: vi.fn(),
+    removeOrder: vi.fn(),
   };
   const settlement = {
     lockAccounts: vi.fn(),
@@ -564,9 +565,63 @@ describe('OrdersService', () => {
     };
 
     beforeEach(() => {
+      order.findFirst.mockResolvedValue({ stockId: 1 });
       tx.order.update.mockImplementation(({ data }) =>
         Promise.resolve({ ...orderRowOf(), ...data }),
       );
+    });
+
+    it('내 주문의 종목을 찾아 그 종목의 순서 안에서 취소한다', async () => {
+      givenOrder();
+
+      await service.cancelOrder(USER_ID, ORDER_ID);
+
+      expect(order.findFirst).toHaveBeenCalledWith({
+        where: { id: 100n, account: { userId: USER_ID } },
+        select: { stockId: true },
+      });
+      expect(matching.runExclusive).toHaveBeenCalledWith(
+        1,
+        expect.any(Function),
+      );
+      expect(matching.runExclusive.mock.invocationCallOrder[0]).toBeLessThan(
+        transaction.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('취소가 커밋되면 호가창에서 주문을 뺀다', async () => {
+      givenOrder();
+
+      await service.cancelOrder(USER_ID, ORDER_ID);
+
+      expect(matching.removeOrder).toHaveBeenCalledWith(1, 100n);
+      expect(matching.removeOrder.mock.invocationCallOrder[0]).toBeGreaterThan(
+        tx.order.update.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('취소하지 못하면 호가창을 건드리지 않는다', async () => {
+      givenOrder({
+        status: OrderStatus.FILLED,
+        filledQty: 10n,
+        lockedAmount: 0n,
+      });
+
+      await errorOf(service.cancelOrder(USER_ID, ORDER_ID));
+
+      expect(matching.removeOrder).not.toHaveBeenCalled();
+    });
+
+    it('이미 취소된 주문이면 호가창을 건드리지 않는다', async () => {
+      givenOrder({
+        status: OrderStatus.CANCELED,
+        lockedAmount: 0n,
+        canceledDate: new Date(),
+      });
+
+      await service.cancelOrder(USER_ID, ORDER_ID);
+
+      expect(matching.removeOrder).not.toHaveBeenCalled();
     });
 
     it('매수 주문을 취소하면 남은 예약 포인트를 풀고 취소 상태로 바꾼다', async () => {
@@ -666,11 +721,12 @@ describe('OrdersService', () => {
     });
 
     it('없거나 다른 회원의 주문은 찾을 수 없다', async () => {
-      tx.$queryRaw.mockResolvedValue([]);
+      order.findFirst.mockResolvedValue(null);
 
       const error = await errorOf(service.cancelOrder(USER_ID, ORDER_ID));
 
       expect(error.error).toBe(OrderErrors.NOT_FOUND);
+      expect(matching.runExclusive).not.toHaveBeenCalled();
     });
 
     it('내 주문 행을 잠근 뒤 상태를 확인한다', async () => {
