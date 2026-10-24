@@ -25,7 +25,14 @@ const png = Buffer.from(
   'base64',
 );
 let checks = 0;
-async function call(path, token, method = 'GET', body, expected = 200) {
+async function call(
+  path,
+  token,
+  method = 'GET',
+  body,
+  expected = 200,
+  expectedError,
+) {
   const response = await fetch(base + path, {
     method,
     headers: {
@@ -42,6 +49,18 @@ async function call(path, token, method = 'GET', body, expected = 200) {
   });
   const data = await response.json();
   assert.equal(response.status, expected, JSON.stringify(data));
+  if (expectedError) {
+    assert.equal(data.success, false);
+    assert.partialDeepStrictEqual(data.error, expectedError);
+    if (Array.isArray(data.error.details)) {
+      assert(data.error.details.length > 0);
+      assert(
+        data.error.details.every(
+          (message) => message === expectedError.message,
+        ),
+      );
+    }
+  }
   checks++;
   return data.data;
 }
@@ -86,6 +105,41 @@ try {
   }
   const id = await create('EVIDENCE');
   const path = `/files/collections/${id}`;
+  const invalidRequest = {
+    code: 'BAD_REQUEST',
+    message: '요청 값이 올바르지 않습니다.',
+  };
+  // 실제 HTTP 경로에서 DTO 및 모든 UUID 파라미터의 한글 응답을 확인한다.
+  for (const [method, route, body] of [
+    ['POST', '/files/collections', { purpose: 'UNKNOWN' }],
+    ['POST', path + '/links', { url: 123 }],
+    ['POST', path + '/links', { url: 'a'.repeat(2049) }],
+    ['PUT', path, { attachmentIds: 'not-array' }],
+    ['PUT', path, { attachmentIds: ['not-uuid'] }],
+    ['PUT', path, { attachmentIds: [id, id] }],
+    ['PUT', path, { attachmentIds: Array(11).fill(id) }],
+    ['PUT', path, { attachmentIds: [], description: 123 }],
+    ['PUT', path, { attachmentIds: [], description: 'a'.repeat(501) }],
+    ['PUT', path, { attachmentIds: [], validateStep: 'true' }],
+    ['GET', '/files/collections/not-uuid'],
+    ['POST', '/files/collections/not-uuid/uploads', new FormData()],
+    [
+      'POST',
+      '/files/collections/not-uuid/links',
+      { url: 'https://example.com' },
+    ],
+    ['PUT', '/files/collections/not-uuid', { attachmentIds: [] }],
+    ['DELETE', `/files/collections/not-uuid/attachments/${randomUUID()}`],
+    ['DELETE', path + '/attachments/not-uuid'],
+    ['GET', `/files/collections/not-uuid/attachments/${randomUUID()}/content`],
+    ['GET', path + '/attachments/not-uuid/content'],
+  ]) {
+    await call(route, token, method, body, 400, invalidRequest);
+  }
+  await call(path + '/uploads', token, 'POST', new FormData(), 400, {
+    code: 'FILE_REQUIRED',
+    message: '파일을 선택해 주세요.',
+  });
   await call(path, null, 'GET', undefined, 401);
   await call(path, other, 'GET', undefined, 404);
   await call(
@@ -135,6 +189,10 @@ try {
     'PUT',
     { attachmentIds: [file.id], description: '짧음', validateStep: true },
     400,
+    {
+      code: 'FILE_INVALID_DESCRIPTION',
+      message: '자료 설명은 10자 이상 500자 이하로 입력해 주세요.',
+    },
   );
   const saved = await call(path, token, 'PUT', {
     attachmentIds: [file.id],
