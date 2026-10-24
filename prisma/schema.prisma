@@ -308,6 +308,7 @@ model Stock {
   wishlists     Wishlist[]
   holdings      Holding[]
   orders        Order[]
+  trades        Trade[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -433,12 +434,38 @@ model Order {
   createDate    DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate  DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  account Account @relation(fields: [accountId], references: [id])
-  stock   Stock   @relation(fields: [stockId], references: [id])
+  account    Account @relation(fields: [accountId], references: [id])
+  stock      Stock   @relation(fields: [stockId], references: [id])
+  buyTrades  Trade[] @relation("BuyOrderTrades")
+  sellTrades Trade[] @relation("SellOrderTrades")
 
   @@unique([accountId, clientOrderId])
   // 서버 재시작 시 미체결 주문으로 호가창을 복구할 때 쓴다.
   @@index([stockId, status, side, price, createDate])
   @@index([accountId, createDate])
   @@map("orders")
+}
+
+/// 체결. 매수·매도 주문 한 쌍이 한 가격에 체결된 기록이다.
+/// 나중에 들어온 주문이 체결을 일으킨 쪽이다. buyOrderId > sellOrderId면 매수 체결, 아니면 매도 체결이다.
+model Trade {
+  id          BigInt   @id @default(autoincrement()) @map("trade_id")
+  stockId     Int      @map("stock_id")
+  buyOrderId  BigInt   @map("buy_order_id")
+  sellOrderId BigInt   @map("sell_order_id")
+  /// 체결가 (먼저 호가창에 있던 주문의 가격)
+  price       BigInt
+  /// 체결 수량
+  qty         BigInt
+  createDate  DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  stock     Stock @relation(fields: [stockId], references: [id])
+  buyOrder  Order @relation("BuyOrderTrades", fields: [buyOrderId], references: [id])
+  sellOrder Order @relation("SellOrderTrades", fields: [sellOrderId], references: [id])
+
+  // 최근 체결, 당일 거래 요약
+  @@index([stockId, createDate])
+  @@index([buyOrderId])
+  @@index([sellOrderId])
+  @@map("trades")
 }
