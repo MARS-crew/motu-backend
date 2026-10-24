@@ -57,7 +57,21 @@ Railway OAuth 연결은 자격증명 값을 제공하지 않으므로 MinIO 내�
 
 ## 실패 처리와 한계
 
-FILE_INVALID_FORMAT(400), FILE_TOO_LARGE(413), FILE_LIMIT_EXCEEDED(400), FILE_INVALID_URL(400), FILE_NOT_COMPLETED(400), FILE_NOT_FOUND(404), FILE_STORAGE_UNAVAILABLE(503)를 처리한다. multipart 파서 자체의 용량/개수/필드 제한은 공통 413/400으로 반환될 수 있다.
+요청 DTO의 형식·타입 검증 실패는 BAD_REQUEST(400)와 한글 공통 문구 `요청 값이 올바르지 않습니다.`를 반환하며, details의 검증 문구에도 같은 값을 사용한다. 경로의 작성 묶음 ID와 자료 ID는 UUID v4만 허용하며, 잘못된 UUID도 같은 한글 문구로 반환한다.
+
+| 코드 | 상태 | 조건 |
+|---|---|---|
+| FILE_REQUIRED | 400 | 업로드할 파일을 선택하지 않음 |
+| FILE_INVALID_DESCRIPTION | 400 | 다음 단계 이동 시 EVIDENCE 설명이 없거나 공백 제거 후 10자 미만 |
+| FILE_INVALID_FORMAT | 400 | 허용하지 않는 파일 형식 |
+| FILE_TOO_LARGE | 413 | 파일 용량 초과 |
+| FILE_LIMIT_EXCEEDED | 400 | 파일·링크 최대 개수 초과 |
+| FILE_INVALID_URL | 400 | HTTPS 링크 정책 위반 |
+| FILE_NOT_COMPLETED | 400 | 해당 작성 묶음에 없는 완료 자료 ID |
+| FILE_NOT_FOUND | 404 | 자료가 없거나 소유자가 아님 |
+| FILE_STORAGE_UNAVAILABLE | 503 | 파일 저장소 연결 실패 |
+
+설명의 타입 오류나 500자 초과는 DTO 검증에서 BAD_REQUEST로 반환한다. multipart 파서 자체의 용량/개수/필드 제한은 공통 413/400으로 반환될 수 있다.
 삭제는 DB 참조 제거 후 저장소를 정리한다. 정리 실패는 서버에 로그를 남긴다. 프로세스 강제 종료나 정리 실패로 남은 미참조 객체는 별도 저장소 청소 작업이 필요하다. 업로드는 한 요청 최대 200MiB를 메모리로 처리하므로 운영 동시 요청량에 맞게 프록시 제한과 메모리 용량을 설정한다.
 
 ## 로컬 확인
