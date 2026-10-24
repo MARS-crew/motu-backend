@@ -40,6 +40,12 @@ export class OrderResDto {
   remainingQty: number;
 
   @ApiProperty({
+    description: '주문 금액 (P, 주문 가격 × 주문 수량, 수수료 제외)',
+    example: 67_000,
+  })
+  orderAmount: number;
+
+  @ApiProperty({
     description: '매수 주문에 남아 있는 예약 포인트 (매도는 0)',
     example: 50_000,
   })

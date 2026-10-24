@@ -565,6 +565,7 @@ export class OrdersService {
       remainingQty: order.canceledDate
         ? 0
         : Number(order.qty - order.filledQty),
+      orderAmount: Number(order.price * order.qty),
       lockedAmount: Number(order.lockedAmount),
       status: order.status,
       createDate: order.createDate,
