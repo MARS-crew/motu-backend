@@ -275,6 +275,12 @@ model Stock {
   listedShares      BigInt      @map("listed_shares")
   /// 기준가 (최종 상장가). 체결이 없으면 현재가로 쓴다.
   basePrice         BigInt      @map("base_price")
+  /// 호가 단위. 주문 가격은 이 값의 배수여야 한다.
+  priceTickSize     BigInt      @map("price_tick_size")
+  /// 최소 주문 가격
+  minOrderPrice     BigInt      @map("min_order_price")
+  /// 최소 주문 수량
+  minOrderQty       BigInt      @map("min_order_qty")
   listingDate       DateTime    @map("listing_date") @db.Timestamptz(3)
   tradeStatus       TradeStatus @map("trade_status")
   /// 주요 서비스 지표 (상장 신청에서 입력한 값, 없으면 null)
