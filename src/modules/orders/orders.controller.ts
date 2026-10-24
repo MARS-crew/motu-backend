@@ -24,7 +24,7 @@ export class OrdersController {
   @ApiOperation({
     summary: '주문하기',
     description:
-      '지정가 주문을 접수한다. 매수는 주문 금액과 수수료만큼 포인트를, 매도는 주문 수량만큼 보유 수량을 예약한다. 규칙에 어긋나면 details에 해당 규칙 값을 담는다.',
+      '지정가 주문을 접수한다. 매수는 주문 금액과 수수료만큼 포인트를, 매도는 주문 수량만큼 보유 수량을 예약한다. 규칙에 어긋나면 details에 해당 규칙 값을 담는다. 같은 clientOrderId로 다시 보내면 새로 접수하지 않고 접수된 주문을 돌려준다.',
   })
   @ApiCreatedResponse({ type: OrderResDto })
   @ApiBadRequestResponse({
@@ -32,7 +32,9 @@ export class OrdersController {
       'BAD_REQUEST / ORDER_INVALID_PRICE_TICK / ORDER_PRICE_TOO_LOW / ORDER_QTY_TOO_LOW / ORDER_INSUFFICIENT_CASH / ORDER_INSUFFICIENT_QTY',
   })
   @ApiNotFoundResponse({ description: 'STOCK_NOT_FOUND / ACCOUNT_NOT_FOUND' })
-  @ApiConflictResponse({ description: 'ORDER_STOCK_NOT_TRADABLE' })
+  @ApiConflictResponse({
+    description: 'ORDER_STOCK_NOT_TRADABLE / ORDER_CLIENT_ID_REUSED',
+  })
   placeOrder(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateOrderReqDto,

@@ -32,4 +32,10 @@ export const OrderErrors = {
     message: '매도 가능 수량이 부족합니다.',
     status: HttpStatus.BAD_REQUEST,
   },
+  /** 같은 clientOrderId로 내용(상품·방향·가격·수량)이 다른 주문을 보낸 경우 */
+  CLIENT_ID_REUSED: {
+    code: 'ORDER_CLIENT_ID_REUSED',
+    message: '이미 다른 내용으로 접수된 주문 요청입니다. 다시 주문해 주세요.',
+    status: HttpStatus.CONFLICT,
+  },
 } as const satisfies Record<string, ErrorDefinition>;

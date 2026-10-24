@@ -45,6 +45,12 @@ export class OrdersService {
     const price = BigInt(dto.price);
     const qty = BigInt(dto.qty);
 
+    // 응답을 못 받아 다시 보낸 요청이면 상품 상태와 관계없이 접수된 주문을 돌려준다.
+    const existing = await this.findByClientOrderId(userId, dto.clientOrderId);
+    if (existing) {
+      return this.toReplayedOrderRes(existing, dto);
+    }
+
     const stock = await this.prisma.stock.findFirst({
       where: { id: dto.stockId, isDeleted: false },
     });
@@ -53,25 +59,65 @@ export class OrdersService {
     }
     validateOrderRules(stock, price, qty);
 
-    const order = await this.prisma.$transaction(async (tx) => {
-      const { accountId, lockedAmount } =
-        dto.side === OrderSide.BUY
-          ? await this.lockCash(tx, userId, price, qty)
-          : await this.lockQty(tx, userId, stock.id, qty);
+    try {
+      const order = await this.prisma.$transaction(async (tx) => {
+        const { accountId, lockedAmount } =
+          dto.side === OrderSide.BUY
+            ? await this.lockCash(tx, userId, price, qty)
+            : await this.lockQty(tx, userId, stock.id, qty);
 
-      return tx.order.create({
-        data: {
-          accountId,
-          stockId: stock.id,
-          clientOrderId: dto.clientOrderId,
-          side: dto.side,
-          price,
-          qty,
-          lockedAmount,
-        },
+        return tx.order.create({
+          data: {
+            accountId,
+            stockId: stock.id,
+            clientOrderId: dto.clientOrderId,
+            side: dto.side,
+            price,
+            qty,
+            lockedAmount,
+          },
+        });
       });
-    });
+      return this.toOrderRes(order);
+    } catch (error) {
+      // 같은 요청이 동시에 들어와 다른 요청이 먼저 접수한 경우. 이 요청의 예약은 트랜잭션과 함께 취소된다.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const order = await this.findByClientOrderId(userId, dto.clientOrderId);
+        if (order) {
+          return this.toReplayedOrderRes(order, dto);
+        }
+      }
+      throw error;
+    }
+  }
 
+  private findByClientOrderId(
+    userId: number,
+    clientOrderId: string,
+  ): Promise<Order | null> {
+    return this.prisma.order.findFirst({
+      where: { clientOrderId, account: { userId } },
+    });
+  }
+
+  /**
+   * 다시 보낸 요청이면 접수된 주문을 그대로 돌려준다. 같은 키로 내용이 다른 주문이면 거부한다.
+   */
+  private toReplayedOrderRes(
+    order: Order,
+    dto: CreateOrderReqDto,
+  ): OrderResDto {
+    const isSameRequest =
+      order.stockId === dto.stockId &&
+      order.side === dto.side &&
+      order.price === BigInt(dto.price) &&
+      order.qty === BigInt(dto.qty);
+    if (!isSameRequest) {
+      throw new BusinessException(OrderErrors.CLIENT_ID_REUSED);
+    }
     return this.toOrderRes(order);
   }
 

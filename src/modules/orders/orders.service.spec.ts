@@ -4,6 +4,7 @@ import {
   OrderSide,
   OrderStatus,
   OrderType,
+  Prisma,
   TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
@@ -19,6 +20,7 @@ const CREATE_DATE = new Date('2026-10-24T01:00:00.000Z');
 
 describe('OrdersService', () => {
   const stock = { findFirst: vi.fn() };
+  const order = { findFirst: vi.fn() };
   const tx = {
     $queryRaw: vi.fn(),
     account: { update: vi.fn() },
@@ -30,6 +32,7 @@ describe('OrdersService', () => {
   );
   const prisma = {
     stock,
+    order,
     $transaction: transaction,
   } as unknown as PrismaService;
   const service = new OrdersService(prisma);
@@ -53,9 +56,9 @@ describe('OrdersService', () => {
 
   const orderOf =
     (side: OrderSide) =>
-    (price: number, qty: number): CreateOrderReqDto => ({
+    (price: number, qty: number, stockId = 1): CreateOrderReqDto => ({
       clientOrderId: CLIENT_ORDER_ID,
-      stockId: 1,
+      stockId,
       side,
       price,
       qty,
@@ -75,6 +78,7 @@ describe('OrdersService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stock.findFirst.mockResolvedValue(stockOf());
+    order.findFirst.mockResolvedValue(null);
     tx.order.create.mockImplementation(({ data }) =>
       Promise.resolve({
         id: 100n,
@@ -284,6 +288,103 @@ describe('OrdersService', () => {
 
       expect(error.error).toBe(OrderErrors.INVALID_PRICE_TICK);
       expect(transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('placeOrder (중복 요청)', () => {
+    const existingOrder = {
+      id: 100n,
+      accountId: ACCOUNT_ID,
+      stockId: 1,
+      clientOrderId: CLIENT_ORDER_ID,
+      side: OrderSide.BUY,
+      orderType: OrderType.LIMIT,
+      price: 5_000n,
+      qty: 200n,
+      filledQty: 50n,
+      lockedAmount: 750_000n,
+      status: OrderStatus.PARTIAL,
+      canceledDate: null,
+      createDate: CREATE_DATE,
+    };
+
+    it('같은 clientOrderId로 접수된 주문이 있으면 새로 만들지 않고 그 주문을 돌려준다', async () => {
+      order.findFirst.mockResolvedValue(existingOrder);
+
+      const result = await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      expect(order.findFirst).toHaveBeenCalledWith({
+        where: { clientOrderId: CLIENT_ORDER_ID, account: { userId: USER_ID } },
+      });
+      expect(transaction).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        orderId: 100,
+        filledQty: 50,
+        remainingQty: 150,
+        status: OrderStatus.PARTIAL,
+      });
+    });
+
+    it('재전송 전에 상품이 거래 중지돼도 접수된 주문을 돌려준다', async () => {
+      order.findFirst.mockResolvedValue(existingOrder);
+      stock.findFirst.mockResolvedValue(
+        stockOf({ tradeStatus: TradeStatus.PAUSED }),
+      );
+
+      const result = await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      expect(result.orderId).toBe(100);
+    });
+
+    it.each([
+      ['상품', buyOf(5_000, 200, 2)],
+      ['방향', sellOf(5_000, 200)],
+      ['가격', buyOf(5_010, 200)],
+      ['수량', buyOf(5_000, 201)],
+    ])('같은 clientOrderId인데 %s이 다르면 주문할 수 없다', async (_, dto) => {
+      order.findFirst.mockResolvedValue(existingOrder);
+
+      const error = await errorOf(service.placeOrder(USER_ID, dto));
+
+      expect(error.error).toBe(OrderErrors.CLIENT_ID_REUSED);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+
+    it('같은 요청이 동시에 들어와 먼저 접수된 주문이 있으면 그 주문을 돌려준다', async () => {
+      tx.$queryRaw.mockResolvedValue(lockedAccountOf(3_000_000n, 0n));
+      tx.order.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+      order.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(existingOrder);
+
+      const result = await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      expect(result.orderId).toBe(100);
+      expect(order.findFirst).toHaveBeenCalledTimes(2);
+    });
+
+    it('동시에 들어온 요청의 내용이 다르면 주문할 수 없다', async () => {
+      tx.$queryRaw.mockResolvedValue(lockedAccountOf(3_000_000n, 0n));
+      tx.order.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+      order.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ ...existingOrder, price: 4_000n });
+
+      const error = await errorOf(
+        service.placeOrder(USER_ID, buyOf(5_000, 200)),
+      );
+
+      expect(error.error).toBe(OrderErrors.CLIENT_ID_REUSED);
     });
   });
 });
