@@ -105,16 +105,24 @@ model Account {
 model CashLedger {
   id           BigInt         @id @default(autoincrement()) @map("ledger_id")
   accountId    Int            @map("account_id")
+  /// 체결로 생긴 기록(BUY, SELL)이면 해당 체결. 지급·리셋·조정 등은 null이다.
+  tradeId      BigInt?        @map("trade_id")
   type         CashLedgerType
-  /// 증감 금액 (+ 또는 -)
+  /// 증감 금액 (+ 또는 -). 수수료까지 반영한 실제 증감액이다.
   amount       BigInt
+  /// amount 중 수수료
+  fee          BigInt         @default(0)
+  /// 실현손익. SELL일 때만 값이 있다. (매도대금 - 매도 수수료 - 매도분 매입금액)
+  realizedPnl  BigInt?        @map("realized_pnl")
   /// 반영 직후 잔액
   balanceAfter BigInt         @map("balance_after")
   createDate   DateTime       @default(now()) @map("create_date") @db.Timestamptz(3)
 
   account Account @relation(fields: [accountId], references: [id])
+  trade   Trade?  @relation(fields: [tradeId], references: [id], onDelete: Restrict)
 
   @@index([accountId, createDate])
+  @@index([tradeId])
   @@map("cash_ledgers")
 }
 
@@ -459,9 +467,10 @@ model Trade {
   qty         BigInt
   createDate  DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
 
-  stock     Stock @relation(fields: [stockId], references: [id])
-  buyOrder  Order @relation("BuyOrderTrades", fields: [buyOrderId], references: [id])
-  sellOrder Order @relation("SellOrderTrades", fields: [sellOrderId], references: [id])
+  stock     Stock        @relation(fields: [stockId], references: [id])
+  buyOrder  Order        @relation("BuyOrderTrades", fields: [buyOrderId], references: [id])
+  sellOrder Order        @relation("SellOrderTrades", fields: [sellOrderId], references: [id])
+  ledgers   CashLedger[]
 
   // 최근 체결, 당일 거래 요약
   @@index([stockId, createDate])
