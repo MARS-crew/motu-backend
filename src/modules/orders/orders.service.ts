@@ -9,6 +9,8 @@ import {
   Trade,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
+import { MatchingService } from '../matching/matching.service.js';
+import { SettlementService } from '../matching/settlement.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
 import { GetOrderAvailableResDto } from './dto/res/get-order-available-res.dto.js';
@@ -66,10 +68,15 @@ interface LockedHoldingRow {
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly matching: MatchingService,
+    private readonly settlement: SettlementService,
+  ) {}
 
   /**
-   * 주문을 접수한다. 매수는 포인트를, 매도는 보유 수량을 예약한다.
+   * 주문을 접수하고 호가창과 체결한다. 매수는 포인트를, 매도는 보유 수량을 예약한다.
+   * 예약·주문 생성·체결 정산을 한 트랜잭션으로 처리하고, 커밋한 뒤에 호가창에 반영한다.
    */
   async placeOrder(
     userId: number,
@@ -92,24 +99,56 @@ export class OrdersService {
     }
     validateOrderRules(stock, price, qty);
 
-    try {
-      const order = await this.prisma.$transaction(async (tx) => {
-        const { accountId, lockedAmount } =
-          dto.side === OrderSide.BUY
-            ? await this.lockCash(tx, userId, price, qty)
-            : await this.lockQty(tx, userId, stock.id, qty);
+    const account = await this.prisma.account.findUnique({
+      where: { userId },
+    });
+    if (!account) {
+      throw new BusinessException(AccountErrors.NOT_FOUND);
+    }
 
-        return tx.order.create({
-          data: {
-            accountId,
-            stockId: stock.id,
-            clientOrderId: dto.clientOrderId,
-            side: dto.side,
-            price,
-            qty,
-            lockedAmount,
-          },
+    try {
+      const order = await this.matching.runExclusive(stock.id, async () => {
+        // 호가창은 이 종목의 순서 안에서만 바뀌므로, 계산한 체결 목록이 정산할 때까지 그대로다.
+        const match = this.matching.match(stock.id, {
+          accountId: account.id,
+          side: dto.side,
+          price,
+          qty,
         });
+        if (match.selfTrade) {
+          throw new BusinessException(OrderErrors.SELF_TRADE);
+        }
+
+        const { order: settled, trades } = await this.prisma.$transaction(
+          async (tx) => {
+            await this.settlement.lockAccounts(tx, [
+              account.id,
+              ...match.fills.map(({ makerAccountId }) => makerAccountId),
+            ]);
+            const { accountId, lockedAmount } =
+              dto.side === OrderSide.BUY
+                ? await this.lockCash(tx, userId, price, qty)
+                : await this.lockQty(tx, userId, stock.id, qty);
+
+            const created = await tx.order.create({
+              data: {
+                accountId,
+                stockId: stock.id,
+                clientOrderId: dto.clientOrderId,
+                side: dto.side,
+                price,
+                qty,
+                lockedAmount,
+              },
+            });
+            return this.settlement.settle(tx, created, match.fills);
+          },
+        );
+
+        // 커밋에 성공한 뒤에만 메모리 호가창을 바꾸고 체결을 알린다.
+        this.matching.apply(stock.id, settled, match.fills);
+        this.matching.publishTrades(trades);
+        return settled;
       });
       return this.toOrderRes(order);
     } catch (error) {

@@ -8,6 +8,8 @@ import {
   TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
+import { MatchingService } from '../matching/matching.service.js';
+import { SettlementService } from '../matching/settlement.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
 import { OrderListStatus } from './orders.constants.js';
@@ -46,7 +48,21 @@ describe('OrdersService', () => {
     holding,
     $transaction: transaction,
   } as unknown as PrismaService;
-  const service = new OrdersService(prisma);
+  const matching = {
+    runExclusive: vi.fn((_: number, task: () => Promise<unknown>) => task()),
+    match: vi.fn(),
+    apply: vi.fn(),
+    publishTrades: vi.fn(),
+  };
+  const settlement = {
+    lockAccounts: vi.fn(),
+    settle: vi.fn(),
+  };
+  const service = new OrdersService(
+    prisma,
+    matching as unknown as MatchingService,
+    settlement as unknown as SettlementService,
+  );
 
   const stockOf = (overrides: Record<string, unknown> = {}) => ({
     id: 1,
@@ -91,6 +107,19 @@ describe('OrdersService', () => {
     stock.findFirst.mockResolvedValue(stockOf());
     order.findFirst.mockResolvedValue(null);
     trade.findMany.mockResolvedValue([]);
+    account.findUnique.mockResolvedValue({
+      id: ACCOUNT_ID,
+      cash: 3_000_000n,
+      lockedCash: 0n,
+    });
+    matching.match.mockImplementation((_, { qty }: { qty: bigint }) => ({
+      selfTrade: false,
+      fills: [],
+      remainingQty: qty,
+    }));
+    settlement.settle.mockImplementation((_, created: unknown) =>
+      Promise.resolve({ order: created, trades: [] }),
+    );
     tx.order.create.mockImplementation(({ data }) =>
       Promise.resolve({
         id: 100n,
@@ -206,13 +235,122 @@ describe('OrdersService', () => {
     });
 
     it('계좌가 없으면 주문할 수 없다', async () => {
-      tx.$queryRaw.mockResolvedValue([]);
+      account.findUnique.mockResolvedValue(null);
 
       const error = await errorOf(
         service.placeOrder(USER_ID, buyOf(5_000, 200)),
       );
 
       expect(error.error).toBe(AccountErrors.NOT_FOUND);
+      expect(transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('placeOrder (매칭)', () => {
+    const fills = [
+      { makerOrderId: 11n, makerAccountId: 9, price: 4_900n, qty: 50n },
+      { makerOrderId: 12n, makerAccountId: 5, price: 5_000n, qty: 30n },
+    ];
+
+    beforeEach(() => {
+      tx.$queryRaw.mockResolvedValue(lockedAccountOf(3_000_000n, 0n));
+    });
+
+    it('종목별 순서 안에서 내 계좌로 매칭을 계산한다', async () => {
+      await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      expect(matching.runExclusive).toHaveBeenCalledWith(
+        1,
+        expect.any(Function),
+      );
+      expect(matching.match).toHaveBeenCalledWith(1, {
+        accountId: ACCOUNT_ID,
+        side: OrderSide.BUY,
+        price: 5_000n,
+        qty: 200n,
+      });
+    });
+
+    it('자기 체결이면 예약하지 않고 주문을 거부한다', async () => {
+      matching.match.mockReturnValue({ selfTrade: true });
+
+      const error = await errorOf(
+        service.placeOrder(USER_ID, buyOf(5_000, 200)),
+      );
+
+      expect(error.error).toBe(OrderErrors.SELF_TRADE);
+      expect(transaction).not.toHaveBeenCalled();
+      expect(matching.apply).not.toHaveBeenCalled();
+    });
+
+    it('예약보다 먼저 관련 계좌를 모두 잠근다', async () => {
+      matching.match.mockReturnValue({
+        selfTrade: false,
+        fills,
+        remainingQty: 120n,
+      });
+
+      await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      expect(settlement.lockAccounts).toHaveBeenCalledWith(tx, [
+        ACCOUNT_ID,
+        9,
+        5,
+      ]);
+      expect(settlement.lockAccounts.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.$queryRaw.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('같은 트랜잭션에서 주문을 만든 뒤 정산하고, 커밋 후 호가창에 반영하고 체결을 알린다', async () => {
+      matching.match.mockReturnValue({
+        selfTrade: false,
+        fills,
+        remainingQty: 120n,
+      });
+      const trades = [{ trade: { id: 101n } }];
+      settlement.settle.mockImplementation((_, created: object) =>
+        Promise.resolve({
+          order: { ...created, filledQty: 80n, status: OrderStatus.PARTIAL },
+          trades,
+        }),
+      );
+
+      const result = await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      const [settleTx, created, settleFills] = settlement.settle.mock.calls[0];
+      expect(settleTx).toBe(tx);
+      expect(created).toMatchObject({
+        id: 100n,
+        clientOrderId: CLIENT_ORDER_ID,
+      });
+      expect(settleFills).toBe(fills);
+      expect(matching.apply).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ id: 100n, filledQty: 80n }),
+        fills,
+      );
+      expect(matching.publishTrades).toHaveBeenCalledWith(trades);
+      expect(result).toMatchObject({
+        filledQty: 80,
+        remainingQty: 120,
+        status: OrderStatus.PARTIAL,
+      });
+    });
+
+    it('트랜잭션이 실패하면 호가창에 반영하지 않고 체결도 알리지 않는다', async () => {
+      matching.match.mockReturnValue({
+        selfTrade: false,
+        fills,
+        remainingQty: 120n,
+      });
+      settlement.settle.mockRejectedValue(new Error('정산 실패'));
+
+      await expect(
+        service.placeOrder(USER_ID, buyOf(5_000, 200)),
+      ).rejects.toThrow('정산 실패');
+      expect(matching.apply).not.toHaveBeenCalled();
+      expect(matching.publishTrades).not.toHaveBeenCalled();
     });
   });
 

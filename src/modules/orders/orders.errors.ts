@@ -32,6 +32,13 @@ export const OrderErrors = {
     message: '매도 가능 수량이 부족합니다.',
     status: HttpStatus.BAD_REQUEST,
   },
+  /** 닿을 수 있는 가격대에 내 반대편 미체결 주문이 있는 경우 */
+  SELF_TRADE: {
+    code: 'ORDER_SELF_TRADE',
+    message:
+      '내 미체결 주문과 체결될 수 있는 가격입니다. 기존 주문을 취소한 뒤 다시 주문해 주세요.',
+    status: HttpStatus.CONFLICT,
+  },
   /** 같은 clientOrderId로 내용(상품·방향·가격·수량)이 다른 주문을 보낸 경우 */
   CLIENT_ID_REUSED: {
     code: 'ORDER_CLIENT_ID_REUSED',
