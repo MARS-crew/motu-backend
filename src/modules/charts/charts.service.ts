@@ -1,10 +1,20 @@
 import { Injectable } from '@nestjs/common';
+import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { ChartInterval, Prisma, Trade } from '../../generated/prisma/client.js';
+import { StockErrors } from '../stocks/stocks.errors.js';
 import { candleStartOf } from './candle-time.js';
+import { GetDailySummaryResDto } from './dto/res/get-daily-summary-res.dto.js';
 
 /** 체결마다 갱신하는 봉 단위 */
 const INTERVALS = Object.values(ChartInterval);
+
+/** 당일 요약 계산에 필요한 상품 값 */
+export interface SummaryStock {
+  id: number;
+  /** 기준가. 체결된 적이 없으면 현재가·전일 종가로 쓴다. */
+  basePrice: bigint;
+}
 
 @Injectable()
 export class ChartsService {
@@ -45,5 +55,90 @@ export class ChartsService {
           trade_amount = charts.trade_amount + EXCLUDED.trade_amount
       `);
     }
+  }
+
+  /**
+   * 상품의 당일 거래 요약. 하루 기준은 한국 시간 00시다.
+   */
+  async getDailySummary(
+    stockId: number,
+    now: Date = new Date(),
+  ): Promise<GetDailySummaryResDto> {
+    const stock = await this.prisma.stock.findFirst({
+      where: { id: stockId, isDeleted: false },
+      select: { id: true, basePrice: true },
+    });
+    if (!stock) {
+      throw new BusinessException(StockErrors.NOT_FOUND);
+    }
+    const summaries = await this.getDailySummaries([stock], now);
+    return summaries.get(stock.id)!;
+  }
+
+  /**
+   * 여러 상품의 당일 거래 요약(현재가, 전일 대비, 등락률, 오늘 시세)을 한꺼번에 계산한다.
+   * 상품 목록처럼 여러 상품을 보여줄 때 쓴다. 상품 수와 관계없이 쿼리는 두 번이다.
+   */
+  async getDailySummaries(
+    stocks: SummaryStock[],
+    now: Date = new Date(),
+  ): Promise<Map<number, GetDailySummaryResDto>> {
+    if (stocks.length === 0) {
+      return new Map();
+    }
+    const stockIds = stocks.map(({ id }) => id);
+    const todayStart = candleStartOf(now, ChartInterval.DAY);
+
+    const [todayCandles, prevCloses] = await Promise.all([
+      this.prisma.chart.findMany({
+        where: {
+          stockId: { in: stockIds },
+          interval: ChartInterval.DAY,
+          candleTime: todayStart,
+        },
+      }),
+      // 종목별로 오늘 이전 마지막 일봉의 종가
+      this.prisma.$queryRaw<{ stock_id: number; close_price: bigint }[]>`
+        SELECT DISTINCT ON (stock_id) stock_id, close_price
+        FROM charts
+        WHERE stock_id IN (${Prisma.join(stockIds)})
+          AND candle_interval = 'DAY'
+          AND candle_time < ${todayStart}
+        ORDER BY stock_id, candle_time DESC
+      `,
+    ]);
+    const todayByStock = new Map(
+      todayCandles.map((candle) => [candle.stockId, candle]),
+    );
+    const prevCloseByStock = new Map(
+      prevCloses.map((row) => [row.stock_id, row.close_price]),
+    );
+
+    return new Map(
+      stocks.map((stock) => {
+        const today = todayByStock.get(stock.id);
+        const prevClose = prevCloseByStock.get(stock.id) ?? stock.basePrice;
+        const currentPrice = today?.closePrice ?? prevClose;
+        const changeAmount = currentPrice - prevClose;
+        const summary: GetDailySummaryResDto = {
+          stockId: stock.id,
+          currentPrice: Number(currentPrice),
+          prevClosePrice: Number(prevClose),
+          changeAmount: Number(changeAmount),
+          changeRate:
+            prevClose === 0n
+              ? 0
+              : Math.round(
+                  (Number(changeAmount) / Number(prevClose)) * 100 * 100,
+                ) / 100,
+          openPrice: today ? Number(today.openPrice) : null,
+          highPrice: today ? Number(today.highPrice) : null,
+          lowPrice: today ? Number(today.lowPrice) : null,
+          volume: today ? Number(today.volume) : 0,
+          tradeAmount: today ? Number(today.tradeAmount) : 0,
+        };
+        return [stock.id, summary];
+      }),
+    );
   }
 }
