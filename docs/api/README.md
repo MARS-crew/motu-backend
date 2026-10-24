@@ -14,6 +14,7 @@
 | [상품](stocks.md) | 카테고리, 상품 목록, 신규 상장, 상품 상세, 최근 본 종목 | `modules/sectors`, `modules/stocks` |
 | [검색](search.md) | 상품 검색, 최근 검색어 | `modules/stocks`, `modules/search-histories` |
 | [관심상품](wishlists.md) | 관심상품 등록·해제, 관심 상품 목록 | `modules/stocks` |
+| [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |
 
 ## 문서 관리
 
@@ -32,5 +33,6 @@
 | 포인트 리셋: 보유 종목 조건, 거래내역 삭제 | 없음 | 주문·보유 테이블 생성 후 |
 | 거래내역·포트폴리오 | 없음 | 주문·체결 작업 후 |
 | 새 기기 확인, 2차 보안(SMS) | 없음 | SMS 서비스 확정 후 |
+| 공지·FAQ 등록·수정·삭제 (관리자) | 없음, 로컬은 seed로 넣음 | 관리자 화면 작업 때 |
 | 회원 탈퇴, 비밀번호 재설정 메일의 화면 주소 | 없음 / 로컬 주소 | 2차 개발 |
 
