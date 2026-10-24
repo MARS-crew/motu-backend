@@ -96,6 +96,7 @@ model Account {
   user              User                @relation(fields: [userId], references: [id])
   ledgers           CashLedger[]
   pointResetHistory PointResetHistory[]
+  holdings          Holding[]
 
   @@map("accounts")
 }
@@ -304,6 +305,7 @@ model Stock {
   sector        Sector        @relation(fields: [sectorCode], references: [code])
   viewHistories ViewHistory[]
   wishlists     Wishlist[]
+  holdings      Holding[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -354,4 +356,28 @@ model Wishlist {
   @@id([userId, stockId])
   @@index([userId, createDate])
   @@map("wishlists")
+}
+
+// ─── 거래 ───────────────────────────────────────────
+
+/// 보유 상품. 보유 수량이 0이 되면 행을 지운다.
+model Holding {
+  id           Int      @id @default(autoincrement()) @map("holding_id")
+  accountId    Int      @map("account_id")
+  stockId      Int      @map("stock_id")
+  /// 보유 수량. 매도 주문에 묶인 수량(lockedQty)을 포함한다.
+  qty          BigInt
+  /// 매도 주문에 묶인 수량. 매도 가능 수량은 qty - lockedQty다.
+  lockedQty    BigInt   @default(0) @map("locked_qty")
+  /// 총 매입 금액 (매수 수수료 포함). 평균 매입 단가는 totalAmount / qty로 계산한다.
+  totalAmount  BigInt   @map("total_amount")
+  createDate   DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id])
+  stock   Stock   @relation(fields: [stockId], references: [id])
+
+  @@unique([accountId, stockId])
+  @@index([stockId])
+  @@map("holdings")
 }
