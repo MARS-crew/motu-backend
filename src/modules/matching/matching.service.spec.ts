@@ -237,4 +237,151 @@ describe('MatchingService', () => {
       ]);
     });
   });
+
+  describe('호가창 복구', () => {
+    const openOrderOf = (
+      id: bigint,
+      stockId: number,
+      side: OrderSide,
+      price: bigint,
+      qty: bigint,
+      filledQty = 0n,
+    ) => ({ id, stockId, accountId: Number(id), side, price, qty, filledQty });
+
+    const prismaWith = (orders: ReturnType<typeof openOrderOf>[]) => {
+      const findMany = vi.fn(({ where }: { where: { stockId?: number } }) =>
+        Promise.resolve(
+          orders.filter(
+            ({ stockId }) =>
+              where.stockId === undefined || stockId === where.stockId,
+          ),
+        ),
+      );
+      return {
+        prisma: { order: { findMany } } as unknown as PrismaService,
+        findMany,
+      };
+    };
+
+    it('미체결 주문을 주문 ID 순서로 읽어 종목별 호가창을 만든다', async () => {
+      const { prisma, findMany } = prismaWith([
+        openOrderOf(3n, 1, OrderSide.SELL, 5_000n, 10n, 4n),
+        openOrderOf(5n, 1, OrderSide.SELL, 5_000n, 2n),
+        openOrderOf(6n, 1, OrderSide.BUY, 4_900n, 1n),
+        openOrderOf(7n, 2, OrderSide.BUY, 8_000n, 3n),
+      ]);
+      const matching = new MatchingService(prisma);
+
+      await matching.restoreBooks();
+
+      expect(findMany).toHaveBeenCalledWith({
+        where: { status: { in: [OrderStatus.ACCEPTED, OrderStatus.PARTIAL] } },
+        select: {
+          id: true,
+          stockId: true,
+          accountId: true,
+          side: true,
+          price: true,
+          qty: true,
+          filledQty: true,
+        },
+        orderBy: { id: 'asc' },
+      });
+      const [level] = matching.getBook(1).levels(OrderSide.SELL);
+      expect(level.orders).toEqual([
+        {
+          orderId: 3n,
+          accountId: 3,
+          side: OrderSide.SELL,
+          price: 5_000n,
+          remainingQty: 6n,
+        },
+        {
+          orderId: 5n,
+          accountId: 5,
+          side: OrderSide.SELL,
+          price: 5_000n,
+          remainingQty: 2n,
+        },
+      ]);
+      expect(matching.getBook(1).depth(OrderSide.BUY, 5)).toEqual([
+        { price: 4_900n, qty: 1n },
+      ]);
+      expect(matching.getBook(2).depth(OrderSide.BUY, 5)).toEqual([
+        { price: 8_000n, qty: 3n },
+      ]);
+    });
+
+    it('기존 호가창을 버리고 DB 기준으로 다시 만든다', async () => {
+      const { prisma } = prismaWith([
+        openOrderOf(5n, 1, OrderSide.SELL, 5_000n, 2n),
+      ]);
+      const matching = new MatchingService(prisma);
+      matching.getBook(1).add({
+        orderId: 99n,
+        accountId: 9,
+        side: OrderSide.SELL,
+        price: 4_000n,
+        remainingQty: 1n,
+      });
+      matching.getBook(3).add({
+        orderId: 98n,
+        accountId: 9,
+        side: OrderSide.BUY,
+        price: 4_000n,
+        remainingQty: 1n,
+      });
+
+      await matching.restoreBooks();
+
+      expect(matching.getBook(1).get(99n)).toBeUndefined();
+      expect(matching.getBook(1).get(5n)).toBeDefined();
+      expect(matching.getBook(3).get(98n)).toBeUndefined();
+    });
+
+    it('서버가 시작되면 호가창을 복구한다', async () => {
+      const { prisma, findMany } = prismaWith([]);
+      const matching = new MatchingService(prisma);
+
+      await matching.onModuleInit();
+
+      expect(findMany).toHaveBeenCalled();
+    });
+
+    it('reloadBook은 그 종목의 호가창만 DB 기준으로 다시 만든다', async () => {
+      const { prisma, findMany } = prismaWith([
+        openOrderOf(5n, 1, OrderSide.SELL, 5_000n, 2n),
+        openOrderOf(7n, 2, OrderSide.BUY, 8_000n, 3n),
+      ]);
+      const matching = new MatchingService(prisma);
+      matching.getBook(1).add({
+        orderId: 99n,
+        accountId: 9,
+        side: OrderSide.SELL,
+        price: 4_000n,
+        remainingQty: 1n,
+      });
+      matching.getBook(2).add({
+        orderId: 98n,
+        accountId: 9,
+        side: OrderSide.BUY,
+        price: 4_000n,
+        remainingQty: 1n,
+      });
+
+      await matching.reloadBook(1);
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            stockId: 1,
+            status: { in: [OrderStatus.ACCEPTED, OrderStatus.PARTIAL] },
+          },
+        }),
+      );
+      expect(matching.getBook(1).get(99n)).toBeUndefined();
+      expect(matching.getBook(1).get(5n)).toBeDefined();
+      expect(matching.getBook(2).get(98n)).toBeDefined();
+    });
+  });
 });

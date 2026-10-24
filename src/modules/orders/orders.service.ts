@@ -119,30 +119,32 @@ export class OrdersService {
           throw new BusinessException(OrderErrors.SELF_TRADE);
         }
 
-        const { order: settled, trades } = await this.prisma.$transaction(
-          async (tx) => {
-            await this.settlement.lockAccounts(tx, [
-              account.id,
-              ...match.fills.map(({ makerAccountId }) => makerAccountId),
-            ]);
-            const { accountId, lockedAmount } =
-              dto.side === OrderSide.BUY
-                ? await this.lockCash(tx, userId, price, qty)
-                : await this.lockQty(tx, userId, stock.id, qty);
+        const { order: settled, trades } = await this.withBookRecovery(
+          stock.id,
+          () =>
+            this.prisma.$transaction(async (tx) => {
+              await this.settlement.lockAccounts(tx, [
+                account.id,
+                ...match.fills.map(({ makerAccountId }) => makerAccountId),
+              ]);
+              const { accountId, lockedAmount } =
+                dto.side === OrderSide.BUY
+                  ? await this.lockCash(tx, userId, price, qty)
+                  : await this.lockQty(tx, userId, stock.id, qty);
 
-            const created = await tx.order.create({
-              data: {
-                accountId,
-                stockId: stock.id,
-                clientOrderId: dto.clientOrderId,
-                side: dto.side,
-                price,
-                qty,
-                lockedAmount,
-              },
-            });
-            return this.settlement.settle(tx, created, match.fills);
-          },
+              const created = await tx.order.create({
+                data: {
+                  accountId,
+                  stockId: stock.id,
+                  clientOrderId: dto.clientOrderId,
+                  side: dto.side,
+                  price,
+                  qty,
+                  lockedAmount,
+                },
+              });
+              return this.settlement.settle(tx, created, match.fills);
+            }),
         );
 
         // 커밋에 성공한 뒤에만 메모리 호가창을 바꾸고 체결을 알린다.
@@ -373,6 +375,28 @@ export class OrdersService {
       availableCash: Number(account.cash - account.lockedCash),
       sellableQty: holding ? Number(holding.qty - holding.lockedQty) : 0,
     };
+  }
+
+  /**
+   * 정산 중 예상하지 못한 에러가 나면 호가창과 DB가 어긋났을 수 있으므로 그 종목의 호가창을 DB 기준으로 다시 만든다.
+   * 업무 규칙 에러와 중복 요청(P2002)은 정상적인 거부라서 그대로 던진다.
+   */
+  private async withBookRecovery<T>(
+    stockId: number,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await task();
+    } catch (error) {
+      const isExpected =
+        error instanceof BusinessException ||
+        (error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002');
+      if (!isExpected) {
+        await this.matching.reloadBook(stockId);
+      }
+      throw error;
+    }
   }
 
   private findByClientOrderId(

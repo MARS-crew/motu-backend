@@ -54,6 +54,7 @@ describe('OrdersService', () => {
     apply: vi.fn(),
     publishTrades: vi.fn(),
     removeOrder: vi.fn(),
+    reloadBook: vi.fn(),
   };
   const settlement = {
     lockAccounts: vi.fn(),
@@ -337,6 +338,61 @@ describe('OrdersService', () => {
         remainingQty: 120,
         status: OrderStatus.PARTIAL,
       });
+    });
+
+    it('예상하지 못한 에러로 트랜잭션이 실패하면 그 종목의 호가창을 DB 기준으로 다시 만든다', async () => {
+      matching.match.mockReturnValue({
+        selfTrade: false,
+        fills,
+        remainingQty: 120n,
+      });
+      settlement.settle.mockRejectedValue(
+        new Error('호가창과 DB의 주문이 다릅니다: order=11'),
+      );
+
+      await expect(
+        service.placeOrder(USER_ID, buyOf(5_000, 200)),
+      ).rejects.toThrow('호가창과 DB의 주문이 다릅니다');
+      expect(matching.reloadBook).toHaveBeenCalledWith(1);
+    });
+
+    it('업무 규칙 에러는 정상적인 거부라서 호가창을 다시 만들지 않는다', async () => {
+      tx.$queryRaw.mockResolvedValue(lockedAccountOf(0n, 0n));
+
+      const error = await errorOf(
+        service.placeOrder(USER_ID, buyOf(5_000, 200)),
+      );
+
+      expect(error.error).toBe(OrderErrors.INSUFFICIENT_CASH);
+      expect(matching.reloadBook).not.toHaveBeenCalled();
+    });
+
+    it('중복 요청(P2002)은 호가창을 다시 만들지 않는다', async () => {
+      tx.order.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+      order.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        id: 100n,
+        accountId: ACCOUNT_ID,
+        stockId: 1,
+        clientOrderId: CLIENT_ORDER_ID,
+        side: OrderSide.BUY,
+        orderType: OrderType.LIMIT,
+        price: 5_000n,
+        qty: 200n,
+        filledQty: 0n,
+        lockedAmount: 1_000_000n,
+        status: OrderStatus.ACCEPTED,
+        canceledDate: null,
+        createDate: CREATE_DATE,
+      });
+
+      await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      expect(matching.reloadBook).not.toHaveBeenCalled();
     });
 
     it('트랜잭션이 실패하면 호가창에 반영하지 않고 체결도 알리지 않는다', async () => {

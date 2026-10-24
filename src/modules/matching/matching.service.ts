@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { Order, OrderStatus } from '../../generated/prisma/client.js';
+import { Order, OrderStatus, Prisma } from '../../generated/prisma/client.js';
 import { Fill, IncomingOrder, matchOrder, MatchResult } from './matcher.js';
 import { OrderBook } from './order-book.js';
 import { KeyedSerialQueue } from './serial-queue.js';
@@ -20,8 +20,15 @@ export interface TradeExecutedEvent {
   createDate: Date;
 }
 
+/** 호가창에 올라가는 주문 상태 */
+const OPEN_STATUSES: OrderStatus[] = [
+  OrderStatus.ACCEPTED,
+  OrderStatus.PARTIAL,
+];
+
 @Injectable()
-export class MatchingService {
+export class MatchingService implements OnModuleInit {
+  private readonly logger = new Logger(MatchingService.name);
   /** 종목별 작업 순서. 같은 종목의 주문·체결·취소는 한 번에 하나씩 실행한다. */
   private readonly queue = new KeyedSerialQueue<number>();
   /** 종목별 호가창 (메모리). DB의 미체결 주문과 같아야 한다. */
@@ -33,6 +40,42 @@ export class MatchingService {
     this.tradeExecuted.asObservable();
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /** 서버가 시작되면 DB의 미체결 주문으로 호가창을 만든다. */
+  async onModuleInit(): Promise<void> {
+    await this.restoreBooks();
+  }
+
+  /**
+   * 모든 종목의 호가창을 DB의 미체결 주문으로 다시 만든다.
+   * 주문 ID가 접수 순서이므로, ID 순서로 넣으면 같은 가격 안의 우선순위도 그대로다.
+   */
+  async restoreBooks(): Promise<void> {
+    const orders = await this.findOpenOrders({});
+    this.books.clear();
+    for (const order of orders) {
+      this.addToBook(this.getBook(order.stockId), order);
+    }
+    this.logger.log(
+      `호가창 복구: 종목 ${this.books.size}개, 미체결 주문 ${orders.length}건`,
+    );
+  }
+
+  /**
+   * 한 종목의 호가창을 DB 기준으로 다시 만든다. 호가창과 DB가 어긋났을 때 쓴다.
+   * 그 종목의 순서(runExclusive) 안에서 호출해야 한다.
+   */
+  async reloadBook(stockId: number): Promise<void> {
+    const orders = await this.findOpenOrders({ stockId });
+    const book = new OrderBook();
+    for (const order of orders) {
+      this.addToBook(book, order);
+    }
+    this.books.set(stockId, book);
+    this.logger.warn(
+      `호가창 다시 만들기: 종목 ${stockId}, 미체결 주문 ${orders.length}건`,
+    );
+  }
 
   /**
    * 같은 종목의 다른 작업이 끝난 뒤에 task를 실행한다.
@@ -65,23 +108,46 @@ export class MatchingService {
     for (const fill of fills) {
       book.reduce(fill.makerOrderId, fill.qty);
     }
-    const isOpen =
-      order.status === OrderStatus.ACCEPTED ||
-      order.status === OrderStatus.PARTIAL;
-    if (isOpen) {
-      book.add({
-        orderId: order.id,
-        accountId: order.accountId,
-        side: order.side,
-        price: order.price,
-        remainingQty: order.qty - order.filledQty,
-      });
+    if (OPEN_STATUSES.includes(order.status)) {
+      this.addToBook(book, order);
     }
   }
 
   /** DB 커밋에 성공한 취소를 호가창에 반영한다. 호가창에 없으면 아무것도 하지 않는다. */
   removeOrder(stockId: number, orderId: bigint): void {
     this.getBook(stockId).remove(orderId);
+  }
+
+  private findOpenOrders(where: Prisma.OrderWhereInput) {
+    return this.prisma.order.findMany({
+      where: { ...where, status: { in: OPEN_STATUSES } },
+      select: {
+        id: true,
+        stockId: true,
+        accountId: true,
+        side: true,
+        price: true,
+        qty: true,
+        filledQty: true,
+      },
+      orderBy: { id: 'asc' },
+    });
+  }
+
+  private addToBook(
+    book: OrderBook,
+    order: Pick<
+      Order,
+      'id' | 'accountId' | 'side' | 'price' | 'qty' | 'filledQty'
+    >,
+  ): void {
+    book.add({
+      orderId: order.id,
+      accountId: order.accountId,
+      side: order.side,
+      price: order.price,
+      remainingQty: order.qty - order.filledQty,
+    });
   }
 
   /** DB 커밋에 성공한 체결을 알린다. */
