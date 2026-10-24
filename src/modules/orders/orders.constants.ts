@@ -6,3 +6,13 @@ export const FEE_RATE_BPS = 0n;
 
 /** bp를 비율로 바꿀 때 나누는 값 */
 export const BPS_DENOMINATOR = 10_000n;
+
+/** 내 주문 목록 필터 */
+export enum OrderListStatus {
+  /** 미체결 (접수, 일부 체결) */
+  OPEN = 'OPEN',
+  /** 완료 (전부 체결, 취소) */
+  DONE = 'DONE',
+  /** 전체 */
+  ALL = 'ALL',
+}

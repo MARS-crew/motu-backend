@@ -6,13 +6,41 @@ import {
   OrderSide,
   OrderStatus,
   Prisma,
+  Trade,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
+import { GetOrderAvailableResDto } from './dto/res/get-order-available-res.dto.js';
+import { GetOrderResDto } from './dto/res/get-order-res.dto.js';
+import {
+  GetOrdersResDto,
+  OrderItemResDto,
+} from './dto/res/get-orders-res.dto.js';
 import { OrderResDto } from './dto/res/order-res.dto.js';
+import {
+  BPS_DENOMINATOR,
+  FEE_RATE_BPS,
+  OrderListStatus,
+} from './orders.constants.js';
 import { OrderErrors } from './orders.errors.js';
 import { calculateBuyLockAmount, validateOrderRules } from './orders.policy.js';
+
+/** 목록 필터별로 포함하는 주문 상태. ALL은 거르지 않는다. */
+const LIST_STATUSES: Record<OrderListStatus, OrderStatus[] | undefined> = {
+  [OrderListStatus.OPEN]: [OrderStatus.ACCEPTED, OrderStatus.PARTIAL],
+  [OrderListStatus.DONE]: [OrderStatus.FILLED, OrderStatus.CANCELED],
+  [OrderListStatus.ALL]: undefined,
+};
+
+type OrderWithStockName = Order & { stock: { name: string } };
+
+/** 평균 체결가 계산에 쓰는 체결 값 */
+type TradeFill = Pick<Trade, 'buyOrderId' | 'sellOrderId' | 'price' | 'qty'>;
+
+interface OrderCursor {
+  orderId: number;
+}
 
 /** 주문에 예약한 결과 */
 interface LockResult {
@@ -161,6 +189,131 @@ export class OrdersService {
     return this.toOrderRes(order);
   }
 
+  /**
+   * 내 주문 목록. 최근 주문순이다.
+   */
+  async getOrders(
+    userId: number,
+    query: {
+      status: OrderListStatus;
+      stockId?: number;
+      cursor?: string;
+      size: number;
+    },
+  ): Promise<GetOrdersResDto> {
+    const afterOrderId = query.cursor
+      ? this.decodeCursor(query.cursor)
+      : undefined;
+    const statuses = LIST_STATUSES[query.status];
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        account: { userId },
+        ...(statuses && { status: { in: statuses } }),
+        ...(query.stockId !== undefined && { stockId: query.stockId }),
+        ...(afterOrderId !== undefined && { id: { lt: afterOrderId } }),
+      },
+      include: { stock: { select: { name: true } } },
+      orderBy: { id: 'desc' },
+      take: query.size + 1,
+    });
+
+    const hasNext = orders.length > query.size;
+    const page = hasNext ? orders.slice(0, query.size) : orders;
+    const last = page.at(-1);
+
+    const filledIds = page
+      .filter(({ filledQty }) => filledQty > 0n)
+      .map(({ id }) => id);
+    const fills =
+      filledIds.length > 0
+        ? await this.prisma.trade.findMany({
+            where: {
+              OR: [
+                { buyOrderId: { in: filledIds } },
+                { sellOrderId: { in: filledIds } },
+              ],
+            },
+            select: {
+              buyOrderId: true,
+              sellOrderId: true,
+              price: true,
+              qty: true,
+            },
+          })
+        : [];
+
+    return {
+      items: page.map((order) => this.toOrderItemRes(order, fills)),
+      nextCursor:
+        hasNext && last
+          ? this.encodeCursor({ orderId: Number(last.id) })
+          : null,
+    };
+  }
+
+  /**
+   * 주문 상세와 그 주문의 체결 내역.
+   */
+  async getOrder(userId: number, orderId: number): Promise<GetOrderResDto> {
+    const order = await this.prisma.order.findFirst({
+      where: { id: BigInt(orderId), account: { userId } },
+      include: { stock: { select: { name: true } } },
+    });
+    if (!order) {
+      throw new BusinessException(OrderErrors.NOT_FOUND);
+    }
+
+    const trades = await this.prisma.trade.findMany({
+      where: { OR: [{ buyOrderId: order.id }, { sellOrderId: order.id }] },
+      orderBy: { id: 'asc' },
+    });
+
+    return Object.assign(this.toOrderItemRes(order, trades), {
+      trades: trades.map((trade) => ({
+        tradeId: Number(trade.id),
+        price: Number(trade.price),
+        qty: Number(trade.qty),
+        createDate: trade.createDate,
+      })),
+    });
+  }
+
+  /**
+   * 주문 화면에 필요한 상품 규칙과 사용 가능 포인트, 매도 가능 수량.
+   */
+  async getAvailable(
+    userId: number,
+    stockId: number,
+  ): Promise<GetOrderAvailableResDto> {
+    const stock = await this.prisma.stock.findFirst({
+      where: { id: stockId, isDeleted: false },
+    });
+    if (!stock) {
+      throw new BusinessException(StockErrors.NOT_FOUND);
+    }
+    const account = await this.prisma.account.findUnique({
+      where: { userId },
+    });
+    if (!account) {
+      throw new BusinessException(AccountErrors.NOT_FOUND);
+    }
+    const holding = await this.prisma.holding.findUnique({
+      where: { accountId_stockId: { accountId: account.id, stockId } },
+    });
+
+    return {
+      stockId: stock.id,
+      tradeStatus: stock.tradeStatus,
+      priceTickSize: Number(stock.priceTickSize),
+      minOrderPrice: Number(stock.minOrderPrice),
+      minOrderQty: Number(stock.minOrderQty),
+      feeRate: Number(FEE_RATE_BPS) / Number(BPS_DENOMINATOR),
+      availableCash: Number(account.cash - account.lockedCash),
+      sellableQty: holding ? Number(holding.qty - holding.lockedQty) : 0,
+    };
+  }
+
   private findByClientOrderId(
     userId: number,
     clientOrderId: string,
@@ -281,5 +434,56 @@ export class OrdersService {
       createDate: order.createDate,
       canceledDate: order.canceledDate,
     };
+  }
+
+  private toOrderItemRes(
+    order: OrderWithStockName,
+    fills: TradeFill[],
+  ): OrderItemResDto {
+    return Object.assign(this.toOrderRes(order), {
+      stockName: order.stock.name,
+      avgFilledPrice: this.averageFilledPrice(order, fills),
+    });
+  }
+
+  /**
+   * 이 주문의 체결 금액 합계 ÷ 체결 수량. 소수점 둘째 자리까지 반올림한다.
+   */
+  private averageFilledPrice(order: Order, fills: TradeFill[]): number | null {
+    const own = fills.filter(
+      (fill) =>
+        (order.side === OrderSide.BUY ? fill.buyOrderId : fill.sellOrderId) ===
+        order.id,
+    );
+    const filledQty = own.reduce((sum, fill) => sum + fill.qty, 0n);
+    if (filledQty === 0n) {
+      return null;
+    }
+    const filledAmount = own.reduce(
+      (sum, fill) => sum + fill.price * fill.qty,
+      0n,
+    );
+    return Math.round((Number(filledAmount) / Number(filledQty)) * 100) / 100;
+  }
+
+  private encodeCursor(cursor: OrderCursor): string {
+    return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+  }
+
+  private decodeCursor(value: string): bigint {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    } catch {
+      throw new BusinessException(OrderErrors.INVALID_CURSOR);
+    }
+    const orderId =
+      typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Partial<OrderCursor>).orderId
+        : undefined;
+    if (!Number.isSafeInteger(orderId)) {
+      throw new BusinessException(OrderErrors.INVALID_CURSOR);
+    }
+    return BigInt(orderId!);
   }
 }

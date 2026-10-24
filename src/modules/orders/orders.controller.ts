@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -20,6 +22,11 @@ import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
+import { GetOrderAvailableReqDto } from './dto/req/get-order-available-req.dto.js';
+import { GetOrdersReqDto } from './dto/req/get-orders-req.dto.js';
+import { GetOrderAvailableResDto } from './dto/res/get-order-available-res.dto.js';
+import { GetOrderResDto } from './dto/res/get-order-res.dto.js';
+import { GetOrdersResDto } from './dto/res/get-orders-res.dto.js';
 import { OrderResDto } from './dto/res/order-res.dto.js';
 import { OrdersService } from './orders.service.js';
 
@@ -67,5 +74,47 @@ export class OrdersController {
     @Param('orderId', ParseIdPipe) orderId: number,
   ): Promise<OrderResDto> {
     return this.ordersService.cancelOrder(user.userId, orderId);
+  }
+
+  @Get()
+  @ApiOperation({
+    summary: '내 주문 목록',
+    description: '최근 주문순. 기본은 미체결 주문(OPEN)이다.',
+  })
+  @ApiOkResponse({ type: GetOrdersResDto })
+  @ApiBadRequestResponse({ description: 'BAD_REQUEST / ORDER_INVALID_CURSOR' })
+  getOrders(
+    @CurrentUser() user: AuthUser,
+    @Query() query: GetOrdersReqDto,
+  ): Promise<GetOrdersResDto> {
+    return this.ordersService.getOrders(user.userId, query);
+  }
+
+  // ':orderId'보다 먼저 선언해야 'available'이 주문 ID로 해석되지 않는다.
+  @Get('available')
+  @ApiOperation({
+    summary: '주문 가능 정보',
+    description:
+      '주문 화면에 들어갈 때 호출한다. 호가 단위, 최소 주문 가격·수량, 수수료율, 사용 가능 포인트, 매도 가능 수량을 내려준다.',
+  })
+  @ApiOkResponse({ type: GetOrderAvailableResDto })
+  @ApiNotFoundResponse({ description: 'STOCK_NOT_FOUND / ACCOUNT_NOT_FOUND' })
+  getAvailable(
+    @CurrentUser() user: AuthUser,
+    @Query() query: GetOrderAvailableReqDto,
+  ): Promise<GetOrderAvailableResDto> {
+    return this.ordersService.getAvailable(user.userId, query.stockId);
+  }
+
+  @Get(':orderId')
+  @ApiOperation({ summary: '주문 상세 (체결 내역 포함)' })
+  @ApiOkResponse({ type: GetOrderResDto })
+  @ApiBadRequestResponse({ description: 'BAD_REQUEST (orderId가 숫자가 아님)' })
+  @ApiNotFoundResponse({ description: 'ORDER_NOT_FOUND' })
+  getOrder(
+    @CurrentUser() user: AuthUser,
+    @Param('orderId', ParseIdPipe) orderId: number,
+  ): Promise<GetOrderResDto> {
+    return this.ordersService.getOrder(user.userId, orderId);
   }
 }

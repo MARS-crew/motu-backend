@@ -10,6 +10,7 @@ import {
 import { AccountErrors } from '../accounts/accounts.errors.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
+import { OrderListStatus } from './orders.constants.js';
 import { OrderErrors } from './orders.errors.js';
 import { OrdersService } from './orders.service.js';
 
@@ -20,7 +21,10 @@ const CREATE_DATE = new Date('2026-10-24T01:00:00.000Z');
 
 describe('OrdersService', () => {
   const stock = { findFirst: vi.fn() };
-  const order = { findFirst: vi.fn() };
+  const order = { findFirst: vi.fn(), findMany: vi.fn() };
+  const trade = { findMany: vi.fn() };
+  const account = { findUnique: vi.fn() };
+  const holding = { findUnique: vi.fn() };
   const tx = {
     $queryRaw: vi.fn(),
     account: { update: vi.fn() },
@@ -37,6 +41,9 @@ describe('OrdersService', () => {
   const prisma = {
     stock,
     order,
+    trade,
+    account,
+    holding,
     $transaction: transaction,
   } as unknown as PrismaService;
   const service = new OrdersService(prisma);
@@ -83,6 +90,7 @@ describe('OrdersService', () => {
     vi.clearAllMocks();
     stock.findFirst.mockResolvedValue(stockOf());
     order.findFirst.mockResolvedValue(null);
+    trade.findMany.mockResolvedValue([]);
     tx.order.create.mockImplementation(({ data }) =>
       Promise.resolve({
         id: 100n,
@@ -538,6 +546,296 @@ describe('OrdersService', () => {
       ];
       expect(sql.join('?')).toMatch(/FROM orders[\s\S]*FOR UPDATE/);
       expect(values).toEqual([100n, USER_ID]);
+    });
+  });
+
+  describe('조회', () => {
+    const orderWithStockOf = (
+      id: bigint,
+      overrides: Record<string, unknown> = {},
+    ) => ({
+      id,
+      accountId: ACCOUNT_ID,
+      stockId: 1,
+      clientOrderId: CLIENT_ORDER_ID,
+      side: OrderSide.BUY,
+      orderType: OrderType.LIMIT,
+      price: 5_000n,
+      qty: 10n,
+      filledQty: 0n,
+      lockedAmount: 50_000n,
+      status: OrderStatus.ACCEPTED,
+      canceledDate: null,
+      createDate: CREATE_DATE,
+      stock: { name: 'CloudWorks' },
+      ...overrides,
+    });
+    const cursorOf = (value: unknown) =>
+      Buffer.from(JSON.stringify(value)).toString('base64url');
+
+    describe('getOrders', () => {
+      it('미체결 주문을 최근 주문순으로 조회한다', async () => {
+        order.findMany.mockResolvedValue([orderWithStockOf(5n)]);
+
+        const result = await service.getOrders(USER_ID, {
+          status: OrderListStatus.OPEN,
+          size: 20,
+        });
+
+        expect(order.findMany).toHaveBeenCalledWith({
+          where: {
+            account: { userId: USER_ID },
+            status: { in: [OrderStatus.ACCEPTED, OrderStatus.PARTIAL] },
+          },
+          include: { stock: { select: { name: true } } },
+          orderBy: { id: 'desc' },
+          take: 21,
+        });
+        expect(result).toEqual({
+          items: [
+            expect.objectContaining({
+              orderId: 5,
+              stockName: 'CloudWorks',
+              avgFilledPrice: null,
+            }),
+          ],
+          nextCursor: null,
+        });
+      });
+
+      it.each([
+        [
+          OrderListStatus.DONE,
+          { in: [OrderStatus.FILLED, OrderStatus.CANCELED] },
+        ],
+        [OrderListStatus.ALL, undefined],
+      ])('%s는 해당 상태의 주문만 조회한다', async (status, expected) => {
+        order.findMany.mockResolvedValue([]);
+
+        await service.getOrders(USER_ID, { status, size: 20 });
+
+        const [{ where }] = order.findMany.mock.calls[0] as [
+          { where: { status?: unknown } },
+        ];
+        expect(where.status).toEqual(expected);
+      });
+
+      it('상품을 지정하면 그 상품의 주문만 조회한다', async () => {
+        order.findMany.mockResolvedValue([]);
+
+        await service.getOrders(USER_ID, {
+          status: OrderListStatus.ALL,
+          stockId: 3,
+          size: 20,
+        });
+
+        expect(order.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { account: { userId: USER_ID }, stockId: 3 },
+          }),
+        );
+      });
+
+      it('다음 페이지가 있으면 마지막 주문 ID로 커서를 만든다', async () => {
+        order.findMany.mockResolvedValue([
+          orderWithStockOf(9n),
+          orderWithStockOf(8n),
+          orderWithStockOf(7n),
+        ]);
+
+        const result = await service.getOrders(USER_ID, {
+          status: OrderListStatus.ALL,
+          size: 2,
+        });
+
+        expect(result.items.map(({ orderId }) => orderId)).toEqual([9, 8]);
+        expect(result.nextCursor).toBe(cursorOf({ orderId: 8 }));
+      });
+
+      it('커서를 넘기면 그보다 오래된 주문을 조회한다', async () => {
+        order.findMany.mockResolvedValue([]);
+
+        await service.getOrders(USER_ID, {
+          status: OrderListStatus.ALL,
+          cursor: cursorOf({ orderId: 8 }),
+          size: 2,
+        });
+
+        expect(order.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { account: { userId: USER_ID }, id: { lt: 8n } },
+          }),
+        );
+      });
+
+      it.each(['not-base64-json', cursorOf({ orderId: 'x' }), cursorOf([])])(
+        '잘못된 커서(%s)면 처음부터 다시 불러오게 한다',
+        async (cursor) => {
+          const error = await errorOf(
+            service.getOrders(USER_ID, {
+              status: OrderListStatus.ALL,
+              cursor,
+              size: 2,
+            }),
+          );
+
+          expect(error.error).toBe(OrderErrors.INVALID_CURSOR);
+        },
+      );
+
+      it('체결된 주문은 평균 체결가를 계산한다', async () => {
+        order.findMany.mockResolvedValue([
+          orderWithStockOf(5n, { filledQty: 3n, status: OrderStatus.PARTIAL }),
+          orderWithStockOf(4n, {
+            side: OrderSide.SELL,
+            filledQty: 2n,
+            status: OrderStatus.FILLED,
+          }),
+        ]);
+        trade.findMany.mockResolvedValue([
+          { buyOrderId: 5n, sellOrderId: 1n, price: 4_900n, qty: 1n },
+          { buyOrderId: 5n, sellOrderId: 2n, price: 5_000n, qty: 2n },
+          { buyOrderId: 3n, sellOrderId: 4n, price: 5_100n, qty: 2n },
+        ]);
+
+        const result = await service.getOrders(USER_ID, {
+          status: OrderListStatus.ALL,
+          size: 20,
+        });
+
+        expect(trade.findMany).toHaveBeenCalledWith({
+          where: {
+            OR: [
+              { buyOrderId: { in: [5n, 4n] } },
+              { sellOrderId: { in: [5n, 4n] } },
+            ],
+          },
+          select: {
+            buyOrderId: true,
+            sellOrderId: true,
+            price: true,
+            qty: true,
+          },
+        });
+        // (4,900 × 1 + 5,000 × 2) / 3 = 4,966.666…
+        expect(result.items[0].avgFilledPrice).toBe(4_966.67);
+        expect(result.items[1].avgFilledPrice).toBe(5_100);
+      });
+    });
+
+    describe('getOrder', () => {
+      it('주문과 그 주문의 체결 내역을 체결순으로 돌려준다', async () => {
+        order.findFirst.mockResolvedValue(
+          orderWithStockOf(5n, { filledQty: 3n, status: OrderStatus.PARTIAL }),
+        );
+        const tradeDate = new Date('2026-10-24T01:05:00.000Z');
+        trade.findMany.mockResolvedValue([
+          {
+            id: 21n,
+            buyOrderId: 5n,
+            sellOrderId: 1n,
+            price: 4_900n,
+            qty: 1n,
+            createDate: tradeDate,
+          },
+          {
+            id: 22n,
+            buyOrderId: 5n,
+            sellOrderId: 2n,
+            price: 5_000n,
+            qty: 2n,
+            createDate: tradeDate,
+          },
+        ]);
+
+        const result = await service.getOrder(USER_ID, 5);
+
+        expect(order.findFirst).toHaveBeenCalledWith({
+          where: { id: 5n, account: { userId: USER_ID } },
+          include: { stock: { select: { name: true } } },
+        });
+        expect(trade.findMany).toHaveBeenCalledWith({
+          where: { OR: [{ buyOrderId: 5n }, { sellOrderId: 5n }] },
+          orderBy: { id: 'asc' },
+        });
+        expect(result).toMatchObject({
+          orderId: 5,
+          stockName: 'CloudWorks',
+          avgFilledPrice: 4_966.67,
+          trades: [
+            { tradeId: 21, price: 4_900, qty: 1, createDate: tradeDate },
+            { tradeId: 22, price: 5_000, qty: 2, createDate: tradeDate },
+          ],
+        });
+      });
+
+      it('없거나 다른 회원의 주문은 찾을 수 없다', async () => {
+        order.findFirst.mockResolvedValue(null);
+
+        const error = await errorOf(service.getOrder(USER_ID, 5));
+
+        expect(error.error).toBe(OrderErrors.NOT_FOUND);
+      });
+    });
+
+    describe('getAvailable', () => {
+      beforeEach(() => {
+        stock.findFirst.mockResolvedValue(
+          stockOf({ priceTickSize: 10n, minOrderPrice: 100n, minOrderQty: 2n }),
+        );
+        account.findUnique.mockResolvedValue({
+          id: ACCOUNT_ID,
+          cash: 3_000_000n,
+          lockedCash: 500_000n,
+        });
+      });
+
+      it('주문 화면에 필요한 규칙과 사용 가능 포인트, 매도 가능 수량을 돌려준다', async () => {
+        holding.findUnique.mockResolvedValue({ qty: 10n, lockedQty: 4n });
+
+        const result = await service.getAvailable(USER_ID, 1);
+
+        expect(account.findUnique).toHaveBeenCalledWith({
+          where: { userId: USER_ID },
+        });
+        expect(holding.findUnique).toHaveBeenCalledWith({
+          where: { accountId_stockId: { accountId: ACCOUNT_ID, stockId: 1 } },
+        });
+        expect(result).toEqual({
+          stockId: 1,
+          tradeStatus: TradeStatus.ACTIVE,
+          priceTickSize: 10,
+          minOrderPrice: 100,
+          minOrderQty: 2,
+          feeRate: 0,
+          availableCash: 2_500_000,
+          sellableQty: 6,
+        });
+      });
+
+      it('보유하지 않은 상품은 매도 가능 수량이 0이다', async () => {
+        holding.findUnique.mockResolvedValue(null);
+
+        const result = await service.getAvailable(USER_ID, 1);
+
+        expect(result.sellableQty).toBe(0);
+      });
+
+      it('없거나 삭제된 상품이면 조회할 수 없다', async () => {
+        stock.findFirst.mockResolvedValue(null);
+
+        const error = await errorOf(service.getAvailable(USER_ID, 1));
+
+        expect(error.error).toBe(StockErrors.NOT_FOUND);
+      });
+
+      it('계좌가 없으면 조회할 수 없다', async () => {
+        account.findUnique.mockResolvedValue(null);
+
+        const error = await errorOf(service.getAvailable(USER_ID, 1));
+
+        expect(error.error).toBe(AccountErrors.NOT_FOUND);
+      });
     });
   });
 });
