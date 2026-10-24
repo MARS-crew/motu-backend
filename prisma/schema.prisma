@@ -97,6 +97,7 @@ model Account {
   ledgers           CashLedger[]
   pointResetHistory PointResetHistory[]
   holdings          Holding[]
+  orders            Order[]
 
   @@map("accounts")
 }
@@ -306,6 +307,7 @@ model Stock {
   viewHistories ViewHistory[]
   wishlists     Wishlist[]
   holdings      Holding[]
+  orders        Order[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -380,4 +382,63 @@ model Holding {
   @@unique([accountId, stockId])
   @@index([stockId])
   @@map("holdings")
+}
+
+enum OrderSide {
+  BUY
+  SELL
+
+  @@map("order_side")
+}
+
+/// 주문 종류. 지금은 지정가만 지원한다.
+enum OrderType {
+  LIMIT
+
+  @@map("order_type")
+}
+
+enum OrderStatus {
+  /// 접수 (체결 전)
+  ACCEPTED
+  /// 일부 체결
+  PARTIAL
+  /// 전부 체결
+  FILLED
+  /// 취소 (일부 체결 후 남은 수량을 취소한 경우도 포함)
+  CANCELED
+
+  @@map("order_status")
+}
+
+/// 주문. 정정은 없고 취소 후 다시 주문한다.
+model Order {
+  id            BigInt      @id @default(autoincrement()) @map("order_id")
+  accountId     Int         @map("account_id")
+  stockId       Int         @map("stock_id")
+  /// 중복 요청 방지용 키. 프론트가 주문마다 만든 UUID이고, 재전송할 때는 같은 값을 보낸다.
+  clientOrderId String      @map("client_order_id") @db.Uuid
+  side          OrderSide
+  orderType     OrderType   @default(LIMIT) @map("order_type")
+  /// 주문 가격 (지정가)
+  price         BigInt
+  /// 주문 수량
+  qty           BigInt
+  /// 누적 체결 수량
+  filledQty     BigInt      @default(0) @map("filled_qty")
+  /// 매수 주문에 아직 묶여 있는 포인트 (수수료 포함). 체결될 때마다 줄고, 취소하면 남은 금액을 푼다. 매도 주문은 0이다.
+  lockedAmount  BigInt      @default(0) @map("locked_amount")
+  status        OrderStatus @default(ACCEPTED)
+  canceledDate  DateTime?   @map("canceled_date") @db.Timestamptz(3)
+  createDate    DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate  DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id])
+  stock   Stock   @relation(fields: [stockId], references: [id])
+
+  @@unique([accountId, clientOrderId])
+  // 서버 재시작 시 미체결 주문으로 호가창을 복구할 때 쓴다.
+  @@index([stockId, status, side, price, createDate])
+  @@index([accountId, createDate])
+  @@map("orders")
 }
