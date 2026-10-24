@@ -51,12 +51,13 @@ model User {
   createDate       DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate     DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  account             Account?
-  refreshTokens       RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
-  searchHistories     SearchHistory[]
-  viewHistories       ViewHistory[]
-  wishlists           Wishlist[]
+  account               Account?
+  refreshTokens         RefreshToken[]
+  passwordResetTokens   PasswordResetToken[]
+  searchHistories       SearchHistory[]
+  viewHistories         ViewHistory[]
+  wishlists             Wishlist[]
+  attachmentCollections AttachmentCollection[]
 
   @@map("users")
 }
@@ -512,4 +513,114 @@ model Chart {
 
   @@id([stockId, interval, candleTime])
   @@map("charts")
+}
+
+// 신청서 모듈에 연결하기 전에도 소유자와 첨부 개수 제한을 유지하는 작성 단위.
+enum AttachmentPurpose {
+  EVIDENCE
+  LOGO
+  MAIN_IMAGE
+
+  @@map("attachment_purpose")
+}
+
+enum AttachmentKind {
+  FILE
+  LINK
+
+  @@map("attachment_kind")
+}
+
+model AttachmentCollection {
+  id          String            @id @default(uuid()) @db.Uuid
+  userId      Int               @map("user_id")
+  purpose     AttachmentPurpose
+  description String?           @db.VarChar(500)
+  savedAt     DateTime?         @map("saved_at") @db.Timestamptz(3)
+  createDate  DateTime          @default(now()) @map("create_date") @db.Timestamptz(3)
+  user        User              @relation(fields: [userId], references: [id])
+  attachments Attachment[]
+
+  @@index([userId])
+  @@map("attachment_collections")
+}
+
+// 이 테이블에는 저장소 업로드가 완료된 파일 또는 검증된 링크만 기록한다.
+model Attachment {
+  id           String               @id @default(uuid()) @db.Uuid
+  collectionId String               @map("collection_id") @db.Uuid
+  kind         AttachmentKind
+  originalName String?              @map("original_name") @db.VarChar(255)
+  contentType  String?              @map("content_type") @db.VarChar(100)
+  size         Int?
+  objectKey    String?              @unique @map("object_key") @db.VarChar(500)
+  url          String?              @db.VarChar(2048)
+  saved        Boolean              @default(false)
+  createDate   DateTime             @default(now()) @map("create_date") @db.Timestamptz(3)
+  collection   AttachmentCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId])
+  @@map("attachments")
+}
+
+// ─── 공지·FAQ ───────────────────────────────────────
+
+enum NoticeType {
+  /// 전체 서비스 공지
+  ALL
+  /// 상품 공지
+  STOCK
+
+  @@map("notice_type")
+}
+
+/// 공지사항. 게시 기간 안에 있는 공지만 사용자에게 보여 준다. 게시일은 postStartDate다.
+model Notice {
+  id            Int        @id @default(autoincrement()) @map("notice_id")
+  type          NoticeType @map("notice_type")
+  title         String     @db.VarChar(100)
+  content       String
+  /// 중요 공지. 목록 맨 위에 둔다.
+  isImportant   Boolean    @default(false) @map("is_important")
+  postStartDate DateTime   @map("post_start_date") @db.Timestamptz(3)
+  /// 게시 종료 시각. null이면 계속 게시한다.
+  postEndDate   DateTime?  @map("post_end_date") @db.Timestamptz(3)
+  isDeleted     Boolean    @default(false) @map("is_deleted")
+  deletedDate   DateTime?  @map("deleted_date") @db.Timestamptz(3)
+  createDate    DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate  DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  @@index([postStartDate])
+  @@map("notices")
+}
+
+enum FaqCategory {
+  /// 거래/주문
+  TRADE
+  /// 포인트/자산
+  POINT
+  /// 계정/보안
+  ACCOUNT
+  /// 상장
+  LISTING
+  /// 기타
+  ETC
+
+  @@map("faq_category")
+}
+
+/// 자주 묻는 질문. sortOrder가 작은 것부터 보여 준다.
+model Faq {
+  id           Int         @id @default(autoincrement()) @map("faq_id")
+  category     FaqCategory
+  question     String      @db.VarChar(200)
+  answer       String
+  sortOrder    Int         @default(0) @map("sort_order")
+  isDeleted    Boolean     @default(false) @map("is_deleted")
+  deletedDate  DateTime?   @map("deleted_date") @db.Timestamptz(3)
+  createDate   DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  @@index([category, sortOrder])
+  @@map("faqs")
 }

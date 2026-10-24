@@ -14,11 +14,14 @@
 | [상품](stocks.md) | 카테고리, 상품 목록, 신규 상장, 상품 상세, 최근 본 종목 | `modules/sectors`, `modules/stocks` |
 | [검색](search.md) | 상품 검색, 최근 검색어 | `modules/stocks`, `modules/search-histories` |
 | [관심상품](wishlists.md) | 관심상품 등록·해제, 관심 상품 목록 | `modules/stocks` |
+| [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |
 | [주문](orders.md) | 거래 규칙, 주문 가능 정보, 매수·매도 주문, 주문 취소, 내 주문, 호가 5단계 | `modules/orders`, `modules/matching` |
 | [체결](trades.md) | 최근 체결 | `modules/trades` |
 | [차트·시세](charts.md) | 당일 거래 요약, 기간별 차트, 실시간 시세(SSE) | `modules/charts` |
 
 ## 문서 관리
+
+파일 업로드/검증과 외부 링크 API는 [파일·외부 링크](files.md)를 참고합니다.
 
 - 도메인(모듈)마다 문서 하나를 둡니다. 새 도메인을 만들면 문서를 추가하고 위 목록에 넣습니다.
 - API를 바꾸는 PR에서는 해당 도메인 문서도 같이 고칩니다.
@@ -33,5 +36,6 @@
 | 보유 종목·포트폴리오 | 없음 (주문 내역은 [내 주문 목록](orders.md#내-주문-목록)) | 보유 종목 조회 API |
 | 체결 알림, 가격 도달 알림 | 없음 | 알림 작업 |
 | 새 기기 확인, 2차 보안(SMS) | 없음 | SMS 서비스 확정 후 |
+| 공지·FAQ 등록·수정·삭제 (관리자) | 없음, 로컬은 seed로 넣음 | 관리자 화면 작업 때 |
 | 회원 탈퇴, 비밀번호 재설정 메일의 화면 주소 | 없음 / 로컬 주소 | 2차 개발 |
 

@@ -7,9 +7,12 @@ import { validateEnv } from './config/env.validation.js';
 import { createLoggerOptions } from './config/logger.config.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { ChartsModule } from './modules/charts/charts.module.js';
+import { FaqsModule } from './modules/faqs/faqs.module.js';
+import { FilesModule } from './modules/files/files.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { HoldingsModule } from './modules/holdings/holdings.module.js';
 import { MatchingModule } from './modules/matching/matching.module.js';
+import { NoticesModule } from './modules/notices/notices.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
 import { PriceAlertsModule } from './modules/price-alerts/price-alerts.module.js';
@@ -33,11 +36,14 @@ import { UsersModule } from './modules/users/users.module.js';
     PrismaModule,
     MailModule,
     HealthModule,
+    FilesModule,
     UsersModule,
     AuthModule,
     SectorsModule,
     StocksModule,
     SearchHistoriesModule,
+    NoticesModule,
+    FaqsModule,
     OrdersModule,
     HoldingsModule,
     MatchingModule,

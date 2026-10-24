@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext } from '@nestjs/common';
+import { CallHandler, ExecutionContext, StreamableFile } from '@nestjs/common';
 import { SSE_METADATA } from '@nestjs/common/constants.js';
 import { lastValueFrom, of } from 'rxjs';
 import { ResponseInterceptor } from './response.interceptor.js';
@@ -30,6 +30,19 @@ describe('ResponseInterceptor', () => {
     );
 
     expect(result).toEqual({ success: true, data: null });
+  });
+
+  it('파일 다운로드(StreamableFile)는 감싸지 않는다', async () => {
+    const file = new StreamableFile(Buffer.from('file'));
+
+    const result = await lastValueFrom(
+      interceptor.intercept(
+        contextOf(() => {}),
+        nextOf(file),
+      ),
+    );
+
+    expect(result).toBe(file);
   });
 
   it('SSE 핸들러의 메시지는 감싸지 않는다', async () => {
