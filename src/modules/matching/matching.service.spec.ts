@@ -224,6 +224,31 @@ describe('MatchingService', () => {
     });
   });
 
+  describe('clearBook', () => {
+    it('그 종목의 호가창을 비운다', () => {
+      const matching = new MatchingService({} as PrismaService);
+      matching.getBook(7).add({
+        orderId: 11n,
+        accountId: 2,
+        side: OrderSide.SELL,
+        price: 4_900n,
+        remainingQty: 3n,
+      });
+      matching.getBook(8).add({
+        orderId: 12n,
+        accountId: 2,
+        side: OrderSide.SELL,
+        price: 4_900n,
+        remainingQty: 3n,
+      });
+
+      matching.clearBook(7);
+
+      expect(matching.getBook(7).get(11n)).toBeUndefined();
+      expect(matching.getBook(8).get(12n)).toBeDefined();
+    });
+  });
+
   describe('removeOrder', () => {
     it('그 종목의 호가창에서 주문을 뺀다', () => {
       const matching = new MatchingService({} as PrismaService);

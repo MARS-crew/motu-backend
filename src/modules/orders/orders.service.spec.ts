@@ -29,6 +29,7 @@ describe('OrdersService', () => {
   const holding = { findUnique: vi.fn() };
   const tx = {
     $queryRaw: vi.fn(),
+    stock: { findUniqueOrThrow: vi.fn() },
     account: { update: vi.fn() },
     holding: { update: vi.fn() },
     order: {
@@ -110,6 +111,9 @@ describe('OrdersService', () => {
     stock.findFirst.mockResolvedValue(stockOf());
     order.findFirst.mockResolvedValue(null);
     trade.findMany.mockResolvedValue([]);
+    tx.stock.findUniqueOrThrow.mockResolvedValue({
+      tradeStatus: TradeStatus.ACTIVE,
+    });
     account.findUnique.mockResolvedValue({
       id: ACCOUNT_ID,
       cash: 3_000_000n,
@@ -272,6 +276,25 @@ describe('OrdersService', () => {
         price: 5_000n,
         qty: 200n,
       });
+    });
+
+    it('순서를 기다리는 사이 거래가 중지·종료됐으면 예약하지 않고 거부한다', async () => {
+      tx.stock.findUniqueOrThrow.mockResolvedValue({
+        tradeStatus: TradeStatus.CLOSED,
+      });
+
+      const error = await errorOf(
+        service.placeOrder(USER_ID, buyOf(5_000, 200)),
+      );
+
+      expect(tx.stock.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: 1 },
+        select: { tradeStatus: true },
+      });
+      expect(error.error).toBe(OrderErrors.STOCK_NOT_TRADABLE);
+      expect(tx.order.create).not.toHaveBeenCalled();
+      expect(matching.apply).not.toHaveBeenCalled();
+      expect(matching.reloadBook).not.toHaveBeenCalled();
     });
 
     it('자기 체결이면 예약하지 않고 주문을 거부한다', async () => {

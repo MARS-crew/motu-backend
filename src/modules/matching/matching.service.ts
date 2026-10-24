@@ -130,6 +130,11 @@ export class MatchingService implements OnModuleInit {
     };
   }
 
+  /** DB 커밋에 성공한 거래 종료를 호가창에 반영한다. 그 종목의 호가창을 비운다. */
+  clearBook(stockId: number): void {
+    this.books.set(stockId, new OrderBook());
+  }
+
   /** DB 커밋에 성공한 취소를 호가창에 반영한다. 호가창에 없으면 아무것도 하지 않는다. */
   removeOrder(stockId: number, orderId: bigint): void {
     this.getBook(stockId).remove(orderId);

@@ -7,6 +7,7 @@ import {
   OrderStatus,
   Prisma,
   Trade,
+  TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
 import { MatchingService } from '../matching/matching.service.js';
@@ -125,6 +126,19 @@ export class OrdersService {
           stock.id,
           () =>
             this.prisma.$transaction(async (tx) => {
+              // 순서를 기다리는 사이 거래가 중지·종료됐을 수 있으므로 다시 확인한다.
+              const { tradeStatus } = await tx.stock.findUniqueOrThrow({
+                where: { id: stock.id },
+                select: { tradeStatus: true },
+              });
+              if (tradeStatus !== TradeStatus.ACTIVE) {
+                throw new BusinessException(
+                  OrderErrors.STOCK_NOT_TRADABLE,
+                  undefined,
+                  { tradeStatus },
+                );
+              }
+
               await this.settlement.lockAccounts(tx, [
                 account.id,
                 ...match.fills.map(({ makerAccountId }) => makerAccountId),
