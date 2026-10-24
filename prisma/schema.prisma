@@ -51,12 +51,13 @@ model User {
   createDate       DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate     DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  account             Account?
-  refreshTokens       RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
-  searchHistories     SearchHistory[]
-  viewHistories       ViewHistory[]
-  wishlists           Wishlist[]
+  account               Account?
+  refreshTokens         RefreshToken[]
+  passwordResetTokens   PasswordResetToken[]
+  searchHistories       SearchHistory[]
+  viewHistories         ViewHistory[]
+  wishlists             Wishlist[]
+  attachmentCollections AttachmentCollection[]
 
   @@map("users")
 }
@@ -348,6 +349,54 @@ model Wishlist {
   @@id([userId, stockId])
   @@index([userId, createDate])
   @@map("wishlists")
+}
+
+// 신청서 모듈에 연결하기 전에도 소유자와 첨부 개수 제한을 유지하는 작성 단위.
+enum AttachmentPurpose {
+  EVIDENCE
+  LOGO
+  MAIN_IMAGE
+
+  @@map("attachment_purpose")
+}
+
+enum AttachmentKind {
+  FILE
+  LINK
+
+  @@map("attachment_kind")
+}
+
+model AttachmentCollection {
+  id          String            @id @default(uuid()) @db.Uuid
+  userId      Int               @map("user_id")
+  purpose     AttachmentPurpose
+  description String?           @db.VarChar(500)
+  savedAt     DateTime?         @map("saved_at") @db.Timestamptz(3)
+  createDate  DateTime          @default(now()) @map("create_date") @db.Timestamptz(3)
+  user        User              @relation(fields: [userId], references: [id])
+  attachments Attachment[]
+
+  @@index([userId])
+  @@map("attachment_collections")
+}
+
+// 이 테이블에는 저장소 업로드가 완료된 파일 또는 검증된 링크만 기록한다.
+model Attachment {
+  id           String               @id @default(uuid()) @db.Uuid
+  collectionId String               @map("collection_id") @db.Uuid
+  kind         AttachmentKind
+  originalName String?              @map("original_name") @db.VarChar(255)
+  contentType  String?              @map("content_type") @db.VarChar(100)
+  size         Int?
+  objectKey    String?              @unique @map("object_key") @db.VarChar(500)
+  url          String?              @db.VarChar(2048)
+  saved        Boolean              @default(false)
+  createDate   DateTime             @default(now()) @map("create_date") @db.Timestamptz(3)
+  collection   AttachmentCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId])
+  @@map("attachments")
 }
 
 // ─── 공지·FAQ ───────────────────────────────────────
