@@ -16,3 +16,6 @@ export enum OrderListStatus {
   /** 전체 */
   ALL = 'ALL',
 }
+
+/** 호가 조회에서 보여주는 가격 단계 수 */
+export const ORDER_BOOK_DEPTH = 5;

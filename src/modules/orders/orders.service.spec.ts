@@ -55,6 +55,7 @@ describe('OrdersService', () => {
     publishTrades: vi.fn(),
     removeOrder: vi.fn(),
     reloadBook: vi.fn(),
+    depth: vi.fn(),
   };
   const settlement = {
     lockAccounts: vi.fn(),
@@ -1025,6 +1026,43 @@ describe('OrdersService', () => {
         const error = await errorOf(service.getOrder(USER_ID, 5));
 
         expect(error.error).toBe(OrderErrors.NOT_FOUND);
+      });
+    });
+
+    describe('getOrderBook', () => {
+      it('호가창에서 매도·매수 호가를 5단계까지 읽어 돌려준다', async () => {
+        matching.depth.mockReturnValue({
+          asks: [
+            { price: 5_000n, qty: 7n },
+            { price: 5_100n, qty: 2n },
+          ],
+          bids: [{ price: 4_900n, qty: 6n }],
+        });
+
+        const result = await service.getOrderBook(1);
+
+        expect(stock.findFirst).toHaveBeenCalledWith({
+          where: { id: 1, isDeleted: false },
+          select: { id: true },
+        });
+        expect(matching.depth).toHaveBeenCalledWith(1, 5);
+        expect(result).toEqual({
+          stockId: 1,
+          asks: [
+            { price: 5_000, qty: 7 },
+            { price: 5_100, qty: 2 },
+          ],
+          bids: [{ price: 4_900, qty: 6 }],
+        });
+      });
+
+      it('없거나 삭제된 상품이면 조회할 수 없다', async () => {
+        stock.findFirst.mockResolvedValue(null);
+
+        const error = await errorOf(service.getOrderBook(1));
+
+        expect(error.error).toBe(StockErrors.NOT_FOUND);
+        expect(matching.depth).not.toHaveBeenCalled();
       });
     });
 

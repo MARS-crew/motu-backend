@@ -1,9 +1,14 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { Order, OrderStatus, Prisma } from '../../generated/prisma/client.js';
+import {
+  Order,
+  OrderSide,
+  OrderStatus,
+  Prisma,
+} from '../../generated/prisma/client.js';
 import { Fill, IncomingOrder, matchOrder, MatchResult } from './matcher.js';
-import { OrderBook } from './order-book.js';
+import { DepthLevel, OrderBook } from './order-book.js';
 import { KeyedSerialQueue } from './serial-queue.js';
 import { ExecutedTrade } from './settlement.js';
 
@@ -111,6 +116,18 @@ export class MatchingService implements OnModuleInit {
     if (OPEN_STATUSES.includes(order.status)) {
       this.addToBook(book, order);
     }
+  }
+
+  /** 좋은 가격부터 count단계의 매도·매수 호가 */
+  depth(
+    stockId: number,
+    count: number,
+  ): { asks: DepthLevel[]; bids: DepthLevel[] } {
+    const book = this.getBook(stockId);
+    return {
+      asks: book.depth(OrderSide.SELL, count),
+      bids: book.depth(OrderSide.BUY, count),
+    };
   }
 
   /** DB 커밋에 성공한 취소를 호가창에 반영한다. 호가창에 없으면 아무것도 하지 않는다. */

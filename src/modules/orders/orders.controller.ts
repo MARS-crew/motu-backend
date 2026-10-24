@@ -20,11 +20,14 @@ import {
 } from '@nestjs/swagger';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
+import { Public } from '../../common/auth/public.decorator.js';
 import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
 import { GetOrderAvailableReqDto } from './dto/req/get-order-available-req.dto.js';
+import { GetOrderBookReqDto } from './dto/req/get-order-book-req.dto.js';
 import { GetOrdersReqDto } from './dto/req/get-orders-req.dto.js';
 import { GetOrderAvailableResDto } from './dto/res/get-order-available-res.dto.js';
+import { GetOrderBookResDto } from './dto/res/get-order-book-res.dto.js';
 import { GetOrderResDto } from './dto/res/get-order-res.dto.js';
 import { GetOrdersResDto } from './dto/res/get-orders-res.dto.js';
 import { OrderResDto } from './dto/res/order-res.dto.js';
@@ -105,6 +108,22 @@ export class OrdersController {
     @Query() query: GetOrderAvailableReqDto,
   ): Promise<GetOrderAvailableResDto> {
     return this.ordersService.getAvailable(user.userId, query.stockId);
+  }
+
+  // ':orderId'보다 먼저 선언해야 'book'이 주문 ID로 해석되지 않는다.
+  @Public()
+  @Get('book')
+  @ApiOperation({
+    summary: '호가 5단계',
+    description:
+      '가격대별 미체결 수량 합계. 매도는 낮은 가격부터, 매수는 높은 가격부터 최대 5개다. 주문이 없는 가격은 나오지 않는다.',
+  })
+  @ApiOkResponse({ type: GetOrderBookResDto })
+  @ApiNotFoundResponse({ description: 'STOCK_NOT_FOUND' })
+  getOrderBook(
+    @Query() query: GetOrderBookReqDto,
+  ): Promise<GetOrderBookResDto> {
+    return this.ordersService.getOrderBook(query.stockId);
   }
 
   @Get(':orderId')

@@ -176,6 +176,54 @@ describe('MatchingService', () => {
     });
   });
 
+  describe('depth', () => {
+    it('그 종목의 매도·매수 호가를 좋은 가격부터 정해진 개수만큼 돌려준다', () => {
+      const matching = new MatchingService({} as PrismaService);
+      const book = matching.getBook(7);
+      book.add({
+        orderId: 1n,
+        accountId: 1,
+        side: OrderSide.SELL,
+        price: 5_100n,
+        remainingQty: 2n,
+      });
+      book.add({
+        orderId: 2n,
+        accountId: 2,
+        side: OrderSide.SELL,
+        price: 5_000n,
+        remainingQty: 3n,
+      });
+      book.add({
+        orderId: 3n,
+        accountId: 3,
+        side: OrderSide.SELL,
+        price: 5_000n,
+        remainingQty: 4n,
+      });
+      book.add({
+        orderId: 4n,
+        accountId: 4,
+        side: OrderSide.BUY,
+        price: 4_800n,
+        remainingQty: 1n,
+      });
+      book.add({
+        orderId: 5n,
+        accountId: 5,
+        side: OrderSide.BUY,
+        price: 4_900n,
+        remainingQty: 6n,
+      });
+
+      expect(matching.depth(7, 1)).toEqual({
+        asks: [{ price: 5_000n, qty: 7n }],
+        bids: [{ price: 4_900n, qty: 6n }],
+      });
+      expect(matching.depth(8, 5)).toEqual({ asks: [], bids: [] });
+    });
+  });
+
   describe('removeOrder', () => {
     it('그 종목의 호가창에서 주문을 뺀다', () => {
       const matching = new MatchingService({} as PrismaService);

@@ -14,6 +14,7 @@ import { SettlementService } from '../matching/settlement.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
 import { GetOrderAvailableResDto } from './dto/res/get-order-available-res.dto.js';
+import { GetOrderBookResDto } from './dto/res/get-order-book-res.dto.js';
 import { GetOrderResDto } from './dto/res/get-order-res.dto.js';
 import {
   GetOrdersResDto,
@@ -23,6 +24,7 @@ import { OrderResDto } from './dto/res/order-res.dto.js';
 import {
   BPS_DENOMINATOR,
   FEE_RATE_BPS,
+  ORDER_BOOK_DEPTH,
   OrderListStatus,
 } from './orders.constants.js';
 import { OrderErrors } from './orders.errors.js';
@@ -397,6 +399,30 @@ export class OrdersService {
       }
       throw error;
     }
+  }
+
+  /**
+   * 호가 5단계. 메모리 호가창에서 읽는다.
+   */
+  async getOrderBook(stockId: number): Promise<GetOrderBookResDto> {
+    const stock = await this.prisma.stock.findFirst({
+      where: { id: stockId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!stock) {
+      throw new BusinessException(StockErrors.NOT_FOUND);
+    }
+
+    const { asks, bids } = this.matching.depth(stock.id, ORDER_BOOK_DEPTH);
+    const toLevel = ({ price, qty }: { price: bigint; qty: bigint }) => ({
+      price: Number(price),
+      qty: Number(qty),
+    });
+    return {
+      stockId: stock.id,
+      asks: asks.map(toLevel),
+      bids: bids.map(toLevel),
+    };
   }
 
   private findByClientOrderId(
