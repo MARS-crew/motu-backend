@@ -38,6 +38,13 @@ describe('FilesService 저장 보장', () => {
   const files = [
     { originalname: 'proof.png', mimetype: 'image/png', buffer: png },
   ] as Express.Multer.File[];
+  it('파일 미선택은 파일 전용 코드로 반환하고 저장하지 않는다', async () => {
+    await expect(service.upload(1, 'group', [])).rejects.toMatchObject({
+      error: { code: 'FILE_REQUIRED', message: '파일을 선택해 주세요.' },
+    });
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
   it('저장소 실패 시 DB 완료 기록을 만들지 않고 정리한다', async () => {
     storage.put.mockRejectedValueOnce(new Error('storage offline'));
     await expect(service.upload(1, 'group', files)).rejects.toThrow(
@@ -67,7 +74,14 @@ describe('FilesService 저장 보장', () => {
         description: '짧음',
         validateStep: true,
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      error: {
+        code: 'FILE_INVALID_DESCRIPTION',
+        message: '자료 설명은 10자 이상 500자 이하로 입력해 주세요.',
+      },
+    });
+    expect(tx.attachment.updateMany).not.toHaveBeenCalled();
+    expect(tx.attachmentCollection.update).not.toHaveBeenCalled();
   });
   it('소유자 검증 실패 시 파일을 저장하지 않는다', async () => {
     prisma.attachmentCollection.findFirst.mockResolvedValueOnce(null);
