@@ -2,6 +2,16 @@ import { HttpStatus } from '@nestjs/common';
 import type { ErrorDefinition } from '../../common/exceptions/business.exception.js';
 
 export const FileErrors = {
+  REQUIRED: {
+    code: 'FILE_REQUIRED',
+    message: '파일을 선택해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
+  DESCRIPTION: {
+    code: 'FILE_INVALID_DESCRIPTION',
+    message: '자료 설명은 10자 이상 500자 이하로 입력해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
   NOT_FOUND: {
     code: 'FILE_NOT_FOUND',
     message: '첨부 자료를 찾을 수 없습니다.',
