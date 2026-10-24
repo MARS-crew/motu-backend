@@ -4,10 +4,17 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { ChartInterval, Prisma, Trade } from '../../generated/prisma/client.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { candleStartOf } from './candle-time.js';
+import { ChartErrors } from './charts.errors.js';
+import { GetCandlesResDto } from './dto/res/get-candles-res.dto.js';
 import { GetDailySummaryResDto } from './dto/res/get-daily-summary-res.dto.js';
 
 /** 체결마다 갱신하는 봉 단위 */
 const INTERVALS = Object.values(ChartInterval);
+
+interface CandleCursor {
+  /** 이 페이지에서 가장 오래된 봉의 시작 시각 */
+  candleTime: string;
+}
 
 /** 당일 요약 계산에 필요한 상품 값 */
 export interface SummaryStock {
@@ -140,5 +147,78 @@ export class ChartsService {
         return [stock.id, summary];
       }),
     );
+  }
+
+  /**
+   * 기간별 차트 봉. 최신 봉부터 size개를 읽어 오래된 순으로 돌려준다.
+   * 더 이전 봉은 nextCursor로 이어서 읽는다. 체결이 없던 구간의 봉은 채우지 않는다.
+   */
+  async getCandles(query: {
+    stockId: number;
+    interval: ChartInterval;
+    cursor?: string;
+    size: number;
+  }): Promise<GetCandlesResDto> {
+    const before = query.cursor ? this.decodeCursor(query.cursor) : undefined;
+    const stock = await this.prisma.stock.findFirst({
+      where: { id: query.stockId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!stock) {
+      throw new BusinessException(StockErrors.NOT_FOUND);
+    }
+
+    const candles = await this.prisma.chart.findMany({
+      where: {
+        stockId: stock.id,
+        interval: query.interval,
+        ...(before && { candleTime: { lt: before } }),
+      },
+      orderBy: { candleTime: 'desc' },
+      take: query.size + 1,
+    });
+    const hasMore = candles.length > query.size;
+    const page = (hasMore ? candles.slice(0, query.size) : candles).reverse();
+    const oldest = page[0];
+
+    return {
+      stockId: stock.id,
+      interval: query.interval,
+      items: page.map((candle) => ({
+        time: candle.candleTime,
+        openPrice: Number(candle.openPrice),
+        highPrice: Number(candle.highPrice),
+        lowPrice: Number(candle.lowPrice),
+        closePrice: Number(candle.closePrice),
+        volume: Number(candle.volume),
+        tradeAmount: Number(candle.tradeAmount),
+      })),
+      nextCursor:
+        hasMore && oldest
+          ? this.encodeCursor({ candleTime: oldest.candleTime.toISOString() })
+          : null,
+    };
+  }
+
+  private encodeCursor(cursor: CandleCursor): string {
+    return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+  }
+
+  private decodeCursor(value: string): Date {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    } catch {
+      throw new BusinessException(ChartErrors.INVALID_CURSOR);
+    }
+    const candleTime =
+      typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Partial<CandleCursor>).candleTime
+        : undefined;
+    const date = new Date(candleTime ?? '');
+    if (typeof candleTime !== 'string' || Number.isNaN(date.getTime())) {
+      throw new BusinessException(ChartErrors.INVALID_CURSOR);
+    }
+    return date;
   }
 }

@@ -2,6 +2,7 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { ChartInterval, Prisma, Trade } from '../../generated/prisma/client.js';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
+import { ChartErrors } from './charts.errors.js';
 import { ChartsService } from './charts.service.js';
 
 describe('ChartsService', () => {
@@ -347,6 +348,181 @@ describe('ChartsService 당일 요약', () => {
       expect(error.error).toBe(StockErrors.NOT_FOUND);
       expect(chart.findMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('ChartsService 기간별 차트', () => {
+  const chart = { findMany: vi.fn() };
+  const stock = { findFirst: vi.fn() };
+  const prisma = { chart, stock } as unknown as PrismaService;
+  const service = new ChartsService(prisma);
+
+  const candleOf = (time: string, close: bigint) => ({
+    stockId: 1,
+    interval: ChartInterval.MINUTE,
+    candleTime: new Date(time),
+    openPrice: close - 10n,
+    highPrice: close + 20n,
+    lowPrice: close - 30n,
+    closePrice: close,
+    volume: 3n,
+    tradeAmount: close * 3n,
+  });
+  const cursorOf = (value: unknown) =>
+    Buffer.from(JSON.stringify(value)).toString('base64url');
+
+  const errorOf = async (promise: Promise<unknown>) => {
+    try {
+      await promise;
+    } catch (error) {
+      return error as BusinessException;
+    }
+    throw new Error('예외가 발생하지 않았습니다.');
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stock.findFirst.mockResolvedValue({ id: 1 });
+  });
+
+  it('최신 봉부터 size개를 읽어 오래된 순으로 돌려준다', async () => {
+    chart.findMany.mockResolvedValue([
+      candleOf('2026-10-24T09:32:00.000Z', 4_400n),
+      candleOf('2026-10-24T09:31:00.000Z', 4_350n),
+    ]);
+
+    const result = await service.getCandles({
+      stockId: 1,
+      interval: ChartInterval.MINUTE,
+      size: 2,
+    });
+
+    expect(stock.findFirst).toHaveBeenCalledWith({
+      where: { id: 1, isDeleted: false },
+      select: { id: true },
+    });
+    expect(chart.findMany).toHaveBeenCalledWith({
+      where: { stockId: 1, interval: ChartInterval.MINUTE },
+      orderBy: { candleTime: 'desc' },
+      take: 3,
+    });
+    expect(result).toEqual({
+      stockId: 1,
+      interval: ChartInterval.MINUTE,
+      items: [
+        {
+          time: new Date('2026-10-24T09:31:00.000Z'),
+          openPrice: 4_340,
+          highPrice: 4_370,
+          lowPrice: 4_320,
+          closePrice: 4_350,
+          volume: 3,
+          tradeAmount: 13_050,
+        },
+        {
+          time: new Date('2026-10-24T09:32:00.000Z'),
+          openPrice: 4_390,
+          highPrice: 4_420,
+          lowPrice: 4_370,
+          closePrice: 4_400,
+          volume: 3,
+          tradeAmount: 13_200,
+        },
+      ],
+      nextCursor: null,
+    });
+  });
+
+  it('이전 봉이 더 있으면 이번 페이지에서 가장 오래된 봉 시각으로 커서를 만든다', async () => {
+    chart.findMany.mockResolvedValue([
+      candleOf('2026-10-24T09:33:00.000Z', 4_400n),
+      candleOf('2026-10-24T09:32:00.000Z', 4_380n),
+      candleOf('2026-10-24T09:31:00.000Z', 4_350n),
+    ]);
+
+    const result = await service.getCandles({
+      stockId: 1,
+      interval: ChartInterval.MINUTE,
+      size: 2,
+    });
+
+    expect(result.items.map(({ closePrice }) => closePrice)).toEqual([
+      4_380, 4_400,
+    ]);
+    expect(result.nextCursor).toBe(
+      cursorOf({ candleTime: '2026-10-24T09:32:00.000Z' }),
+    );
+  });
+
+  it('커서를 넘기면 그보다 이전 봉을 읽는다', async () => {
+    chart.findMany.mockResolvedValue([]);
+
+    await service.getCandles({
+      stockId: 1,
+      interval: ChartInterval.DAY,
+      cursor: cursorOf({ candleTime: '2026-10-24T09:32:00.000Z' }),
+      size: 100,
+    });
+
+    expect(chart.findMany).toHaveBeenCalledWith({
+      where: {
+        stockId: 1,
+        interval: ChartInterval.DAY,
+        candleTime: { lt: new Date('2026-10-24T09:32:00.000Z') },
+      },
+      orderBy: { candleTime: 'desc' },
+      take: 101,
+    });
+  });
+
+  it('봉이 없으면 빈 목록이다', async () => {
+    chart.findMany.mockResolvedValue([]);
+
+    const result = await service.getCandles({
+      stockId: 1,
+      interval: ChartInterval.WEEK,
+      size: 100,
+    });
+
+    expect(result).toEqual({
+      stockId: 1,
+      interval: ChartInterval.WEEK,
+      items: [],
+      nextCursor: null,
+    });
+  });
+
+  it.each([
+    'not-base64-json',
+    cursorOf({ candleTime: 'x' }),
+    cursorOf({}),
+    cursorOf([]),
+  ])('잘못된 커서(%s)면 처음부터 다시 불러오게 한다', async (cursor) => {
+    const error = await errorOf(
+      service.getCandles({
+        stockId: 1,
+        interval: ChartInterval.MINUTE,
+        cursor,
+        size: 100,
+      }),
+    );
+
+    expect(error.error).toBe(ChartErrors.INVALID_CURSOR);
+    expect(chart.findMany).not.toHaveBeenCalled();
+  });
+
+  it('없거나 삭제된 상품이면 조회할 수 없다', async () => {
+    stock.findFirst.mockResolvedValue(null);
+
+    const error = await errorOf(
+      service.getCandles({
+        stockId: 1,
+        interval: ChartInterval.MINUTE,
+        size: 100,
+      }),
+    );
+
+    expect(error.error).toBe(StockErrors.NOT_FOUND);
   });
 });
 
