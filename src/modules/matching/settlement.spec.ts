@@ -114,19 +114,20 @@ describe('calculateFillAmounts', () => {
     expect(result.realizedPnl).toBe(-5_000n);
   });
 
-  it('수수료율을 넘기지 않으면 현재 수수료율(0%)을 쓴다', () => {
+  it('수수료율을 넘기지 않으면 현재 수수료율(0.02%)을 쓴다', () => {
     const result = calculateFillAmounts({
       price: 4_900n,
       qty: 4n,
-      buyOrder: { ...buyOrder, lockedAmount: 50_000n },
+      buyOrder: { ...buyOrder, lockedAmount: 50_010n },
       sellHolding,
     });
 
+    // 4,900 × 4 = 19,600, 수수료 3.92 → 3. 예약 해제는 5,000 × 4 + 수수료 4
     expect(result).toMatchObject({
-      buyFee: 0n,
-      sellFee: 0n,
-      buyerCost: 19_600n,
-      buyRelease: 20_000n,
+      buyFee: 3n,
+      sellFee: 3n,
+      buyerCost: 19_603n,
+      buyRelease: 20_004n,
     });
   });
 });
@@ -204,14 +205,14 @@ describe('SettlementService', () => {
     });
 
     describe('매수 주문이 매도 호가 두 개와 체결될 때', () => {
-      // 새 매수 주문: 5,000P × 5주 (예약 25,000P)
+      // 새 매수 주문: 5,000P × 5주 (예약 25,000P + 수수료 5P)
       const taker = orderOf({
         id: 20n,
         accountId: 1,
         side: OrderSide.BUY,
         price: 5_000n,
         qty: 5n,
-        lockedAmount: 25_000n,
+        lockedAmount: 25_005n,
       });
       // 계좌 2: 4,900P에 3주 매도 (보유 3주, 매입금액 12,000P → 전부 매도)
       const maker11 = orderOf({
@@ -289,20 +290,22 @@ describe('SettlementService', () => {
         const buyerUpdates = tx.account.update.mock.calls
           .map(([args]) => args)
           .filter(({ where }) => where.id === 1);
+        // 4,900 × 3 = 14,700 + 수수료 2, 예약 해제 5,000 × 3 + 수수료 3
+        // 마지막 체결: 5,000 × 2 = 10,000 + 수수료 2, 남은 예약 25,005 - 15,003 = 10,002를 모두 해제
         expect(buyerUpdates).toEqual([
           {
             where: { id: 1 },
             data: {
-              cash: { decrement: 14_700n },
-              lockedCash: { decrement: 15_000n },
+              cash: { decrement: 14_702n },
+              lockedCash: { decrement: 15_003n },
               version: { increment: 1 },
             },
           },
           {
             where: { id: 1 },
             data: {
-              cash: { decrement: 10_000n },
-              lockedCash: { decrement: 10_000n },
+              cash: { decrement: 10_002n },
+              lockedCash: { decrement: 10_002n },
               version: { increment: 1 },
             },
           },
@@ -314,10 +317,10 @@ describe('SettlementService', () => {
 
         expect(tx.holding.upsert).toHaveBeenNthCalledWith(1, {
           where: { accountId_stockId: { accountId: 1, stockId: 1 } },
-          create: { accountId: 1, stockId: 1, qty: 3n, totalAmount: 14_700n },
+          create: { accountId: 1, stockId: 1, qty: 3n, totalAmount: 14_702n },
           update: {
             qty: { increment: 3n },
-            totalAmount: { increment: 14_700n },
+            totalAmount: { increment: 14_702n },
           },
         });
       });
@@ -327,7 +330,7 @@ describe('SettlementService', () => {
 
         expect(tx.account.update).toHaveBeenCalledWith({
           where: { id: 3 },
-          data: { cash: { increment: 10_000n }, version: { increment: 1 } },
+          data: { cash: { increment: 9_998n }, version: { increment: 1 } },
         });
         expect(tx.holding.update).toHaveBeenCalledWith({
           where: { id: 53 },
@@ -358,34 +361,34 @@ describe('SettlementService', () => {
             accountId: 1,
             tradeId: 101n,
             type: CashLedgerType.BUY,
-            amount: -14_700n,
-            fee: 0n,
+            amount: -14_702n,
+            fee: 2n,
             balanceAfter: 999n,
           },
           {
             accountId: 2,
             tradeId: 101n,
             type: CashLedgerType.SELL,
-            amount: 14_700n,
-            fee: 0n,
-            realizedPnl: 2_700n,
+            amount: 14_698n,
+            fee: 2n,
+            realizedPnl: 2_698n,
             balanceAfter: 999n,
           },
           {
             accountId: 1,
             tradeId: 102n,
             type: CashLedgerType.BUY,
-            amount: -10_000n,
-            fee: 0n,
+            amount: -10_002n,
+            fee: 2n,
             balanceAfter: 999n,
           },
           {
             accountId: 3,
             tradeId: 102n,
             type: CashLedgerType.SELL,
-            amount: 10_000n,
-            fee: 0n,
-            realizedPnl: 1_000n,
+            amount: 9_998n,
+            fee: 2n,
+            realizedPnl: 998n,
             balanceAfter: 999n,
           },
         ]);
@@ -440,7 +443,7 @@ describe('SettlementService', () => {
     });
 
     it('매도 주문이 매수 호가와 일부 체결되면 상대 매수 주문의 예약을 줄이고 새 주문은 일부 체결로 남는다', async () => {
-      // 새 매도 주문: 4,900P × 5주. 계좌 3의 매수 주문 5,000P × 3주(예약 15,000P)와 3주 체결
+      // 새 매도 주문: 4,900P × 5주. 계좌 3의 매수 주문 5,000P × 3주(예약 15,000P + 수수료 3P)와 3주 체결
       const taker = orderOf({
         id: 20n,
         accountId: 1,
@@ -454,7 +457,7 @@ describe('SettlementService', () => {
         side: OrderSide.BUY,
         price: 5_000n,
         qty: 3n,
-        lockedAmount: 15_000n,
+        lockedAmount: 15_003n,
       });
       tx.order.findMany.mockResolvedValue([maker]);
       tx.holding.findUniqueOrThrow.mockResolvedValue({
@@ -472,8 +475,8 @@ describe('SettlementService', () => {
       expect(tx.account.update).toHaveBeenCalledWith({
         where: { id: 3 },
         data: {
-          cash: { decrement: 15_000n },
-          lockedCash: { decrement: 15_000n },
+          cash: { decrement: 15_003n },
+          lockedCash: { decrement: 15_003n },
           version: { increment: 1 },
         },
       });

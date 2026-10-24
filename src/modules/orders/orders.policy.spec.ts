@@ -17,8 +17,8 @@ describe('calculateFee', () => {
     expect(calculateFee(9_999n, 15n)).toBe(14n);
   });
 
-  it('수수료율을 넘기지 않으면 현재 수수료율(0%)을 쓴다', () => {
-    expect(calculateFee(1_000_000n)).toBe(0n);
+  it('수수료율을 넘기지 않으면 현재 수수료율(0.02%)을 쓴다', () => {
+    expect(calculateFee(1_000_000n)).toBe(200n);
   });
 });
 
@@ -28,8 +28,8 @@ describe('calculateBuyLockAmount', () => {
     expect(calculateBuyLockAmount(5_000n, 200n, 15n)).toBe(1_001_500n);
   });
 
-  it('수수료율을 넘기지 않으면 현재 수수료율(0%)을 쓴다', () => {
-    expect(calculateBuyLockAmount(5_000n, 200n)).toBe(1_000_000n);
+  it('수수료율을 넘기지 않으면 현재 수수료율(0.02%)을 쓴다', () => {
+    expect(calculateBuyLockAmount(5_000n, 200n)).toBe(1_000_200n);
   });
 });
 

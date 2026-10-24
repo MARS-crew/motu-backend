@@ -149,10 +149,12 @@ describe('OrdersService', () => {
 
       const result = await service.placeOrder(USER_ID, buyOf(5_000, 200));
 
+      // 주문 금액 5,000 × 200 = 1,000,000, 수수료 0.02% = 200
+
       expect(tx.account.update).toHaveBeenCalledWith({
         where: { id: ACCOUNT_ID },
         data: {
-          lockedCash: { increment: 1_000_000n },
+          lockedCash: { increment: 1_000_200n },
           version: { increment: 1 },
         },
       });
@@ -164,7 +166,7 @@ describe('OrdersService', () => {
           side: OrderSide.BUY,
           price: 5_000n,
           qty: 200n,
-          lockedAmount: 1_000_000n,
+          lockedAmount: 1_000_200n,
         },
       });
       expect(result).toEqual({
@@ -177,7 +179,8 @@ describe('OrdersService', () => {
         qty: 200,
         filledQty: 0,
         remainingQty: 200,
-        lockedAmount: 1_000_000,
+        orderAmount: 1_000_000,
+        lockedAmount: 1_000_200,
         status: OrderStatus.ACCEPTED,
         createDate: CREATE_DATE,
         canceledDate: null,
@@ -185,8 +188,8 @@ describe('OrdersService', () => {
     });
 
     it('이미 예약된 포인트를 빼고 사용 가능 포인트를 계산한다', async () => {
-      // 사용 가능 포인트 = 1,000,000 - 1,000,000 + 999,990 = 999,990 < 1,000,000
-      tx.$queryRaw.mockResolvedValue(lockedAccountOf(1_999_990n, 1_000_000n));
+      // 사용 가능 포인트 = 2,000,190 - 1,000,000 = 1,000,190 < 1,000,200
+      tx.$queryRaw.mockResolvedValue(lockedAccountOf(2_000_190n, 1_000_000n));
 
       const error = await errorOf(
         service.placeOrder(USER_ID, buyOf(5_000, 200)),
@@ -194,14 +197,14 @@ describe('OrdersService', () => {
 
       expect(error.error).toBe(OrderErrors.INSUFFICIENT_CASH);
       expect(error.getResponse()).toMatchObject({
-        details: { availableCash: 999_990, requiredAmount: 1_000_000 },
+        details: { availableCash: 1_000_190, requiredAmount: 1_000_200 },
       });
       expect(tx.account.update).not.toHaveBeenCalled();
       expect(tx.order.create).not.toHaveBeenCalled();
     });
 
-    it('사용 가능 포인트와 주문 금액이 같으면 주문할 수 있다', async () => {
-      tx.$queryRaw.mockResolvedValue(lockedAccountOf(1_000_000n, 0n));
+    it('사용 가능 포인트와 예약할 금액(주문 금액 + 수수료)이 같으면 주문할 수 있다', async () => {
+      tx.$queryRaw.mockResolvedValue(lockedAccountOf(1_000_200n, 0n));
 
       await service.placeOrder(USER_ID, buyOf(5_000, 200));
 
@@ -1162,7 +1165,7 @@ describe('OrdersService', () => {
           priceTickSize: 10,
           minOrderPrice: 100,
           minOrderQty: 2,
-          feeRate: 0,
+          feeRate: 0.0002,
           availableCash: 2_500_000,
           sellableQty: 6,
         });
