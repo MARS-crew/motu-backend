@@ -38,4 +38,14 @@ export const OrderErrors = {
     message: '이미 다른 내용으로 접수된 주문 요청입니다. 다시 주문해 주세요.',
     status: HttpStatus.CONFLICT,
   },
+  NOT_FOUND: {
+    code: 'ORDER_NOT_FOUND',
+    message: '존재하지 않는 주문입니다.',
+    status: HttpStatus.NOT_FOUND,
+  },
+  NOT_CANCELABLE: {
+    code: 'ORDER_NOT_CANCELABLE',
+    message: '이미 모두 체결된 주문은 취소할 수 없습니다.',
+    status: HttpStatus.CONFLICT,
+  },
 } as const satisfies Record<string, ErrorDefinition>;

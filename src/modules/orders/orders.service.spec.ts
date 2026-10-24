@@ -25,7 +25,11 @@ describe('OrdersService', () => {
     $queryRaw: vi.fn(),
     account: { update: vi.fn() },
     holding: { update: vi.fn() },
-    order: { create: vi.fn() },
+    order: {
+      create: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      update: vi.fn(),
+    },
   };
   const transaction = vi.fn((fn: (client: typeof tx) => Promise<unknown>) =>
     fn(tx),
@@ -385,6 +389,155 @@ describe('OrdersService', () => {
       );
 
       expect(error.error).toBe(OrderErrors.CLIENT_ID_REUSED);
+    });
+  });
+
+  describe('cancelOrder', () => {
+    const ORDER_ID = 100;
+
+    const orderRowOf = (overrides: Record<string, unknown> = {}) => ({
+      id: 100n,
+      accountId: ACCOUNT_ID,
+      stockId: 1,
+      clientOrderId: CLIENT_ORDER_ID,
+      side: OrderSide.BUY,
+      orderType: OrderType.LIMIT,
+      price: 5_000n,
+      qty: 10n,
+      filledQty: 0n,
+      lockedAmount: 50_000n,
+      status: OrderStatus.ACCEPTED,
+      canceledDate: null,
+      createDate: CREATE_DATE,
+      ...overrides,
+    });
+
+    const givenOrder = (overrides: Record<string, unknown> = {}) => {
+      tx.$queryRaw.mockResolvedValue([{ order_id: 100n }]);
+      tx.order.findUniqueOrThrow.mockResolvedValue(orderRowOf(overrides));
+    };
+
+    beforeEach(() => {
+      tx.order.update.mockImplementation(({ data }) =>
+        Promise.resolve({ ...orderRowOf(), ...data }),
+      );
+    });
+
+    it('매수 주문을 취소하면 남은 예약 포인트를 풀고 취소 상태로 바꾼다', async () => {
+      givenOrder();
+
+      const result = await service.cancelOrder(USER_ID, ORDER_ID);
+
+      expect(tx.account.update).toHaveBeenCalledWith({
+        where: { id: ACCOUNT_ID },
+        data: {
+          lockedCash: { decrement: 50_000n },
+          version: { increment: 1 },
+        },
+      });
+      expect(tx.order.update).toHaveBeenCalledWith({
+        where: { id: 100n },
+        data: {
+          status: OrderStatus.CANCELED,
+          lockedAmount: 0n,
+          canceledDate: expect.any(Date),
+        },
+      });
+      expect(tx.holding.update).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        orderId: 100,
+        status: OrderStatus.CANCELED,
+        remainingQty: 0,
+        lockedAmount: 0,
+      });
+    });
+
+    it('일부 체결된 매수 주문은 남아 있는 예약 포인트만 푼다', async () => {
+      givenOrder({
+        status: OrderStatus.PARTIAL,
+        filledQty: 4n,
+        lockedAmount: 30_000n,
+      });
+
+      await service.cancelOrder(USER_ID, ORDER_ID);
+
+      expect(tx.account.update).toHaveBeenCalledWith({
+        where: { id: ACCOUNT_ID },
+        data: {
+          lockedCash: { decrement: 30_000n },
+          version: { increment: 1 },
+        },
+      });
+    });
+
+    it('매도 주문을 취소하면 미체결 수량만큼 예약 수량을 푼다', async () => {
+      givenOrder({
+        side: OrderSide.SELL,
+        status: OrderStatus.PARTIAL,
+        filledQty: 4n,
+        lockedAmount: 0n,
+      });
+
+      await service.cancelOrder(USER_ID, ORDER_ID);
+
+      expect(tx.holding.update).toHaveBeenCalledWith({
+        where: { accountId_stockId: { accountId: ACCOUNT_ID, stockId: 1 } },
+        data: { lockedQty: { decrement: 6n } },
+      });
+      expect(tx.account.update).not.toHaveBeenCalled();
+    });
+
+    it('이미 취소된 주문은 그대로 돌려준다', async () => {
+      const canceledDate = new Date('2026-10-24T02:00:00.000Z');
+      givenOrder({
+        status: OrderStatus.CANCELED,
+        lockedAmount: 0n,
+        canceledDate,
+      });
+
+      const result = await service.cancelOrder(USER_ID, ORDER_ID);
+
+      expect(result).toMatchObject({
+        status: OrderStatus.CANCELED,
+        canceledDate,
+      });
+      expect(tx.order.update).not.toHaveBeenCalled();
+      expect(tx.account.update).not.toHaveBeenCalled();
+      expect(tx.holding.update).not.toHaveBeenCalled();
+    });
+
+    it('전부 체결된 주문은 취소할 수 없다', async () => {
+      givenOrder({
+        status: OrderStatus.FILLED,
+        filledQty: 10n,
+        lockedAmount: 0n,
+      });
+
+      const error = await errorOf(service.cancelOrder(USER_ID, ORDER_ID));
+
+      expect(error.error).toBe(OrderErrors.NOT_CANCELABLE);
+      expect(tx.order.update).not.toHaveBeenCalled();
+    });
+
+    it('없거나 다른 회원의 주문은 찾을 수 없다', async () => {
+      tx.$queryRaw.mockResolvedValue([]);
+
+      const error = await errorOf(service.cancelOrder(USER_ID, ORDER_ID));
+
+      expect(error.error).toBe(OrderErrors.NOT_FOUND);
+    });
+
+    it('내 주문 행을 잠근 뒤 상태를 확인한다', async () => {
+      givenOrder();
+
+      await service.cancelOrder(USER_ID, ORDER_ID);
+
+      const [sql, ...values] = tx.$queryRaw.mock.calls[0] as [
+        TemplateStringsArray,
+        ...unknown[],
+      ];
+      expect(sql.join('?')).toMatch(/FROM orders[\s\S]*FOR UPDATE/);
+      expect(values).toEqual([100n, USER_ID]);
     });
   });
 });

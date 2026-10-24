@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { Order, OrderSide, Prisma } from '../../generated/prisma/client.js';
+import {
+  Order,
+  OrderSide,
+  OrderStatus,
+  Prisma,
+} from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
@@ -92,6 +97,68 @@ export class OrdersService {
       }
       throw error;
     }
+  }
+
+  /**
+   * 미체결 수량을 취소하고 남은 예약(매수 포인트, 매도 수량)을 푼다. 이미 체결된 수량은 그대로다.
+   * 이미 취소된 주문이면 그대로 돌려준다.
+   */
+  async cancelOrder(userId: number, orderId: number): Promise<OrderResDto> {
+    const order = await this.prisma.$transaction(async (tx) => {
+      // 같은 주문의 취소가 동시에 들어와도 예약을 한 번만 풀도록 주문 행을 잠근다.
+      const [locked] = await tx.$queryRaw<{ order_id: bigint }[]>`
+        SELECT o.order_id
+        FROM orders o
+        JOIN accounts a ON a.account_id = o.account_id
+        WHERE o.order_id = ${BigInt(orderId)} AND a.user_id = ${userId}
+        FOR UPDATE OF o
+      `;
+      if (!locked) {
+        throw new BusinessException(OrderErrors.NOT_FOUND);
+      }
+
+      const current = await tx.order.findUniqueOrThrow({
+        where: { id: locked.order_id },
+      });
+      if (current.status === OrderStatus.CANCELED) {
+        return current;
+      }
+      if (current.status === OrderStatus.FILLED) {
+        throw new BusinessException(OrderErrors.NOT_CANCELABLE);
+      }
+
+      if (current.side === OrderSide.BUY) {
+        // 포인트 지급·리셋의 버전 검사에 걸리도록 version도 올린다.
+        await tx.account.update({
+          where: { id: current.accountId },
+          data: {
+            lockedCash: { decrement: current.lockedAmount },
+            version: { increment: 1 },
+          },
+        });
+      } else {
+        await tx.holding.update({
+          where: {
+            accountId_stockId: {
+              accountId: current.accountId,
+              stockId: current.stockId,
+            },
+          },
+          data: { lockedQty: { decrement: current.qty - current.filledQty } },
+        });
+      }
+
+      return tx.order.update({
+        where: { id: current.id },
+        data: {
+          status: OrderStatus.CANCELED,
+          lockedAmount: 0n,
+          canceledDate: new Date(),
+        },
+      });
+    });
+
+    return this.toOrderRes(order);
   }
 
   private findByClientOrderId(
