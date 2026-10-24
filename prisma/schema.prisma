@@ -58,6 +58,7 @@ model User {
   viewHistories         ViewHistory[]
   wishlists             Wishlist[]
   attachmentCollections AttachmentCollection[]
+  listingApplications   ListingApplication[]
 
   @@map("users")
 }
@@ -459,4 +460,41 @@ model Faq {
 
   @@index([category, sortOrder])
   @@map("faqs")
+}
+
+// 임시저장 데이터는 제출 시 검증·변환한다. 접수번호는 최종 제출 전까지 발급하지 않는다.
+enum ListingApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  REVISION_REQUESTED
+  APPROVED
+  REJECTED
+  EXPIRED
+
+  @@map("listing_application_status")
+}
+
+model ListingApplication {
+  id                    Int                      @id @default(autoincrement()) @map("application_id")
+  userId                Int                      @map("user_id")
+  applicationNumber     String?                  @unique @map("application_number") @db.VarChar(30)
+  status                ListingApplicationStatus @default(DRAFT)
+  serviceName           String?                  @map("service_name") @db.VarChar(30)
+  officialUrl           String?                  @map("official_url") @db.VarChar(2048)
+  /// 진행 중 URL의 부분 UNIQUE 인덱스는 마이그레이션 SQL에서 관리한다.
+  normalizedOfficialUrl String?                  @map("normalized_official_url") @db.VarChar(2048)
+  currentStep           Int                      @default(1) @map("current_step")
+  /// 미완성 입력값. 최종 제출용 필수값 검증은 별도 단계에서 수행한다.
+  draftData             Json                     @default("{}") @map("draft_data")
+  lastSavedAt           DateTime                 @default(now()) @map("last_saved_at") @db.Timestamptz(3)
+  expiresAt             DateTime                 @map("expires_at") @db.Timestamptz(3)
+  deletedDate           DateTime?                @map("deleted_date") @db.Timestamptz(3)
+  createDate            DateTime                 @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate          DateTime                 @updatedAt @map("modified_date") @db.Timestamptz(3)
+  user                  User                     @relation(fields: [userId], references: [id])
+
+  @@index([userId, status, lastSavedAt])
+  @@index([status, expiresAt])
+  @@map("listing_applications")
 }
