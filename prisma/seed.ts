@@ -193,6 +193,18 @@ function metricsOf(index: number) {
   };
 }
 
+/**
+ * 상품마다 호가 단위가 다른 경우를 확인할 수 있게 기준가에 따라 나눠 둔다.
+ */
+function orderRulesOf(basePrice: number) {
+  const tickSize = basePrice < 5_000 ? 10n : 100n;
+  return {
+    priceTickSize: tickSize,
+    minOrderPrice: tickSize,
+    minOrderQty: 1n,
+  };
+}
+
 async function createStocks(): Promise<void> {
   const now = Date.now();
   for (const [index, seed] of seedStocks.entries()) {
@@ -204,6 +216,13 @@ async function createStocks(): Promise<void> {
         await prisma.stock.update({
           where: { stockCode },
           data: metricsOf(index),
+        });
+      }
+      // 주문 규칙 컬럼이 나중에 추가되어 1로 채워졌으면 실제 규칙으로 바꾼다.
+      if (existing.priceTickSize === 1n) {
+        await prisma.stock.update({
+          where: { stockCode },
+          data: orderRulesOf(seed.basePrice),
         });
       }
       console.log(`이미 있음: ${stockCode} ${seed.name}`);
@@ -222,6 +241,7 @@ async function createStocks(): Promise<void> {
         operatorName: seed.operatorName,
         listedShares: 1_000_000n,
         basePrice: BigInt(seed.basePrice),
+        ...orderRulesOf(seed.basePrice),
         listingDate: new Date(now - seed.daysAgo * DAY),
         tradeStatus: seed.tradeStatus ?? TradeStatus.ACTIVE,
         ...metricsOf(index),
