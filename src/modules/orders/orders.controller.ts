@@ -34,12 +34,12 @@ import { OrderResDto } from './dto/res/order-res.dto.js';
 import { OrdersService } from './orders.service.js';
 
 @ApiTags('Orders')
-@ApiBearerAuth()
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
+  @ApiBearerAuth()
   @ApiOperation({
     summary: '주문하기',
     description:
@@ -63,6 +63,7 @@ export class OrdersController {
   }
 
   @Post(':orderId/cancel')
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '주문 취소',
@@ -81,6 +82,7 @@ export class OrdersController {
   }
 
   @Get()
+  @ApiBearerAuth()
   @ApiOperation({
     summary: '내 주문 목록',
     description: '최근 주문순. 기본은 미체결 주문(OPEN)이다.',
@@ -96,6 +98,7 @@ export class OrdersController {
 
   // ':orderId'보다 먼저 선언해야 'available'이 주문 ID로 해석되지 않는다.
   @Get('available')
+  @ApiBearerAuth()
   @ApiOperation({
     summary: '주문 가능 정보',
     description:
@@ -127,6 +130,7 @@ export class OrdersController {
   }
 
   @Get(':orderId')
+  @ApiBearerAuth()
   @ApiOperation({ summary: '주문 상세 (체결 내역 포함)' })
   @ApiOkResponse({ type: GetOrderResDto })
   @ApiBadRequestResponse({ description: 'BAD_REQUEST (orderId가 숫자가 아님)' })
