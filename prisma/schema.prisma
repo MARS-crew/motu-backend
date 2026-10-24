@@ -317,6 +317,7 @@ model Stock {
   holdings      Holding[]
   orders        Order[]
   trades        Trade[]
+  charts        Chart[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -477,4 +478,38 @@ model Trade {
   @@index([buyOrderId])
   @@index([sellOrderId])
   @@map("trades")
+}
+
+/// 봉 단위
+enum ChartInterval {
+  MINUTE
+  HOUR
+  DAY
+  /// 월요일 시작
+  WEEK
+  MONTH
+
+  @@map("chart_interval")
+}
+
+/// 차트 봉. 체결될 때마다 해당 시각이 속한 단위별 봉을 갱신한다.
+/// 일·주·월 봉의 경계는 한국 시간 00시 기준이다. 체결이 없는 구간은 행이 없다.
+model Chart {
+  stockId     Int           @map("stock_id")
+  interval    ChartInterval @map("candle_interval")
+  /// 봉 시작 시각
+  candleTime  DateTime      @map("candle_time") @db.Timestamptz(3)
+  openPrice   BigInt        @map("open_price")
+  highPrice   BigInt        @map("high_price")
+  lowPrice    BigInt        @map("low_price")
+  closePrice  BigInt        @map("close_price")
+  /// 거래량 (체결 수량 합계)
+  volume      BigInt
+  /// 거래대금 (체결가 × 수량 합계)
+  tradeAmount BigInt        @map("trade_amount")
+
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  @@id([stockId, interval, candleTime])
+  @@map("charts")
 }
