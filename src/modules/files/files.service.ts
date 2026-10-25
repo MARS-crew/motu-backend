@@ -165,7 +165,25 @@ export class FilesService {
     };
   }
   /** 신청서 모듈은 클라이언트 URL 대신 이 메서드가 반환한 저장 완료 자료만 연결한다. */
-  async getSavedCollection(userId: number, id: string) {
+  async getSavedCollection(
+    userId: number,
+    id: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    // 단계 저장에서는 같은 트랜잭션에서 작성 묶음을 잠가 파일 삭제/선택 변경과 경합하지 않게 한다.
+    if (tx) {
+      const collection = await this.lock(tx, userId, id);
+      const attachments = await tx.attachment.findMany({
+        where: { collectionId: id, saved: true },
+        orderBy: [{ createDate: 'asc' }, { id: 'asc' }],
+      });
+      return {
+        id: collection.id,
+        purpose: collection.purpose,
+        description: collection.description,
+        attachments: attachments.map((item) => this.response(item)),
+      };
+    }
     const result = await this.get(userId, id);
     return {
       ...result,
