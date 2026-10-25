@@ -17,12 +17,16 @@ import {
 } from './listing-applications.constants.js';
 import { ListingApplicationErrors as Errors } from './listing-applications.errors.js';
 import { normalizeListingUrl } from './listing-applications.validation.js';
+import { ListingStepValidationService } from './listing-step-validation.service.js';
+import type { SaveListingStepReqDto } from './dto/req/save-listing-step-req.dto.js';
+import { LISTING_STEP_FIELDS } from './listing-steps.validation.js';
 
 @Injectable()
 export class ListingApplicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
+    private readonly steps: ListingStepValidationService,
   ) {}
 
   async create(userId: number, dto: SaveListingDraftReqDto) {
@@ -108,6 +112,147 @@ export class ListingApplicationsService {
         now,
       );
     });
+  }
+
+  saveStep(
+    userId: number,
+    id: number,
+    step: number,
+    dto: SaveListingStepReqDto,
+  ) {
+    const allowed = LISTING_STEP_FIELDS[step];
+    if (!allowed) throw new BusinessException(Errors.INVALID_STEP);
+    const unrelated = Object.entries(dto.data)
+      .filter(([, value]) => value !== undefined)
+      .map(([field]) => field)
+      .filter(
+        (field) => !allowed.includes(field as keyof ListingDraftDataReqDto),
+      );
+    if (unrelated.length)
+      throw new BusinessException(Errors.STEP_VALIDATION, undefined, {
+        step,
+        fields: unrelated.map((field) => ({
+          field,
+          message: '현재 단계의 입력 항목만 전달해 주세요.',
+        })),
+      });
+    return this.withUserLock(userId, async (tx, now) => {
+      const current = await this.findDraft(tx, userId, id, now);
+      const merged = this.mergeData(
+        current.draftData as Prisma.InputJsonObject,
+        dto.data,
+      );
+      const issues = await this.steps.validate(
+        userId,
+        step,
+        merged as ListingDraftDataReqDto,
+        now,
+        tx,
+      );
+      if (issues.length)
+        throw new BusinessException(Errors.STEP_VALIDATION, undefined, {
+          step,
+          fields: issues,
+        });
+      const normalizedOfficialUrl = normalizeListingUrl(
+        merged.officialUrl as string | null | undefined,
+      );
+      await this.releaseExpiredUrl(tx, normalizedOfficialUrl, now);
+      const result = await tx.listingApplication.updateMany({
+        where: { ...this.activeDrafts(userId, now), id },
+        data: {
+          draftData: merged,
+          currentStep: step,
+          lastSavedAt: now,
+          expiresAt: new Date(now.getTime() + LISTING_DRAFT_LIFETIME_MS),
+          serviceName:
+            (merged.serviceName as string | null | undefined) ?? null,
+          officialUrl:
+            (merged.officialUrl as string | null | undefined) ?? null,
+          normalizedOfficialUrl,
+        },
+      });
+      if (result.count !== 1) throw new BusinessException(Errors.EXPIRED);
+      return {
+        ...this.detail(
+          await tx.listingApplication.findUniqueOrThrow({ where: { id } }),
+          now,
+        ),
+        validatedStep: step,
+      };
+    });
+  }
+
+  async getApplication(userId: number, id: number) {
+    const item = await this.withUserLock(userId, (tx) =>
+      this.findOwnedApplication(tx, userId, id),
+    );
+    const now = new Date();
+    const state = this.applicationStatus(item, now);
+    if (state.status === ListingApplicationStatus.EXPIRED)
+      throw new BusinessException(Errors.EXPIRED);
+    const data = item.draftData as ListingDraftDataReqDto;
+    return {
+      ...state,
+      data,
+      attachments: await this.steps.getAttachments(userId, data),
+      currentStep: item.currentStep,
+      lastSavedAt: item.lastSavedAt,
+      createDate: item.createDate,
+      modifiedDate: item.modifiedDate,
+    };
+  }
+
+  getApplicationStatus(userId: number, id: number) {
+    return this.withUserLock(userId, async (tx, now) =>
+      this.applicationStatus(
+        await this.findOwnedApplication(tx, userId, id),
+        now,
+      ),
+    );
+  }
+
+  private async findOwnedApplication(
+    tx: Prisma.TransactionClient,
+    userId: number,
+    id: number,
+  ) {
+    const item = await tx.listingApplication.findFirst({
+      where: { id, userId, deletedDate: null },
+    });
+    if (!item) throw new BusinessException(Errors.NOT_FOUND);
+    return item;
+  }
+
+  private applicationStatus(item: ListingApplication, now: Date) {
+    const status =
+      item.status === ListingApplicationStatus.DRAFT && item.expiresAt <= now
+        ? ListingApplicationStatus.EXPIRED
+        : item.status;
+    const labels: Record<ListingApplicationStatus, string> = {
+      DRAFT: '임시 저장',
+      SUBMITTED: '접수',
+      UNDER_REVIEW: '검토 중',
+      REVISION_REQUESTED: '보완 요청',
+      APPROVED: '승인',
+      REJECTED: '반려',
+      EXPIRED: '만료',
+    };
+    return {
+      id: item.id,
+      status,
+      statusLabel: labels[status],
+      applicationNumber: item.applicationNumber,
+      submittedAt: item.submittedAt ?? null,
+      reviewComment: item.reviewComment ?? null,
+      revisionDeadline: item.revisionDeadline ?? null,
+      isEditable: status === ListingApplicationStatus.DRAFT,
+      expiresAt:
+        status === ListingApplicationStatus.DRAFT ||
+        status === ListingApplicationStatus.EXPIRED
+          ? item.expiresAt
+          : null,
+    };
   }
 
   remove(userId: number, id: number) {
