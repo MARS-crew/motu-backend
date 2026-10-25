@@ -15,7 +15,7 @@
 | [검색](search.md) | 상품 검색, 최근 검색어 | `modules/stocks`, `modules/search-histories` |
 | [관심상품](wishlists.md) | 관심상품 등록·해제, 관심 상품 목록 | `modules/stocks` |
 | [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |
-| [상장 신청 임시저장](listing-applications.md) | 작성 중 목록, 임시저장 5건 제한, 90일 만료, 진행 중 URL 중복 방지 | `modules/listing-applications` |
+| [상장 신청](listing-applications.md) | 임시저장·작성 중 목록, 단계별 검증·저장, 본인 상세·상태 조회 | `modules/listing-applications` |
 
 ## 문서 관리
 
