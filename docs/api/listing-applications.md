@@ -54,19 +54,21 @@
 |---|---|
 | 1 기본정보 | `serviceName` 2~30자, `summary` 10~60자(줄바꿈 금지), 유효한 `sectorCode`, 저장 완료 대표 이미지 `mainImageCollectionId`, `operatorName`, `managerName`, `businessEmail`, 휴대폰 형식의 `contactPhone` 필수. `description` 최대 500자, HTTPS `officialUrl`, `logoCollectionId`는 선택 |
 | 2 평가·거래 | `desiredPrice`, `totalIssuedQuantity`는 0보다 큰 정수 문자열, `priceCalculationBasis` 필수. 선택한 `minOrderQuantity`, `tickSize`는 `"1"`, `"5"`, `"10"`, `"50"`, `"100"`. `desiredListingDate`는 입력 시 시간대를 포함한 미래 ISO 일시 |
-| 3 서비스지표 | MAU·DAU·매출·거래액은 정수 문자열이며 0 허용. 입력한 지표에 대응하는 기준일/집계 기간·출처·추출일을 함께 검사. 기간은 시작≤종료, 최대 12개월, 추출일은 종료일 이상, 날짜는 KST 오늘 이하 |
+| 3 서비스지표 | 지표·출처·기준일·집계 기간·추출일 모두 선택 입력. MAU·DAU·매출·거래액은 입력 시 0 이상 정수 문자열. 입력된 날짜는 KST 오늘 이하이며, 비교할 날짜가 모두 있을 때 시작≤종료·최대 12개월·종료≤추출일 검사. 다른 항목의 동반 입력을 강제하지 않음 |
 | 4 증빙자료 | `evidenceDescription` 10~500자. `evidenceCollectionId`는 제공 시 본인 EVIDENCE 묶음인지 확인. 파일·링크 합산 최대 10개이며 저장 완료(`saved=true`) 자료만 연결 |
 
-3단계의 지표별 필드는 다음과 같다.
+3단계의 지표별 관련 필드는 다음과 같다. 표의 관련 필드도 각각 선택 입력이다.
 
-| 지표 | 함께 보내는 필드 |
+| 지표 | 관련 선택 필드 |
 |---|---|
 | `mau` | `mauSource`, `mauReferenceMonth` (YYYY-MM) |
 | `dau` | `dauSource`, `dauReferenceDate` (YYYY-MM-DD) |
 | `revenue` | `revenueStartDate`, `revenueEndDate`, `revenueSource`, `revenueExtractDate` |
 | `transactionVolume` | `metricsStartDate`, `metricsEndDate`, `transactionVolumeBasis` (`LAST_12_MONTHS` / `SINCE_LAUNCH`), `transactionVolumeSource`, `transactionVolumeExtractDate` |
 
-지표 전체의 필수 조합, 증빙 최소 개수, 회계연도 기준과 거래액 집계 기간의 자동 산출은 문서 간 확정이 필요한 정책이다. 이번 단계 저장에서는 지표 4개 모두나 증빙 최소 1개를 임의로 강제하지 않는다. 입력된 지표의 형식·기간·출처 정합성을 검사하며, 최종 제출 시의 완결성 검증으로 간주하면 안 된다. 최소 주문 수량/호가 단위의 기본값도 서버에서 임의로 채우지 않는다.
+3단계는 아무 지표를 입력하지 않거나, 지표 값만 입력하거나, 기본 집계 기준/날짜만 전송해도 저장할 수 있다. `{ "data": {} }`, 선택 필드의 `null`·빈 문자열을 허용하며 공란은 null로 저장한다. 기존 임시저장 값과 병합하므로 요청에서 빠진 값은 유지하고, 저장한 값을 지우려면 해당 필드에 null 또는 빈 문자열을 명시한다. 지표 하나나 보조 필드 하나가 입력돼도 나머지를 필수로 요구하지 않는다. 숫자는 `0` 대신 `"0"`처럼 문자열로 보내야 하며, 입력한 값의 잘못된 형식과 날짜 관계는 계속 거절한다. 실패 시 기존 입력과 저장 시각을 유지한다.
+
+증빙 최소 개수, 회계연도 기준과 거래액 집계 기간의 자동 산출은 추가 확정이 필요한 정책이다. 이번 단계 저장에서는 증빙 최소 1개를 임의로 강제하지 않으며, 최종 제출 시의 완결성 검증으로 간주하면 안 된다. 최소 주문 수량/호가 단위의 기본값도 서버에서 임의로 채우지 않는다.
 
 기본정보 예시(대표 이미지 묶음 ID는 파일 API에서 업로드 후 저장한 실제 ID로 교체):
 
