@@ -99,7 +99,7 @@ export function validateListingStepFields(
     field: keyof ListingDraftDataReqDto,
     label: string,
   ): string | null => {
-    if (!required(field, label)) return null;
+    if (!text(field)) return null;
     const value = text(field);
     if (!validCalendarDate(value) || value > today) {
       add(
@@ -190,73 +190,40 @@ export function validateListingStepFields(
       add('desiredListingDate', '시간대가 포함된 미래 일시로 입력해 주세요.');
   }
   if (step === 3) {
-    // 지표 전체의 필수 여부는 미확정이다. 입력한 지표에는 기간·출처·추출일을 요구한다.
+    // 지표와 보조 항목은 각각 선택 입력이다. 기본값이나 일부 입력으로 다른 항목을 필수화하지 않는다.
+    for (const [field, label] of [
+      ['mau', 'MAU'],
+      ['dau', 'DAU'],
+      ['revenue', '연간 매출'],
+      ['transactionVolume', '거래액'],
+    ] as const)
+      if (text(field)) integer(field, label);
     if (
-      ['mau', 'mauSource', 'mauReferenceMonth'].some((field) =>
-        text(field as keyof ListingDraftDataReqDto),
-      )
-    ) {
-      integer('mau', 'MAU');
-      required('mauSource', 'MAU 출처명');
-      if (
-        required('mauReferenceMonth', 'MAU 기준월') &&
-        (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(text('mauReferenceMonth')) ||
-          text('mauReferenceMonth') > today.slice(0, 7))
-      )
-        add(
-          'mauReferenceMonth',
-          '오늘까지의 올바른 기준월(YYYY-MM)로 입력해 주세요.',
-        );
-    }
-    if (
-      ['dau', 'dauSource', 'dauReferenceDate'].some((field) =>
-        text(field as keyof ListingDraftDataReqDto),
-      )
-    ) {
-      integer('dau', 'DAU');
-      required('dauSource', 'DAU 출처명');
-      date('dauReferenceDate', 'DAU 기준일');
-    }
-    if (
-      [
-        'revenue',
-        'revenueStartDate',
-        'revenueEndDate',
-        'revenueSource',
-        'revenueExtractDate',
-      ].some((field) => text(field as keyof ListingDraftDataReqDto))
-    ) {
-      integer('revenue', '연간 매출');
-      required('revenueSource', '매출 출처명');
-      period('revenueStartDate', 'revenueEndDate', 'revenueExtractDate');
-    }
-    if (
-      [
-        'transactionVolume',
-        'metricsStartDate',
-        'metricsEndDate',
-        'transactionVolumeBasis',
-        'transactionVolumeSource',
-        'transactionVolumeExtractDate',
-      ].some((field) => text(field as keyof ListingDraftDataReqDto))
-    ) {
-      integer('transactionVolume', '거래액');
-      required('transactionVolumeSource', '거래액 출처명');
-      period(
-        'metricsStartDate',
-        'metricsEndDate',
-        'transactionVolumeExtractDate',
+      text('mauReferenceMonth') &&
+      (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(text('mauReferenceMonth')) ||
+        text('mauReferenceMonth') > today.slice(0, 7))
+    )
+      add(
+        'mauReferenceMonth',
+        '오늘까지의 올바른 기준월(YYYY-MM)로 입력해 주세요.',
       );
-      if (
-        !['LAST_12_MONTHS', 'SINCE_LAUNCH'].includes(
-          text('transactionVolumeBasis'),
-        )
+    date('dauReferenceDate', 'DAU 기준일');
+    period('revenueStartDate', 'revenueEndDate', 'revenueExtractDate');
+    period(
+      'metricsStartDate',
+      'metricsEndDate',
+      'transactionVolumeExtractDate',
+    );
+    if (
+      text('transactionVolumeBasis') &&
+      !['LAST_12_MONTHS', 'SINCE_LAUNCH'].includes(
+        text('transactionVolumeBasis'),
       )
-        add(
-          'transactionVolumeBasis',
-          'LAST_12_MONTHS 또는 SINCE_LAUNCH를 선택해 주세요.',
-        );
-    }
+    )
+      add(
+        'transactionVolumeBasis',
+        'LAST_12_MONTHS 또는 SINCE_LAUNCH를 선택해 주세요.',
+      );
   }
   if (
     step === 4 &&

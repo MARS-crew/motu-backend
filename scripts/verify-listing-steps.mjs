@@ -285,6 +285,78 @@ try {
     transactionVolumeSource: '결제 내역',
     transactionVolumeExtractDate: `${year}-01-01`,
   };
+  // 3단계는 기본값·개별 항목만 보내도 다른 입력을 필수로 바꾸지 않는다.
+  const emptyMetrics = Object.fromEntries(
+    Object.keys(metrics).map((field) => [field, null]),
+  );
+  const emptyStep = await call(stepPath + '/3', a.token, 'PUT', { data: {} });
+  assert.equal(emptyStep.validatedStep, 3);
+  for (const [field, value] of Object.entries(metrics)) {
+    const saved = await call(stepPath + '/3', a.token, 'PUT', {
+      data: { ...emptyMetrics, [field]: value },
+    });
+    assert.equal(saved.validatedStep, 3);
+    assert.equal(saved.data[field], value);
+    assert.equal(saved.data.desiredPrice, trading.desiredPrice);
+  }
+  await call(stepPath + '/3', a.token, 'PUT', {
+    data: { ...emptyMetrics, transactionVolumeBasis: 'LAST_12_MONTHS' },
+  });
+  const mergedDefault = await call(stepPath + '/3', a.token, 'PUT', {
+    data: {},
+  });
+  assert.equal(mergedDefault.data.transactionVolumeBasis, 'LAST_12_MONTHS');
+  assert.equal(mergedDefault.data.transactionVolume, null);
+  await call(stepPath + '/3', a.token, 'PUT', {
+    data: { mau: '123', dau: '0', revenue: '0', transactionVolume: '0' },
+  });
+  const cleared = await call(stepPath + '/3', a.token, 'PUT', {
+    data: Object.fromEntries(Object.keys(metrics).map((field) => [field, ''])),
+  });
+  assert(Object.keys(metrics).every((field) => cleared.data[field] === null));
+  for (const invalid of [
+    { mau: '-1' },
+    { dau: '1.5' },
+    { revenue: '1,000' },
+    { transactionVolume: 'NaN' },
+    { mauReferenceMonth: `${year}-13` },
+    { dauReferenceDate: `${year}-02-30` },
+    { transactionVolumeBasis: 'UNKNOWN' },
+    {
+      revenueStartDate: `${year}-01-02`,
+      revenueEndDate: `${year}-01-01`,
+    },
+    {
+      metricsStartDate: `${year - 1}-01-01`,
+      metricsEndDate: `${year}-01-01`,
+    },
+    {
+      revenueEndDate: `${year}-01-02`,
+      revenueExtractDate: `${year}-01-01`,
+    },
+  ]) {
+    const snapshot = await call(path, a.token);
+    await call(
+      stepPath + '/3',
+      a.token,
+      'PUT',
+      { data: { ...emptyMetrics, ...invalid } },
+      400,
+      'LISTING_STEP_VALIDATION_FAILED',
+    );
+    const unchanged = await call(path, a.token);
+    assert.deepEqual(unchanged.data, snapshot.data);
+    assert.equal(unchanged.lastSavedAt, snapshot.lastSavedAt);
+    assert.equal(unchanged.currentStep, snapshot.currentStep);
+  }
+  await call(
+    stepPath + '/3',
+    a.token,
+    'PUT',
+    { data: { mau: 0 } },
+    400,
+    'BAD_REQUEST',
+  );
   await call(
     stepPath + '/3',
     a.token,

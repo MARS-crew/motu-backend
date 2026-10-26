@@ -1,4 +1,7 @@
-import { validateListingStepFields as validate } from './listing-steps.validation.js';
+import {
+  LISTING_STEP_FIELDS,
+  validateListingStepFields as validate,
+} from './listing-steps.validation.js';
 import type { ListingDraftDataReqDto } from './dto/req/listing-draft-data-req.dto.js';
 
 describe('상장 신청 단계 검증', () => {
@@ -119,9 +122,73 @@ describe('상장 신청 단계 검증', () => {
   it('입력한 지표의 0과 기간·출처를 검증한다', () => {
     expect(validate(3, metrics, now)).toEqual([]);
   });
+  it.each([null, '', '   '])('3단계 전체 공란 %j를 허용한다', (value) => {
+    expect(
+      validate(
+        3,
+        Object.fromEntries(
+          LISTING_STEP_FIELDS[3].map((field) => [field, value]),
+        ),
+        now,
+      ),
+    ).toEqual([]);
+  });
+  it.each(Object.entries(metrics))(
+    '선택 항목 %s 하나만 입력해도 다른 항목을 요구하지 않는다',
+    (field, value) => {
+      expect(validate(3, { [field]: value }, now)).toEqual([]);
+    },
+  );
+  it.each(['mau', 'dau', 'revenue', 'transactionVolume'] as const)(
+    '%s 값만 입력해도 출처·기준일·기간을 강제하지 않는다',
+    (field) => {
+      expect(validate(3, { [field]: '123' }, now)).toEqual([]);
+    },
+  );
+  it('기존 지표의 출처·기준일을 지워도 저장할 수 있다', () => {
+    expect(
+      validate(3, { ...metrics, mauSource: null, mauReferenceMonth: '' }, now),
+    ).toEqual([]);
+  });
   it.each([
     [{ mau: '-1' }, 'mau'],
-    [{ mauSource: null }, 'mauSource'],
+    [{ dau: '1.5' }, 'dau'],
+    [{ revenue: '1,000' }, 'revenue'],
+    [{ transactionVolume: 'NaN' }, 'transactionVolume'],
+    [{ mauReferenceMonth: '2026-13' }, 'mauReferenceMonth'],
+    [{ mauReferenceMonth: '2026-11' }, 'mauReferenceMonth'],
+    [{ dauReferenceDate: '2026-02-30' }, 'dauReferenceDate'],
+    [{ revenueStartDate: '2026-10-26' }, 'revenueStartDate'],
+    [{ transactionVolumeBasis: 'UNKNOWN' }, 'transactionVolumeBasis'],
+    [
+      { revenueStartDate: '2026-01-02', revenueEndDate: '2026-01-01' },
+      'revenueEndDate',
+    ],
+    [
+      { metricsStartDate: '2025-09-01', metricsEndDate: '2026-09-01' },
+      'metricsEndDate',
+    ],
+    [
+      { revenueEndDate: '2026-09-30', revenueExtractDate: '2026-09-01' },
+      'revenueExtractDate',
+    ],
+    [
+      {
+        metricsEndDate: '2026-09-30',
+        transactionVolumeExtractDate: '2026-09-01',
+      },
+      'transactionVolumeExtractDate',
+    ],
+  ] as [Partial<ListingDraftDataReqDto>, string][])(
+    '부분 입력에서도 형식·날짜 관계 오류 %j를 검출한다',
+    (data, field) => {
+      expect(validate(3, data, now)).toContainEqual(
+        expect.objectContaining({ field }),
+      );
+    },
+  );
+  it.each([
+    [{ mau: '-1' }, 'mau'],
     [{ mauReferenceMonth: '2026-13' }, 'mauReferenceMonth'],
     [{ dauReferenceDate: '2026-02-30' }, 'dauReferenceDate'],
     [{ revenueStartDate: '2026-01-02' }, 'revenueEndDate'],
