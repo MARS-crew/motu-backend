@@ -1,6 +1,8 @@
-# 상장 신청 임시저장·작성 중 목록
+# 상장 신청 저장·조회
 
 관련 이슈: #33. MOTU-30-02-01, MOTU-32-02-01~03.
+
+단계별 저장·조회 추가: [#36](https://github.com/MARS-crew/motu-backend/issues/36). MOTU-36-02-01, MOTU-38-01-01~02. 이번 범위는 4단계 입력 저장과 본인 상세·상태 조회다. 최종 제출, 신청번호 발급, 제출에 따른 상태 전환, SMS/2차 보안 연동은 후속 작업이다.
 
 ## 화면·요구사항 근거
 
@@ -40,7 +42,74 @@
 
 필수값·최소 글자 수·숫자/이메일/날짜 완성도는 임시저장에서 검사하지 않는다. 저장 길이, 타입 및 알려진 필드 여부는 검사한다. 숫자와 날짜는 미완성 입력을 보관하도록 문자열로 받는다(예: `desiredPrice: ""`, `metricsStartDate: "2026-"`). 서버 전용 `userId`, `status`, `applicationNumber`는 요청할 수 없다. 공식 URL은 입력한 경우 HTTPS 형식을 검사한다.
 
-`data`의 허용 필드는 Swagger의 `ListingDraftDataReqDto`에 정의되어 있다. 기본 정보·평가/거래·지표·증빙 입력값을 저장한다. 이 API는 다음 단계 이동에 대한 필수값 검증이나 최종 제출을 수행하지 않는다.
+`data`의 허용 필드는 Swagger의 `ListingDraftDataReqDto`에 정의되어 있다. 기본 정보·평가/거래·지표·증빙 입력값을 저장한다. 위 기존 임시저장 API는 다음 단계 이동에 대한 필수값 검증이나 최종 제출을 수행하지 않는다. 단계 완료를 검사하며 저장하려면 아래 PUT API를 사용한다.
+
+## 단계별 검증·저장 (#36)
+
+`PUT /api/listing-applications/drafts/:id/steps/:step` (200). `step`은 1~4다. 해당 단계의 변경 필드만 `data`로 보내며, 기존 입력값과 병합한 뒤 **해당 단계 전체**를 검증한다. 다른 단계의 입력은 유지한다. 단계를 순서대로 강제하거나 이전 단계의 완료를 보증하는 API는 아니다.
+
+| 단계 | 필드와 검사 |
+|---|---|
+| 1 기본정보 | `serviceName` 2~30자, `summary` 10~60자(줄바꿈 금지), 유효한 `sectorCode`, 저장 완료 대표 이미지 `mainImageCollectionId`, `operatorName`, `managerName`, `businessEmail`, 휴대폰 형식의 `contactPhone` 필수. `description` 최대 500자, HTTPS `officialUrl`, `logoCollectionId`는 선택 |
+| 2 평가·거래 | `desiredPrice`, `totalIssuedQuantity`는 0보다 큰 정수 문자열, `priceCalculationBasis` 필수. 선택한 `minOrderQuantity`, `tickSize`는 `"1"`, `"5"`, `"10"`, `"50"`, `"100"`. `desiredListingDate`는 입력 시 시간대를 포함한 미래 ISO 일시 |
+| 3 서비스지표 | MAU·DAU·매출·거래액은 정수 문자열이며 0 허용. 입력한 지표에 대응하는 기준일/집계 기간·출처·추출일을 함께 검사. 기간은 시작≤종료, 최대 12개월, 추출일은 종료일 이상, 날짜는 KST 오늘 이하 |
+| 4 증빙자료 | `evidenceDescription` 10~500자. `evidenceCollectionId`는 제공 시 본인 EVIDENCE 묶음인지 확인. 파일·링크 합산 최대 10개이며 저장 완료(`saved=true`) 자료만 연결 |
+
+3단계의 지표별 필드는 다음과 같다.
+
+| 지표 | 함께 보내는 필드 |
+|---|---|
+| `mau` | `mauSource`, `mauReferenceMonth` (YYYY-MM) |
+| `dau` | `dauSource`, `dauReferenceDate` (YYYY-MM-DD) |
+| `revenue` | `revenueStartDate`, `revenueEndDate`, `revenueSource`, `revenueExtractDate` |
+| `transactionVolume` | `metricsStartDate`, `metricsEndDate`, `transactionVolumeBasis` (`LAST_12_MONTHS` / `SINCE_LAUNCH`), `transactionVolumeSource`, `transactionVolumeExtractDate` |
+
+지표 전체의 필수 조합, 증빙 최소 개수, 회계연도 기준과 거래액 집계 기간의 자동 산출은 문서 간 확정이 필요한 정책이다. 이번 단계 저장에서는 지표 4개 모두나 증빙 최소 1개를 임의로 강제하지 않는다. 입력된 지표의 형식·기간·출처 정합성을 검사하며, 최종 제출 시의 완결성 검증으로 간주하면 안 된다. 최소 주문 수량/호가 단위의 기본값도 서버에서 임의로 채우지 않는다.
+
+기본정보 예시(대표 이미지 묶음 ID는 파일 API에서 업로드 후 저장한 실제 ID로 교체):
+
+```json
+{
+  "data": {
+    "serviceName": "MOTU 서비스",
+    "summary": "상장 신청을 진행할 서비스의 한 줄 소개입니다.",
+    "sectorCode": 1,
+    "mainImageCollectionId": "파일 API에서 만든 MAIN_IMAGE 묶음 UUID",
+    "operatorName": "모투",
+    "managerName": "홍길동",
+    "businessEmail": "owner@example.com",
+    "contactPhone": "010-1234-5678"
+  }
+}
+```
+
+응답은 기존 임시저장 상세에 `validatedStep`을 추가한다. `currentStep`에는 이번에 저장한 단계를 기록하고, `lastSavedAt`과 90일 만료 시각을 갱신한다. `validatedStep`은 이번 요청에서 검사한 단계를 뜻하며, 영구적인 전체 완료 상태가 아니다. 이후 임시저장으로 값을 바꾸었다면 다시 검사해야 한다.
+
+검증 실패 시 `LISTING_STEP_VALIDATION_FAILED`(400)의 `error.details = { step, fields: [{ field, message }] }`로 한글 필드 오류를 제공한다. 저장 내용과 저장/만료 시각은 롤백한다. 잘못된 단계는 `LISTING_INVALID_STEP`(400), DTO 타입/UUID/길이 오류는 공통 `BAD_REQUEST`(400)다. 파일 묶음 소유권·용도·저장 완료 여부는 FilesService를 통해 확인하며, 저장 트랜잭션이 파일 묶음을 잠가 동시에 선택/삭제되는 요청과 직렬화한다.
+
+## 본인 상세·상태 조회 (#36)
+
+| 메서드 | 경로 | 동작 |
+|---|---|---|
+| GET | `/api/listing-applications/:id` | 본인 신청 상세. DRAFT 및 접수 이후 실제 저장 상태/입력값/저장 완료 첨부 반환 |
+| GET | `/api/listing-applications/:id/status` | 본인 신청 상태와 신청번호·접수일·검토 의견·보완 기한·수정 가능 여부 조회 |
+
+두 API 모두 로그인 필요. 타인/삭제/없는 신청서는 404이며 타인의 첨부도 노출하지 않는다. 상세의 `attachments`는 `{ logo, mainImage, evidence }`이며, 각 값은 저장 완료 자료만 담은 작성 묶음 또는 `null`이다. 다운로드는 묶음의 `attachments[].downloadPath`를 파일 API에서 인증 헤더와 함께 호출한다.
+
+상태 응답의 `statusLabel`은 DRAFT(임시 저장), SUBMITTED(접수), UNDER_REVIEW(검토 중), REVISION_REQUESTED(보완 요청), APPROVED(승인), REJECTED(반려), EXPIRED(만료)다. `isEditable`은 유효한 DRAFT에서만 true다. 접수 이후 상태에는 임시저장의 만료 정책을 적용하지 않아 `expiresAt`을 null로 반환한다. 만료된 임시저장의 상세는 410, 상태 조회는 200/EXPIRED다.
+
+`applicationNumber`, `submittedAt`, `reviewComment`, `revisionDeadline`은 DB에 기록된 값만 반환하고 미기록 값은 null이다. 접수일·검토 의견·보완 기한용 nullable 컬럼만 추가했으며, 이 값을 생성/변경하는 제출·관리자 API는 이번에 추가하지 않는다. 현재 실제 사용자 흐름에서는 저장 후 계속 DRAFT다. 접수 이후 상태 조회의 자동 검증에는 **로컬 전용 테스트 데이터**를 사용한다.
+
+첨부는 현재 작성 묶음의 저장 완료 자료를 조회한다. 제출 당시 첨부의 불변 스냅샷 및 제출 후 파일 변경 차단은 후속 제출 기능에서 구현해야 한다.
+
+### Swagger 확인 순서
+
+1. 서버를 재시작하고 로그인·Authorize한다.
+2. 기존 `POST /api/listing-applications/drafts`에 `{}`를 보내 신청서 `id`를 얻는다.
+3. `GET /api/sectors`로 실제 카테고리 코드를 확인한다. 파일 API에서 MAIN_IMAGE 묶음 생성 → 이미지 업로드 → `PUT /api/files/collections/:id`에 업로드한 attachmentIds를 보내 저장한다.
+4. `Listing applications - Drafts`의 PUT `.../:id/steps/:step`에서 step=1로 위 기본정보를 저장한다. step=2는 가격·수량·산정 근거, step=3은 지표와 출처/날짜, step=4는 증빙 설명과 선택한 EVIDENCE 묶음을 저장한다.
+5. `Listing applications - Queries`에서 GET `/:id`로 네 단계 입력과 저장 완료 첨부를 확인한다. GET `/:id/status`는 DRAFT, `isEditable=true`, `applicationNumber=null`, `submittedAt=null`이어야 한다.
+6. 단계 필수값 누락/잘못된 날짜는 400이며 이전 저장값이 유지되는지 확인한다. 다른 사용자 토큰으로 같은 ID를 조회하면 404다. 미완성 내용을 보관하려면 기존 PATCH 임시저장을 계속 사용한다.
 
 ## 목록과 5건 제한
 
@@ -100,6 +169,10 @@ logoCollectionId / mainImageCollectionId / evidenceCollectionId는 기존 [파�
 | LISTING_DRAFT_CONFLICT | 409 | 제한된 재시도로도 동시성 충돌 해결 실패 |
 
 ## 로컬 검증·배포
+
+이번 변경은 `20261025055930_add_listing_application_query_metadata` 마이그레이션을 포함한다(기존 컬럼/행 삭제 없이 nullable 컬럼 3개 추가). 로컬에서는 마이그레이션 적용 후 Prisma Client를 생성하고 빌드한다. 운영 적용은 기존 Railway 배포 절차의 `npm run db:deploy`로 진행하며, 이 작업에서는 운영 DB/변수를 수정하지 않았다.
+
+`node scripts/verify-listing-steps.mjs`는 3091 포트의 로컬 테스트 서버에서 단계별 검증/롤백, 저장 완료 첨부, 동시 단계 저장, 본인 상세·상태 조회, 접수 이후 변경 차단 및 만료/삭제를 검사한다. localhost DB와 전용 테스트 계정만 사용하고 완료 후 계정·신청서·첨부/파일을 정리한다. 기존 임시저장 회귀 검증은 아래 스크립트로 계속 실행한다.
 
 로컬 DB를 실행하고 `npm run db:migrate`로 새 마이그레이션을 적용한 뒤 `npm run db:generate`, `npm run build`를 실행한다. `node scripts/verify-listing-drafts.mjs`는 localhost DB만 허용하고 로컬 seed 계정의 암호 해시를 복제한 전용 테스트 계정 두 개로 검증한다. 테스트 서버는 3090 포트와 로컬 파일 저장소를 사용한다. 생성한 신청서·첨부 묶음·테스트 계정/세션은 finally에서 정리한다. 기존 사용자의 신청서는 수정하지 않는다.
 

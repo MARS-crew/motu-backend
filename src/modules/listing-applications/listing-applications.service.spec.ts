@@ -1,6 +1,7 @@
 import type { PrismaService } from '../../common/prisma/prisma.service.js';
 import type { FilesService } from '../files/files.service.js';
 import { ListingApplicationsService } from './listing-applications.service.js';
+import type { ListingStepValidationService } from './listing-step-validation.service.js';
 import {
   LISTING_DRAFT_LIFETIME_MS,
   LISTING_DRAFT_WARNING_MS,
@@ -27,6 +28,7 @@ describe('상장 신청 임시저장', () => {
   const service = new ListingApplicationsService(
     prisma as unknown as PrismaService,
     files as unknown as FilesService,
+    {} as ListingStepValidationService,
   );
   const record = () => ({
     id: 1,

@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Put,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -29,6 +30,8 @@ import {
   ListingDraftResDto,
 } from './dto/res/listing-draft-res.dto.js';
 import { ListingApplicationsService } from './listing-applications.service.js';
+import { SaveListingStepReqDto } from './dto/req/save-listing-step-req.dto.js';
+import { SaveListingStepResDto } from './dto/res/listing-application-res.dto.js';
 
 @ApiTags('Listing applications - Drafts')
 @ApiBearerAuth()
@@ -98,5 +101,21 @@ export class ListingApplicationsController {
   })
   remove(@CurrentUser() user: AuthUser, @Param('id', ParseIdPipe) id: number) {
     return this.applications.remove(user.userId, id);
+  }
+
+  @Put(':id/steps/:step')
+  @ApiOperation({
+    summary: '상장 신청 단계별 검증·저장',
+    description:
+      '1 기본정보, 2 평가거래, 3 서비스지표, 4 증빙자료. 해당 단계의 변경 필드만 data에 전달한다. 실패 시 전체 롤백. 최종 제출·상태 전환·신청번호 발급 아님.',
+  })
+  @ApiOkResponse({ type: SaveListingStepResDto })
+  saveStep(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIdPipe) id: number,
+    @Param('step', ParseIdPipe) step: number,
+    @Body() dto: SaveListingStepReqDto,
+  ) {
+    return this.applications.saveStep(user.userId, id, step, dto);
   }
 }

@@ -2,6 +2,16 @@ import { HttpStatus } from '@nestjs/common';
 import type { ErrorDefinition } from '../../common/exceptions/business.exception.js';
 
 export const ListingApplicationErrors = {
+  INVALID_STEP: {
+    code: 'LISTING_INVALID_STEP',
+    message: '저장 단계는 1부터 4까지 입력해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
+  STEP_VALIDATION: {
+    code: 'LISTING_STEP_VALIDATION_FAILED',
+    message: '입력 항목을 확인해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
   NOT_FOUND: {
     code: 'LISTING_APPLICATION_NOT_FOUND',
     message: '상장 신청서를 찾을 수 없습니다.',

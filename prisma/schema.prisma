@@ -479,6 +479,11 @@ model ListingApplication {
   id                    Int                      @id @default(autoincrement()) @map("application_id")
   userId                Int                      @map("user_id")
   applicationNumber     String?                  @unique @map("application_number") @db.VarChar(30)
+  /// 후속 최종 제출 API가 기록한다. 임시저장에서는 null을 유지한다.
+  submittedAt           DateTime?                @map("submitted_at") @db.Timestamptz(3)
+  /// 후속 관리자 심사 API가 기록하는 최근 의견과 보완 기한.
+  reviewComment         String?                  @map("review_comment")
+  revisionDeadline      DateTime?                @map("revision_deadline") @db.Timestamptz(3)
   status                ListingApplicationStatus @default(DRAFT)
   serviceName           String?                  @map("service_name") @db.VarChar(30)
   officialUrl           String?                  @map("official_url") @db.VarChar(2048)

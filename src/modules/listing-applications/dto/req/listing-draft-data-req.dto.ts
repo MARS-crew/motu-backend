@@ -12,6 +12,45 @@ import { INVALID_REQUEST_MESSAGE } from '../../../../common/constants/validation
 /** 임시저장은 필수값·최소 길이·이메일·숫자·날짜 완성도를 검증하지 않는다. */
 export class ListingDraftDataReqDto {
   @ApiPropertyOptional({
+    description: 'MAU 출처명',
+    maxLength: 255,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString({ message: INVALID_REQUEST_MESSAGE })
+  @MaxLength(255, { message: INVALID_REQUEST_MESSAGE })
+  mauSource?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'MAU 기준월 (YYYY-MM)',
+    maxLength: 7,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString({ message: INVALID_REQUEST_MESSAGE })
+  @MaxLength(7, { message: INVALID_REQUEST_MESSAGE })
+  mauReferenceMonth?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'DAU 출처명',
+    maxLength: 255,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString({ message: INVALID_REQUEST_MESSAGE })
+  @MaxLength(255, { message: INVALID_REQUEST_MESSAGE })
+  dauSource?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'DAU 기준일 (YYYY-MM-DD)',
+    maxLength: 10,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString({ message: INVALID_REQUEST_MESSAGE })
+  @MaxLength(10, { message: INVALID_REQUEST_MESSAGE })
+  dauReferenceDate?: string | null;
+  @ApiPropertyOptional({
     description: '서비스명',
     maxLength: 30,
     nullable: true,
