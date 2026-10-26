@@ -4,16 +4,21 @@ import { hash } from 'argon2';
 import {
   CashLedgerType,
   FaqCategory,
+  ListingApplicationStatus,
   NoticeType,
+  Prisma,
   PrismaClient,
   Role,
   TradeStatus,
+  UserStatus,
 } from '../src/generated/prisma/client.js';
 import { INITIAL_CASH } from '../src/modules/accounts/accounts.constants.js';
+import { LISTING_DRAFT_LIFETIME_MS } from '../src/modules/listing-applications/listing-applications.constants.js';
+import { normalizeListingUrl } from '../src/modules/listing-applications/listing-applications.validation.js';
 
 /**
  * 테스트용 관리자·일반 사용자 계정, 상품 카테고리, 테스트 상품·공지·FAQ를 만든다. 이미 있는 데이터는 건드리지 않는다.
- * 테스트 상품·공지·FAQ는 production에서는 만들지 않는다.
+ * 테스트 상품·공지·FAQ, 화면 상태별 테스트 계정, motuuser의 이용 기록은 production에서는 만들지 않는다.
  *
  * 로컬에서는 아래 기본 비밀번호를 쓴다. 저장소에 공개된 값이라
  * production에서는 SEED_ADMIN_PASSWORD, SEED_USER_PASSWORD를 반드시 지정해야 한다.
@@ -161,6 +166,8 @@ async function main(): Promise<void> {
     await createStocks();
     await createNotices();
     await createFaqs();
+    await createTestUsers();
+    await createUserActivity();
   }
 }
 
@@ -427,6 +434,388 @@ async function createUsers(): Promise<void> {
     });
     console.log(`생성: ${seed.loginId} (${seed.role})`);
   }
+}
+
+const HOUR = 60 * 60 * 1000;
+
+interface TestUserSeed {
+  loginId: string;
+  nickname: string;
+  email: string;
+  userStatus?: UserStatus;
+  loginFailCount?: number;
+  /** 초기 지급 뒤의 포인트 변경. 계좌 잔액은 마지막 이력의 잔액이 된다. */
+  ledgers?: { type: CashLedgerType; amount: bigint; hoursAgo: number }[];
+  /** 만들 임시저장 신청서 수 */
+  draftCount?: number;
+}
+
+/**
+ * 화면 상태별 테스트 계정. 비밀번호는 motuuser와 같다.
+ */
+const testUsers: TestUserSeed[] = [
+  {
+    // 보유 포인트 300,000P 미만이라 바로 리셋할 수 있다.
+    loginId: 'motureset',
+    nickname: '리셋테스터',
+    email: 'reset@motu.test',
+    ledgers: [
+      { type: CashLedgerType.ADJUST, amount: -2_750_000n, hoursAgo: 24 },
+    ],
+  },
+  {
+    // 2시간 전에 추가 포인트를 받아 22시간을 기다려야 한다.
+    loginId: 'motugrant',
+    nickname: '지급테스터',
+    email: 'grant@motu.test',
+    ledgers: [{ type: CashLedgerType.GRANT, amount: 100_000n, hoursAgo: 2 }],
+  },
+  {
+    loginId: 'motulocked',
+    nickname: '잠금테스터',
+    email: 'locked@motu.test',
+    userStatus: UserStatus.LOCKED,
+    loginFailCount: 5,
+  },
+  {
+    loginId: 'motublocked',
+    nickname: '정지테스터',
+    email: 'blocked@motu.test',
+    userStatus: UserStatus.BLOCKED,
+  },
+  {
+    // 임시저장 5건이 차 있어 새 신청서를 만들 수 없다.
+    loginId: 'motudraft',
+    nickname: '신청테스터',
+    email: 'draft@motu.test',
+    draftCount: 5,
+  },
+];
+
+async function createTestUsers(): Promise<void> {
+  const now = Date.now();
+  for (const seed of testUsers) {
+    const existing = await prisma.user.findUnique({
+      where: { loginId: seed.loginId },
+    });
+    if (existing) {
+      console.log(`이미 있음: ${seed.loginId}`);
+      continue;
+    }
+
+    let balance = INITIAL_CASH;
+    const ledgers: Prisma.CashLedgerCreateWithoutAccountInput[] = [
+      {
+        type: CashLedgerType.DEPOSIT,
+        amount: INITIAL_CASH,
+        balanceAfter: INITIAL_CASH,
+        createDate: new Date(now - 7 * DAY),
+      },
+    ];
+    for (const ledger of seed.ledgers ?? []) {
+      balance += ledger.amount;
+      ledgers.push({
+        type: ledger.type,
+        amount: ledger.amount,
+        balanceAfter: balance,
+        createDate: new Date(now - ledger.hoursAgo * HOUR),
+      });
+    }
+    const lastGrant = seed.ledgers?.findLast(
+      ({ type }) => type === CashLedgerType.GRANT,
+    );
+
+    const user = await prisma.user.create({
+      data: {
+        loginId: seed.loginId,
+        password: await hash(seedUsers[1].password),
+        nickname: seed.nickname,
+        email: seed.email,
+        role: Role.USER,
+        userStatus: seed.userStatus,
+        loginFailCount: seed.loginFailCount,
+        birthDate: new Date('2000-01-01'),
+        termsAgreed: true,
+        privacyAgreed: true,
+        marketingAgreed: false,
+        account: {
+          create: {
+            cash: balance,
+            lastPointGrantAt: lastGrant
+              ? new Date(now - lastGrant.hoursAgo * HOUR)
+              : null,
+            ledgers: { create: ledgers },
+          },
+        },
+      },
+    });
+    for (let index = 0; index < (seed.draftCount ?? 0); index += 1) {
+      await prisma.listingApplication.create({
+        data: listingApplicationOf(user.id, {
+          name: `${seed.loginId}${index + 1}`,
+          status: ListingApplicationStatus.DRAFT,
+          currentStep: (index % 4) + 1,
+          daysAgo: index,
+        }),
+      });
+    }
+    console.log(`생성: ${seed.loginId}`);
+  }
+}
+
+/**
+ * motuuser에 포인트 이력, 관심상품, 최근 본 종목, 최근 검색어, 상장 신청서를 넣는다.
+ * 항목마다 이미 기록이 있으면 건드리지 않는다. (화면에서 직접 쌓은 기록을 덮어쓰지 않도록)
+ */
+async function createUserActivity(): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { loginId: seedUsers[1].loginId },
+    include: {
+      account: { include: { _count: { select: { ledgers: true } } } },
+    },
+  });
+  if (!user?.account) {
+    return;
+  }
+  const now = Date.now();
+  const stocks = await prisma.stock.findMany({
+    where: { isDeleted: false, tradeStatus: TradeStatus.ACTIVE },
+    orderBy: { stockCode: 'asc' },
+    select: { id: true },
+  });
+
+  await createLedgerHistory(user.account, now);
+
+  const wishlists = await prisma.wishlist.createMany({
+    data: stocks.slice(0, 4).map(({ id }, index) => ({
+      userId: user.id,
+      stockId: id,
+      createDate: new Date(now - (index + 1) * DAY),
+    })),
+    skipDuplicates: true,
+  });
+  console.log(`관심상품: ${wishlists.count}개`);
+
+  const views = await prisma.viewHistory.createMany({
+    data: stocks.slice(0, 5).map(({ id }, index) => ({
+      userId: user.id,
+      stockId: id,
+      modifiedDate: new Date(now - (index + 1) * HOUR),
+    })),
+    skipDuplicates: true,
+  });
+  console.log(`최근 본 종목: ${views.count}개`);
+
+  if (
+    (await prisma.searchHistory.count({ where: { userId: user.id } })) === 0
+  ) {
+    const keywords = ['Cloud', 'Pay', 'Data'];
+    await prisma.searchHistory.createMany({
+      data: keywords.map((keyword, index) => ({
+        userId: user.id,
+        keyword,
+        modifiedDate: new Date(now - (index + 1) * HOUR),
+      })),
+    });
+    console.log(`최근 검색어: ${keywords.length}개`);
+  }
+
+  await createListingApplications(user.id);
+}
+
+/**
+ * 추가 지급 2번과 관리자 차감 1번. 초기 지급 이력만 있는 계좌에만 넣는다.
+ * 마지막 지급이 24시간 전이라 지금 바로 추가 지급을 받을 수 있다.
+ */
+async function createLedgerHistory(
+  account: { id: number; cash: bigint; _count: { ledgers: number } },
+  now: number,
+): Promise<void> {
+  if (account._count.ledgers !== 1 || account.cash !== INITIAL_CASH) {
+    console.log('포인트 이력: 이미 있음');
+    return;
+  }
+  const changes = [
+    { type: CashLedgerType.GRANT, amount: 100_000n, hoursAgo: 72 },
+    { type: CashLedgerType.GRANT, amount: 100_000n, hoursAgo: 48 },
+    { type: CashLedgerType.ADJUST, amount: -50_000n, hoursAgo: 25 },
+  ];
+  let balance = account.cash;
+  await prisma.$transaction(async (tx) => {
+    for (const change of changes) {
+      balance += change.amount;
+      await tx.cashLedger.create({
+        data: {
+          accountId: account.id,
+          type: change.type,
+          amount: change.amount,
+          balanceAfter: balance,
+          createDate: new Date(now - change.hoursAgo * HOUR),
+        },
+      });
+    }
+    await tx.account.update({
+      where: { id: account.id },
+      data: {
+        cash: balance,
+        lastPointGrantAt: new Date(now - 48 * HOUR),
+        version: { increment: 1 },
+      },
+    });
+  });
+  console.log(`포인트 이력: ${changes.length}개`);
+}
+
+/**
+ * 신청서 목록·상세·상태 화면용. 접수 이후 상태는 제출·심사 API가 아직 없어 seed로만 만든다.
+ * 신청번호 형식은 제출 API에서 정해지면 맞춘다.
+ */
+async function createListingApplications(userId: number): Promise<void> {
+  if ((await prisma.listingApplication.count({ where: { userId } })) > 0) {
+    console.log('상장 신청서: 이미 있음');
+    return;
+  }
+  const seeds: ListingApplicationSeed[] = [
+    {
+      name: 'TaskFlow',
+      status: ListingApplicationStatus.DRAFT,
+      currentStep: 2,
+      daysAgo: 1,
+    },
+    {
+      // 만료 5일 전이라 목록에서 만료 임박(expiresSoon)으로 보인다.
+      name: 'MealKit',
+      status: ListingApplicationStatus.DRAFT,
+      currentStep: 3,
+      daysAgo: 85,
+    },
+    {
+      name: 'TripNote',
+      status: ListingApplicationStatus.SUBMITTED,
+      currentStep: 4,
+      daysAgo: 3,
+    },
+    {
+      name: 'PetCare',
+      status: ListingApplicationStatus.UNDER_REVIEW,
+      currentStep: 4,
+      daysAgo: 6,
+    },
+    {
+      name: 'CodeMate',
+      status: ListingApplicationStatus.REVISION_REQUESTED,
+      currentStep: 4,
+      daysAgo: 10,
+      reviewComment:
+        'MAU 출처 자료가 집계 기간과 맞지 않습니다. 증빙 자료를 다시 올려 주세요.',
+    },
+    {
+      name: 'BookClub',
+      status: ListingApplicationStatus.APPROVED,
+      currentStep: 4,
+      daysAgo: 20,
+    },
+    {
+      name: 'GameHub',
+      status: ListingApplicationStatus.REJECTED,
+      currentStep: 4,
+      daysAgo: 25,
+      reviewComment: '서비스 운영 기간이 상장 기준(6개월)에 미달합니다.',
+    },
+  ];
+  for (const seed of seeds) {
+    const item = await prisma.listingApplication.create({
+      data: listingApplicationOf(userId, seed),
+    });
+    console.log(`상장 신청서: ${item.id} ${seed.name} (${seed.status})`);
+  }
+}
+
+interface ListingApplicationSeed {
+  name: string;
+  status: ListingApplicationStatus;
+  /** 입력을 마친 단계까지 draftData를 채운다. */
+  currentStep: number;
+  /** 마지막 저장(접수 이후 상태는 제출) 시점 */
+  daysAgo: number;
+  reviewComment?: string;
+}
+
+function listingApplicationOf(
+  userId: number,
+  seed: ListingApplicationSeed,
+): Prisma.ListingApplicationUncheckedCreateInput {
+  const now = Date.now();
+  const savedAt = new Date(now - seed.daysAgo * DAY);
+  const officialUrl = `https://${seed.name.toLowerCase()}.example.com`;
+  const isSubmitted = seed.status !== ListingApplicationStatus.DRAFT;
+  const steps: Record<string, string | number | null>[] = [
+    {
+      serviceName: seed.name,
+      summary: `${seed.name}는 테스트용 상장 신청 서비스입니다.`,
+      description: `${seed.name}의 상세 설명입니다. 프론트 화면 확인용 데이터입니다.`,
+      sectorCode: 1,
+      officialUrl,
+      operatorName: `${seed.name} 주식회사`,
+      managerName: '홍길동',
+      businessEmail: `contact@${seed.name.toLowerCase()}.example.com`,
+      contactPhone: '01012345678',
+      logoCollectionId: null,
+      mainImageCollectionId: null,
+    },
+    {
+      desiredPrice: '10000',
+      totalIssuedQuantity: '1000000',
+      minOrderQuantity: '1',
+      tickSize: '10',
+      priceCalculationBasis: '최근 12개월 매출과 MAU를 기준으로 산정했습니다.',
+      desiredListingDate: '2026-12-01',
+    },
+    {
+      mau: '50000',
+      mauSource: 'Google Analytics',
+      mauReferenceMonth: '2026-09',
+      dau: '10000',
+      dauSource: 'Google Analytics',
+      dauReferenceDate: '2026-09-30',
+      revenue: '300000000',
+      revenueStartDate: '2025-10-01',
+      revenueEndDate: '2026-09-30',
+      revenueSource: '세무 신고 자료',
+      revenueExtractDate: '2026-10-05',
+      transactionVolume: '1000000000',
+      metricsStartDate: '2025-10-01',
+      metricsEndDate: '2026-09-30',
+      transactionVolumeBasis: '결제 완료 금액 합계',
+      transactionVolumeSource: '내부 결제 시스템',
+      transactionVolumeExtractDate: '2026-10-05',
+    },
+    {
+      evidenceCollectionId: null,
+      evidenceDescription: '서비스 지표와 매출 증빙 자료입니다.',
+    },
+  ];
+
+  return {
+    userId,
+    status: seed.status,
+    applicationNumber: isSubmitted
+      ? `MOTU-${savedAt.toISOString().slice(0, 10).replaceAll('-', '')}-${seed.name.toUpperCase()}`
+      : null,
+    submittedAt: isSubmitted ? savedAt : null,
+    reviewComment: seed.reviewComment ?? null,
+    revisionDeadline:
+      seed.status === ListingApplicationStatus.REVISION_REQUESTED
+        ? new Date(now + 5 * DAY)
+        : null,
+    serviceName: seed.name,
+    officialUrl,
+    normalizedOfficialUrl: normalizeListingUrl(officialUrl),
+    currentStep: seed.currentStep,
+    draftData: Object.assign({}, ...steps.slice(0, seed.currentStep)),
+    lastSavedAt: savedAt,
+    expiresAt: new Date(savedAt.getTime() + LISTING_DRAFT_LIFETIME_MS),
+  };
 }
 
 try {
