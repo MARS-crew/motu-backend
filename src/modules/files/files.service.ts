@@ -45,6 +45,12 @@ export class FilesService {
   }
   async upload(userId: number, id: string, files: Express.Multer.File[]) {
     const collection = await this.get(userId, id);
+    // 저장소에 쓰기 전에 확인하고, DB 반영 시에도 잠금 아래에서 다시 검사한다.
+    const state = await this.prisma.attachmentCollection.findFirst({
+      where: { id, userId },
+      select: { frozenAt: true },
+    });
+    this.assertMutable(state ?? {});
     if (!files?.length) throw new BusinessException(FileErrors.REQUIRED);
     const maximum = collection.purpose === AttachmentPurpose.EVIDENCE ? 10 : 1;
     if (collection.attachments.length + files.length > maximum)
@@ -67,6 +73,7 @@ export class FilesService {
         );
       return await this.prisma.$transaction(async (tx) => {
         const locked = await this.lock(tx, userId, id);
+        this.assertMutable(locked);
         await this.checkCount(tx, locked, files.length);
         const result = [];
         for (let i = 0; i < files.length; i++)
@@ -95,6 +102,7 @@ export class FilesService {
     const url = validateExternalUrl(input);
     return this.prisma.$transaction(async (tx) => {
       const collection = await this.lock(tx, userId, id);
+      this.assertMutable(collection);
       if (collection.purpose !== AttachmentPurpose.EVIDENCE)
         throw new BusinessException(FileErrors.FORMAT);
       await this.checkCount(tx, collection, 1);
@@ -108,6 +116,7 @@ export class FilesService {
   async save(userId: number, id: string, dto: SaveCollectionReqDto) {
     await this.prisma.$transaction(async (tx) => {
       const collection = await this.lock(tx, userId, id);
+      this.assertMutable(collection);
       const description = dto.description ?? collection.description;
       if (
         dto.validateStep &&
@@ -139,7 +148,7 @@ export class FilesService {
   }
   async remove(userId: number, id: string, attachmentId: string) {
     const key = await this.prisma.$transaction(async (tx) => {
-      await this.lock(tx, userId, id);
+      this.assertMutable(await this.lock(tx, userId, id));
       const item = await tx.attachment.findFirst({
         where: { id: attachmentId, collectionId: id },
       });
@@ -190,6 +199,22 @@ export class FilesService {
       attachments: result.attachments.filter((item) => item.saved),
     };
   }
+  /** 재제출과 같은 트랜잭션에서 검증된 묶음을 동결한다. 조회·다운로드는 계속 허용한다. */
+  async freezeSavedCollection(
+    userId: number,
+    id: string,
+    tx: Prisma.TransactionClient,
+  ) {
+    const collection = await this.lock(tx, userId, id);
+    this.assertMutable(collection);
+    await tx.attachmentCollection.update({
+      where: { id },
+      data: { frozenAt: new Date() },
+    });
+  }
+  private assertMutable(collection: { frozenAt?: Date | null }) {
+    if (collection.frozenAt) throw new BusinessException(FileErrors.FROZEN);
+  }
   private response(item: Attachment) {
     return {
       id: item.id,
@@ -208,7 +233,7 @@ export class FilesService {
   private async lock(tx: Prisma.TransactionClient, userId: number, id: string) {
     const rows = await tx.$queryRaw<
       AttachmentCollection[]
-    >`SELECT * FROM attachment_collections WHERE id = ${id}::uuid AND user_id = ${userId} FOR UPDATE`;
+    >`SELECT id, user_id AS "userId", purpose, description, saved_at AS "savedAt", frozen_at AS "frozenAt", create_date AS "createDate" FROM attachment_collections WHERE id = ${id}::uuid AND user_id = ${userId} FOR UPDATE`;
     if (!rows.length) throw new BusinessException(FileErrors.NOT_FOUND);
     return rows[0];
   }
