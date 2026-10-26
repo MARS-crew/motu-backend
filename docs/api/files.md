@@ -76,6 +76,8 @@ Railway OAuth 연결은 자격증명 값을 제공하지 않으므로 MinIO 내�
 
 ## 로컬 확인
 
+보완 재제출에 사용한 묶음은 frozenAt을 기록해 동결한다. 업로드·링크 추가·선택/설명 저장·삭제는 `FILE_COLLECTION_FROZEN`(409)으로 거절하며 조회·다운로드는 유지한다. 다음 보완에는 새 묶음을 만든다. [보완 요청·재제출](listing-revisions.md) 참고.
+
 `npm ci`, `npm run db:migrate`, `npm run start:dev` 후 Swagger Files 항목을 사용한다. 로그인 → EVIDENCE 묶음 생성 → 업로드/링크 등록 → 반환 ID로 PUT 저장 → 목록/다운로드/삭제 순서다. 기존 개발 DB에 추가 테이블만 만드는 마이그레이션을 포함한다.
 
 `npm run build` 후 `node scripts/verify-files.mjs`로 로컬 PostgreSQL·HTTP 통합 검증을 재현할 수 있다. localhost DB만 허용하고 테스트용 서버(3089)를 실행한다. README의 로컬 seed 계정을 사용하고, 자신이 만든 자료/작성 묶음과 로그인 세션을 정리한다. 운영 DB나 운영 저장소에 이 스크립트를 사용하지 않는다.

@@ -2,6 +2,12 @@ import { HttpStatus } from '@nestjs/common';
 import type { ErrorDefinition } from '../../common/exceptions/business.exception.js';
 
 export const FileErrors = {
+  FROZEN: {
+    code: 'FILE_COLLECTION_FROZEN',
+    message:
+      '제출한 첨부 자료는 변경할 수 없습니다. 새 작성 묶음을 만들어 주세요.',
+    status: HttpStatus.CONFLICT,
+  },
   REQUIRED: {
     code: 'FILE_REQUIRED',
     message: '파일을 선택해 주세요.',

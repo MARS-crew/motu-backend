@@ -8,18 +8,22 @@ import { ListingDraftExpirationService } from './listing-draft-expiration.servic
 import { ListingStepValidationService } from './listing-step-validation.service.js';
 import { ListingApplicationQueriesController } from './listing-application-queries.controller.js';
 import { ListingDraftNotificationsService } from './listing-draft-notifications.service.js';
+import { ListingRevisionsController } from './listing-revisions.controller.js';
+import { ListingRevisionsService } from './listing-revisions.service.js';
 
 @Module({
   imports: [FilesModule, SectorsModule, NotificationsModule],
   controllers: [
     ListingApplicationsController,
     ListingApplicationQueriesController,
+    ListingRevisionsController,
   ],
   providers: [
     ListingApplicationsService,
     ListingDraftExpirationService,
     ListingDraftNotificationsService,
     ListingStepValidationService,
+    ListingRevisionsService,
   ],
   exports: [ListingApplicationsService],
 })

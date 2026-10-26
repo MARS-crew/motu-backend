@@ -86,6 +86,8 @@ describe('VerificationsService', () => {
           id: 2,
           codeCipher: data.codeCipher,
           attemptCount: 2,
+          // 재사용 기준인 1분 경계와 실행 지연을 분리해 간헐적인 새 번호 발급을 피한다.
+          expiresAt: new Date(Date.now() + 120_000),
           sentAt: new Date(Date.now() - 31_000),
         }),
       );
