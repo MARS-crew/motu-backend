@@ -38,6 +38,18 @@ npm run start:dev       # 개발 서버 (watch 모드)
 | ADMIN | `motuadmin` | `motuadmin1!` | 모투관리자 | `admin@motu.test` |
 | USER | `motuuser` | `motuuser1!` | 모투테스터 | `user@motu.test` |
 
+화면 상태를 확인하는 계정도 같이 만들어집니다. 비밀번호는 모두 `motuuser`와 같습니다.
+
+| 아이디 | 상태 |
+|------|------|
+| `motureset` | 보유 포인트 250,000P. 바로 포인트 리셋 가능 |
+| `motugrant` | 2시간 전에 추가 포인트를 받아 지급 대기 중 |
+| `motulocked` | 로그인 5회 실패로 잠김 (`AUTH_ACCOUNT_LOCKED`) |
+| `motublocked` | 이용 정지 (`AUTH_ACCOUNT_BLOCKED`) |
+| `motudraft` | 임시저장 신청서 5건으로 새 신청서 작성 불가 (`LISTING_DRAFT_LIMIT_EXCEEDED`) |
+
+`motuuser`에는 포인트 이력, 관심상품 4개, 최근 본 종목 5개, 최근 검색어 3개, 상장 신청서 7건(임시저장 2건, 그중 1건은 만료 임박, 접수·검토 중·보완 요청·승인·반려 각 1건)이 들어갑니다. 신청서 ID는 seed 실행 결과에 출력됩니다. 이미 기록이 있는 항목은 건너뜁니다.
+
 - Swagger에서 `POST /api/auth/login`으로 로그인한 뒤, 응답의 `accessToken`을 오른쪽 위 **Authorize**에 넣으면 로그인이 필요한 API를 호출할 수 있습니다.
 - 저장소에 공개된 비밀번호라 **로컬 전용**입니다. production(`NODE_ENV=production`)에서는 `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`를 지정하지 않으면 seed가 실행되지 않습니다.
 
