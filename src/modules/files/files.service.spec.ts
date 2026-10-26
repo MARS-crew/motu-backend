@@ -90,4 +90,30 @@ describe('FilesService 저장 보장', () => {
     });
     expect(storage.put).not.toHaveBeenCalled();
   });
+  it('동결한 자료에는 새 파일을 업로드하지 않는다', async () => {
+    prisma.attachmentCollection.findFirst.mockResolvedValue({
+      id: 'group',
+      purpose: 'EVIDENCE',
+      attachments: [],
+      frozenAt: new Date(),
+    });
+    await expect(service.upload(1, 'group', files)).rejects.toMatchObject({
+      error: { code: 'FILE_COLLECTION_FROZEN' },
+    });
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+  it('동결한 자료의 링크 추가와 저장·삭제를 차단한다', async () => {
+    tx.$queryRaw.mockResolvedValue([
+      { id: 'group', purpose: 'EVIDENCE', frozenAt: new Date() },
+    ]);
+    await expect(
+      service.addLink(1, 'group', 'https://example.com'),
+    ).rejects.toMatchObject({ error: { code: 'FILE_COLLECTION_FROZEN' } });
+    await expect(
+      service.save(1, 'group', { attachmentIds: [] }),
+    ).rejects.toMatchObject({ error: { code: 'FILE_COLLECTION_FROZEN' } });
+    await expect(service.remove(1, 'group', 'file')).rejects.toMatchObject({
+      error: { code: 'FILE_COLLECTION_FROZEN' },
+    });
+  });
 });
