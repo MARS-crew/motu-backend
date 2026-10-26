@@ -17,6 +17,7 @@
 | [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |
 | [알림](notifications.md) | 내 알림 목록·읽음·미확인 수, 체결·목표가 생성 서비스, 임시저장 만료 안내 | `modules/notifications`, `modules/listing-applications` |
 | [상장 신청](listing-applications.md) | 임시저장·작성 중 목록, 단계별 검증·저장, 본인 상세·상태 조회 | `modules/listing-applications` |
+| [보완 요청·재제출](listing-revisions.md) | 본인 보완 요청 조회·기한 검사·증빙 재제출 | `modules/listing-applications` |
 
 ## 문서 관리
 
