@@ -59,6 +59,7 @@ model User {
   wishlists             Wishlist[]
   attachmentCollections AttachmentCollection[]
   listingApplications   ListingApplication[]
+  notifications         Notification[]
 
   @@map("users")
 }
@@ -502,4 +503,35 @@ model ListingApplication {
   @@index([userId, status, lastSavedAt])
   @@index([status, expiresAt])
   @@map("listing_applications")
+}
+
+// ─── 회원 알림 ───────────────────────────────────────
+
+enum NotificationType {
+  ORDER
+  PRICE
+  LISTING_DRAFT_EXPIRING
+
+  @@map("notification_type")
+}
+
+/// 앱 내 알림 이력. eventKey는 생산자가 재시도해도 바뀌지 않는 이벤트 식별자다.
+model Notification {
+  id           Int              @id @default(autoincrement()) @map("notification_id")
+  userId       Int              @map("user_id")
+  type         NotificationType @map("notification_type")
+  eventKey     String           @map("event_key") @db.VarChar(200)
+  content      String           @db.VarChar(500)
+  /// 이벤트 발생 당시의 값. 금액·수량·거래 식별자는 문자열로 보존한다.
+  payload      Json
+  isRead       Boolean          @default(false) @map("is_read")
+  readAt       DateTime?        @map("read_at") @db.Timestamptz(3)
+  createDate   DateTime         @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime         @updatedAt @map("modified_date") @db.Timestamptz(3)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, eventKey])
+  @@index([userId, createDate, id])
+  @@index([userId, isRead])
+  @@map("notifications")
 }
