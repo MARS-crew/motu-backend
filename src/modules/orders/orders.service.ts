@@ -26,8 +26,10 @@ import { OrderResDto } from './dto/res/order-res.dto.js';
 import {
   BPS_DENOMINATOR,
   FEE_RATE_BPS,
+  MAX_FILLS_PER_ORDER,
   ORDER_BOOK_DEPTH,
   OrderListStatus,
+  TRADING_TX_OPTIONS,
 } from './orders.constants.js';
 import { OrderErrors } from './orders.errors.js';
 import { calculateBuyLockAmount, validateOrderRules } from './orders.policy.js';
@@ -123,6 +125,11 @@ export class OrdersService {
         if (match.selfTrade) {
           throw new BusinessException(OrderErrors.SELF_TRADE);
         }
+        if (match.fills.length > MAX_FILLS_PER_ORDER) {
+          throw new BusinessException(OrderErrors.TOO_MANY_FILLS, undefined, {
+            maxFills: MAX_FILLS_PER_ORDER,
+          });
+        }
 
         const { order: settled, trades } = await this.withBookRecovery(
           stock.id,
@@ -171,7 +178,7 @@ export class OrdersService {
                 result.trades.map(({ trade }) => trade),
               );
               return result;
-            }),
+            }, TRADING_TX_OPTIONS),
         );
 
         // 커밋에 성공한 뒤에만 메모리 호가창을 바꾸고 체결을 알린다.
@@ -267,6 +274,7 @@ export class OrdersService {
           });
           return { order: updated, canceled: true };
         },
+        TRADING_TX_OPTIONS,
       );
 
       // 커밋에 성공한 취소만 호가창에 반영한다.

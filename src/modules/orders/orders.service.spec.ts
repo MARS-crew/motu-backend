@@ -13,7 +13,11 @@ import { MatchingService } from '../matching/matching.service.js';
 import { SettlementService } from '../matching/settlement.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
-import { OrderListStatus } from './orders.constants.js';
+import {
+  MAX_FILLS_PER_ORDER,
+  OrderListStatus,
+  TRADING_TX_OPTIONS,
+} from './orders.constants.js';
 import { OrderErrors } from './orders.errors.js';
 import { OrdersService } from './orders.service.js';
 
@@ -313,6 +317,53 @@ describe('OrdersService', () => {
       expect(error.error).toBe(OrderErrors.SELF_TRADE);
       expect(transaction).not.toHaveBeenCalled();
       expect(matching.apply).not.toHaveBeenCalled();
+    });
+
+    it('체결할 호가창 주문 수가 상한을 넘으면 예약하지 않고 주문을 거부한다', async () => {
+      const manyFills = Array.from(
+        { length: MAX_FILLS_PER_ORDER + 1 },
+        (_, i) => ({
+          makerOrderId: BigInt(i + 1),
+          makerAccountId: 9,
+          price: 5_000n,
+          qty: 1n,
+        }),
+      );
+      matching.match.mockReturnValue({
+        selfTrade: false,
+        fills: manyFills,
+        remainingQty: 0n,
+      });
+
+      const error = await errorOf(
+        service.placeOrder(USER_ID, buyOf(5_000, MAX_FILLS_PER_ORDER + 1)),
+      );
+
+      expect(error.error).toBe(OrderErrors.TOO_MANY_FILLS);
+      expect(transaction).not.toHaveBeenCalled();
+      expect(matching.apply).not.toHaveBeenCalled();
+    });
+
+    it('체결할 호가창 주문 수가 상한과 같으면 접수하고, 트랜잭션 제한을 넘긴다', async () => {
+      const maxFills = Array.from({ length: MAX_FILLS_PER_ORDER }, (_, i) => ({
+        makerOrderId: BigInt(i + 1),
+        makerAccountId: 9,
+        price: 5_000n,
+        qty: 1n,
+      }));
+      matching.match.mockReturnValue({
+        selfTrade: false,
+        fills: maxFills,
+        remainingQty: 0n,
+      });
+      tx.$queryRaw.mockResolvedValue(lockedAccountOf(3_000_000n, 0n));
+
+      await service.placeOrder(USER_ID, buyOf(5_000, MAX_FILLS_PER_ORDER));
+
+      expect(transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        TRADING_TX_OPTIONS,
+      );
     });
 
     it('예약보다 먼저 관련 계좌를 모두 잠근다', async () => {

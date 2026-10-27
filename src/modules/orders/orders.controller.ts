@@ -53,7 +53,7 @@ export class OrdersController {
   @ApiNotFoundResponse({ description: 'STOCK_NOT_FOUND / ACCOUNT_NOT_FOUND' })
   @ApiConflictResponse({
     description:
-      'ORDER_STOCK_NOT_TRADABLE / ORDER_SELF_TRADE / ORDER_CLIENT_ID_REUSED',
+      'ORDER_STOCK_NOT_TRADABLE / ORDER_SELF_TRADE / ORDER_TOO_MANY_FILLS / ORDER_CLIENT_ID_REUSED',
   })
   placeOrder(
     @CurrentUser() user: AuthUser,

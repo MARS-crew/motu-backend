@@ -39,6 +39,13 @@ export const OrderErrors = {
       '내 미체결 주문과 체결될 수 있는 가격입니다. 기존 주문을 취소한 뒤 다시 주문해 주세요.',
     status: HttpStatus.CONFLICT,
   },
+  /** 한 번에 체결할 호가창 주문 수가 MAX_FILLS_PER_ORDER를 넘는 경우 */
+  TOO_MANY_FILLS: {
+    code: 'ORDER_TOO_MANY_FILLS',
+    message:
+      '한 번에 체결할 수 있는 주문 수를 넘었습니다. 수량을 나눠 주문해 주세요.',
+    status: HttpStatus.CONFLICT,
+  },
   /** 같은 clientOrderId로 내용(상품·방향·가격·수량)이 다른 주문을 보낸 경우 */
   CLIENT_ID_REUSED: {
     code: 'ORDER_CLIENT_ID_REUSED',

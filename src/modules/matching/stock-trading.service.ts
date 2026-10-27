@@ -8,6 +8,7 @@ import {
   TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
+import { TRADING_TX_OPTIONS } from '../orders/orders.constants.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { MatchingErrors } from './matching.errors.js';
 import { MatchingService } from './matching.service.js';
@@ -76,7 +77,7 @@ export class StockTradingService {
           data: { tradeStatus: TradeStatus.ACTIVE },
         });
         return listingOrder;
-      });
+      }, TRADING_TX_OPTIONS);
 
       // 거래 시작 전에는 주문을 받지 않으므로 호가창이 비어 있어 체결할 것이 없다.
       this.matching.apply(stockId, order, []);
@@ -156,7 +157,7 @@ export class StockTradingService {
           data: { tradeStatus: TradeStatus.CLOSED },
         });
         return openOrders.length;
-      });
+      }, TRADING_TX_OPTIONS);
 
       this.matching.clearBook(stockId);
       return { canceledCount };
