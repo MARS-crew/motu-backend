@@ -10,6 +10,7 @@ import {
 import { ChartsService } from '../charts/charts.service.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
 import { CreatePriceAlertReqDto } from './dto/req/create-price-alert-req.dto.js';
+import { GetPriceAlertsResDto } from './dto/res/get-price-alerts-res.dto.js';
 import { PriceAlertResDto } from './dto/res/price-alert-res.dto.js';
 import { PriceAlertErrors } from './price-alerts.errors.js';
 
@@ -42,6 +43,10 @@ const ALERT_STOCK_SELECT = {
 const INT_MAX = 2_147_483_647;
 
 type PriceAlertWithStock = PriceAlert & { stock: AlertStock };
+
+interface PriceAlertCursor {
+  alertId: number;
+}
 
 @Injectable()
 export class PriceAlertsService {
@@ -124,6 +129,46 @@ export class PriceAlertsService {
     }
   }
 
+  /**
+   * 내 지정가 알림 목록. 최근 등록순이고, 켜진 알림과 꺼진 알림을 모두 보여준다.
+   */
+  async getAlerts(
+    userId: number,
+    query: { stockId?: number; cursor?: string; size: number },
+  ): Promise<GetPriceAlertsResDto> {
+    const afterAlertId = query.cursor
+      ? this.decodeCursor(query.cursor)
+      : undefined;
+
+    const alerts = await this.prisma.priceAlert.findMany({
+      where: {
+        userId,
+        ...(query.stockId !== undefined && { stockId: query.stockId }),
+        ...(afterAlertId !== undefined && { id: { lt: afterAlertId } }),
+      },
+      include: { stock: { select: ALERT_STOCK_SELECT } },
+      orderBy: { id: 'desc' },
+      take: query.size + 1,
+    });
+
+    const hasNext = alerts.length > query.size;
+    const page = hasNext ? alerts.slice(0, query.size) : alerts;
+    const last = page.at(-1);
+
+    const stocks = [
+      ...new Map(page.map(({ stock }) => [stock.id, stock])).values(),
+    ];
+    const summaries = await this.charts.getDailySummaries(stocks);
+
+    return {
+      items: page.map((alert) =>
+        this.toRes(alert, BigInt(summaries.get(alert.stockId)!.currentPrice)),
+      ),
+      nextCursor:
+        hasNext && last ? this.encodeCursor({ alertId: last.id }) : null,
+    };
+  }
+
   /** INT 범위를 벗어난 ID는 DB 에러 대신 없는 알림으로 처리한다. */
   private assertAlertId(alertId: number): void {
     if (alertId < 1 || alertId > INT_MAX) {
@@ -201,5 +246,27 @@ export class PriceAlertsService {
       triggeredDate: alert.triggeredDate,
       createDate: alert.createDate,
     };
+  }
+
+  private encodeCursor(cursor: PriceAlertCursor): string {
+    return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+  }
+
+  private decodeCursor(value: string): number {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    } catch {
+      throw new BusinessException(PriceAlertErrors.INVALID_CURSOR);
+    }
+    const alertId =
+      typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Partial<PriceAlertCursor>).alertId
+        : undefined;
+    // alert_id는 INT라 범위를 벗어난 값은 DB 에러가 되므로 여기서 거른다.
+    if (!Number.isSafeInteger(alertId) || alertId! < 1 || alertId! > INT_MAX) {
+      throw new BusinessException(PriceAlertErrors.INVALID_CURSOR);
+    }
+    return alertId!;
   }
 }

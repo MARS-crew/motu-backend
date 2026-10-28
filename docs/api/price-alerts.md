@@ -7,6 +7,7 @@
 | 기능 | API | 응답 |
 |------|------|------|
 | 설정 | `POST /api/price-alerts` | 201, 알림 |
+| 목록 | `GET /api/price-alerts?stockId=&cursor=&size=` | `items[]`(알림), `nextCursor` |
 | 수정 | `PATCH /api/price-alerts/:alertId` | 200, 알림 |
 | 해제 | `DELETE /api/price-alerts/:alertId` | 204 |
 
@@ -40,6 +41,32 @@
 | 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 | |
 | 409 `PRICE_ALERT_STOCK_NOT_ALERTABLE` + `details { tradeStatus }` | 거래 대기·종료 상품 | 알림 버튼 비활성화 |
 | 409 `PRICE_ALERT_DUPLICATE` | 같은 상품에 같은 가격의 알림이 이미 있음 | 기존 알림을 수정하도록 안내 |
+
+## 목록
+
+`stockId`를 넘기면 그 상품의 알림만, 비우면 전체 상품의 알림을 최근 등록순으로 줍니다. 울린 알림(`isActive: false`)도 포함합니다. 페이지는 [공통 커서 규칙](common.md)을 따릅니다.
+
+```json
+{
+  "items": [
+    {
+      "alertId": 12,
+      "stockId": 1,
+      "stockName": "PLI",
+      "targetPrice": 7000,
+      "currentPrice": 6750,
+      "isActive": true,
+      "triggeredDate": null,
+      "createDate": "2026-10-28T01:00:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+| 에러 | 상황 |
+|------|------|
+| 400 `PRICE_ALERT_INVALID_CURSOR` | 잘못된 커서. 처음부터 다시 불러옵니다. |
 
 ## 수정
 

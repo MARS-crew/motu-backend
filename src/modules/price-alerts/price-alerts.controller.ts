@@ -2,11 +2,13 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -23,7 +25,9 @@ import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { CreatePriceAlertReqDto } from './dto/req/create-price-alert-req.dto.js';
+import { GetPriceAlertsReqDto } from './dto/req/get-price-alerts-req.dto.js';
 import { UpdatePriceAlertReqDto } from './dto/req/update-price-alert-req.dto.js';
+import { GetPriceAlertsResDto } from './dto/res/get-price-alerts-res.dto.js';
 import { PriceAlertResDto } from './dto/res/price-alert-res.dto.js';
 import { PriceAlertsService } from './price-alerts.service.js';
 
@@ -53,6 +57,23 @@ export class PriceAlertsController {
     @Body() dto: CreatePriceAlertReqDto,
   ): Promise<PriceAlertResDto> {
     return this.priceAlertsService.createAlert(user.userId, dto);
+  }
+
+  @Get()
+  @ApiOperation({
+    summary: '내 지정가 알림 목록',
+    description:
+      '최근 등록순. stockId를 넘기면 그 상품의 알림만 준다. 울린 알림(isActive=false)도 포함한다.',
+  })
+  @ApiOkResponse({ type: GetPriceAlertsResDto })
+  @ApiBadRequestResponse({
+    description: 'BAD_REQUEST / PRICE_ALERT_INVALID_CURSOR',
+  })
+  getAlerts(
+    @CurrentUser() user: AuthUser,
+    @Query() query: GetPriceAlertsReqDto,
+  ): Promise<GetPriceAlertsResDto> {
+    return this.priceAlertsService.getAlerts(user.userId, query);
   }
 
   @Patch(':alertId')
