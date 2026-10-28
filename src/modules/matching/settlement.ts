@@ -7,6 +7,7 @@ import {
   Prisma,
   Trade,
 } from '../../generated/prisma/client.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { FEE_RATE_BPS } from '../orders/orders.constants.js';
 import {
   calculateBuyLockAmount,
@@ -99,6 +100,8 @@ const statusOf = (qty: bigint, filledQty: bigint): OrderStatus => {
  */
 @Injectable()
 export class SettlementService {
+  constructor(private readonly notifications: NotificationsService) {}
+
   /**
    * 이 체결에 관련된 계좌를 account_id 오름차순으로 잠근다.
    * 다른 종목의 체결과 같은 계좌를 갱신해도, 잠그는 순서가 같아 교착 상태가 생기지 않는다.
@@ -202,7 +205,58 @@ export class SettlementService {
         status: statusOf(current.qty, current.filledQty),
       },
     });
+    await this.notifyFills(tx, taker.stockId, trades);
     return { order, trades };
+  }
+
+  /**
+   * 체결마다 매수자·매도자에게 체결 알림을 남긴다. 정산과 같은 트랜잭션이라 정산이 롤백되면 알림도 남지 않는다.
+   */
+  private async notifyFills(
+    tx: Prisma.TransactionClient,
+    stockId: number,
+    trades: ExecutedTrade[],
+  ): Promise<void> {
+    const accountIds = [
+      ...new Set(
+        trades.flatMap(({ buyAccountId, sellAccountId }) => [
+          buyAccountId,
+          sellAccountId,
+        ]),
+      ),
+    ];
+    const stock = await tx.stock.findUniqueOrThrow({
+      where: { id: stockId },
+      select: { name: true },
+    });
+    const accounts = await tx.account.findMany({
+      where: { id: { in: accountIds } },
+      select: { id: true, userId: true },
+    });
+    const userIdOf = new Map(accounts.map(({ id, userId }) => [id, userId]));
+
+    for (const { trade, buyAccountId, sellAccountId } of trades) {
+      const sides = [
+        { side: 'BUY', accountId: buyAccountId, orderId: trade.buyOrderId },
+        { side: 'SELL', accountId: sellAccountId, orderId: trade.sellOrderId },
+      ] as const;
+      for (const { side, accountId, orderId } of sides) {
+        await this.notifications.createOrderFilled(
+          {
+            userId: userIdOf.get(accountId)!,
+            tradeId: trade.id.toString(),
+            orderId: orderId.toString(),
+            stockId,
+            stockName: stock.name,
+            side,
+            quantity: trade.qty.toString(),
+            price: trade.price.toString(),
+            occurredAt: trade.createDate,
+          },
+          tx,
+        );
+      }
+    }
   }
 
   /**
