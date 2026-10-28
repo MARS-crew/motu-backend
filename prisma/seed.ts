@@ -15,10 +15,11 @@ import {
 import { INITIAL_CASH } from '../src/modules/accounts/accounts.constants.js';
 import { LISTING_DRAFT_LIFETIME_MS } from '../src/modules/listing-applications/listing-applications.constants.js';
 import { normalizeListingUrl } from '../src/modules/listing-applications/listing-applications.validation.js';
+import { marketSeedSql } from './seed-market.js';
 
 /**
  * 테스트용 관리자·일반 사용자 계정, 상품 카테고리, 테스트 상품·공지·FAQ를 만든다. 이미 있는 데이터는 건드리지 않는다.
- * 테스트 상품·공지·FAQ, 화면 상태별 테스트 계정, motuuser의 이용 기록은 production에서는 만들지 않는다.
+ * 테스트 상품·공지·FAQ, 화면 상태별 테스트 계정, motuuser의 이용 기록, 테스트 거래는 production에서는 만들지 않는다.
  *
  * 로컬에서는 아래 기본 비밀번호를 쓴다. 저장소에 공개된 값이라
  * production에서는 SEED_ADMIN_PASSWORD, SEED_USER_PASSWORD를 반드시 지정해야 한다.
@@ -168,6 +169,7 @@ async function main(): Promise<void> {
     await createFaqs();
     await createTestUsers();
     await createUserActivity();
+    await createMarketActivity();
   }
 }
 
@@ -836,6 +838,17 @@ function listingApplicationOf(
     lastSavedAt: savedAt,
     expiresAt: new Date(savedAt.getTime() + LISTING_DRAFT_LIFETIME_MS),
   };
+}
+
+/**
+ * 시세 이력, 호가, motuuser의 보유 종목·거래내역·미체결 주문. 내용은 seed-market.ts에 있다.
+ * 시장 조성 계정(motumaker, motutaker)의 비밀번호는 motuuser와 같다.
+ */
+async function createMarketActivity(): Promise<void> {
+  await prisma.$executeRawUnsafe(
+    marketSeedSql(await hash(seedUsers[1].password)),
+  );
+  console.log('테스트 거래: motumaker 계정이 이미 있으면 건너뜀');
 }
 
 try {
