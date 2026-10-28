@@ -62,8 +62,42 @@ model User {
   notifications           Notification[]
   revisionRequestsCreated ListingApplicationRevision[] @relation("RevisionRequestAuthor")
   priceAlerts             PriceAlert[]
+  inquiries               Inquiry[]
 
   @@map("users")
+}
+
+// ─── 제한 계정 1:1 문의 ────────────────────────────────
+
+enum InquiryType {
+  LOGIN_FAILED_LOCKED
+  SUSPENDED
+
+  @@map("inquiry_type")
+}
+
+enum InquiryStatus {
+  SUBMITTED
+  IN_PROGRESS
+  APPROVED
+
+  @@map("inquiry_status")
+}
+
+model Inquiry {
+  id           Int           @id @default(autoincrement()) @map("inquiry_id")
+  userId       Int           @map("user_id")
+  inquiryCode  String        @unique @map("inquiry_code") @db.VarChar(32)
+  inquiryType  InquiryType   @map("inquiry_type")
+  title        String        @db.VarChar(100)
+  content      String        @db.Text
+  status       InquiryStatus @default(SUBMITTED) @map("inquiry_status")
+  createDate   DateTime      @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime      @updatedAt @map("modified_date") @db.Timestamptz(3)
+  user         User          @relation(fields: [userId], references: [id])
+
+  @@index([userId, createDate, id])
+  @@map("inquiries")
 }
 
 // ─── 계좌 ───────────────────────────────────────────
