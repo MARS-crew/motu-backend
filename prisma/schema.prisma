@@ -51,13 +51,16 @@ model User {
   createDate       DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate     DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  account               Account?
-  refreshTokens         RefreshToken[]
-  passwordResetTokens   PasswordResetToken[]
-  searchHistories       SearchHistory[]
-  viewHistories         ViewHistory[]
-  wishlists             Wishlist[]
-  attachmentCollections AttachmentCollection[]
+  account                 Account?
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
+  searchHistories         SearchHistory[]
+  viewHistories           ViewHistory[]
+  wishlists               Wishlist[]
+  attachmentCollections   AttachmentCollection[]
+  listingApplications     ListingApplication[]
+  notifications           Notification[]
+  revisionRequestsCreated ListingApplicationRevision[] @relation("RevisionRequestAuthor")
 
   @@map("users")
 }
@@ -532,14 +535,17 @@ enum AttachmentKind {
 }
 
 model AttachmentCollection {
-  id          String            @id @default(uuid()) @db.Uuid
-  userId      Int               @map("user_id")
+  id          String                      @id @default(uuid()) @db.Uuid
+  userId      Int                         @map("user_id")
   purpose     AttachmentPurpose
-  description String?           @db.VarChar(500)
-  savedAt     DateTime?         @map("saved_at") @db.Timestamptz(3)
-  createDate  DateTime          @default(now()) @map("create_date") @db.Timestamptz(3)
-  user        User              @relation(fields: [userId], references: [id])
+  description String?                     @db.VarChar(500)
+  savedAt     DateTime?                   @map("saved_at") @db.Timestamptz(3)
+  /// 보완 재제출에 사용한 묶음. 이후 파일·링크·설명·선택 목록 변경을 차단한다.
+  frozenAt    DateTime?                   @map("frozen_at") @db.Timestamptz(3)
+  createDate  DateTime                    @default(now()) @map("create_date") @db.Timestamptz(3)
+  user        User                        @relation(fields: [userId], references: [id])
   attachments Attachment[]
+  revision    ListingApplicationRevision?
 
   @@index([userId])
   @@map("attachment_collections")
@@ -623,4 +629,103 @@ model Faq {
 
   @@index([category, sortOrder])
   @@map("faqs")
+}
+
+// 임시저장 데이터는 제출 시 검증·변환한다. 접수번호는 최종 제출 전까지 발급하지 않는다.
+enum ListingApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  REVISION_REQUESTED
+  APPROVED
+  REJECTED
+  EXPIRED
+
+  @@map("listing_application_status")
+}
+
+model ListingApplication {
+  id                    Int                          @id @default(autoincrement()) @map("application_id")
+  userId                Int                          @map("user_id")
+  applicationNumber     String?                      @unique @map("application_number") @db.VarChar(30)
+  /// 후속 최종 제출 API가 기록한다. 임시저장에서는 null을 유지한다.
+  submittedAt           DateTime?                    @map("submitted_at") @db.Timestamptz(3)
+  /// 후속 관리자 심사 API가 기록하는 최근 의견과 보완 기한.
+  reviewComment         String?                      @map("review_comment")
+  revisionDeadline      DateTime?                    @map("revision_deadline") @db.Timestamptz(3)
+  status                ListingApplicationStatus     @default(DRAFT)
+  serviceName           String?                      @map("service_name") @db.VarChar(30)
+  officialUrl           String?                      @map("official_url") @db.VarChar(2048)
+  /// 진행 중 URL의 부분 UNIQUE 인덱스는 마이그레이션 SQL에서 관리한다.
+  normalizedOfficialUrl String?                      @map("normalized_official_url") @db.VarChar(2048)
+  currentStep           Int                          @default(1) @map("current_step")
+  /// 미완성 입력값. 최종 제출용 필수값 검증은 별도 단계에서 수행한다.
+  draftData             Json                         @default("{}") @map("draft_data")
+  lastSavedAt           DateTime                     @default(now()) @map("last_saved_at") @db.Timestamptz(3)
+  expiresAt             DateTime                     @map("expires_at") @db.Timestamptz(3)
+  deletedDate           DateTime?                    @map("deleted_date") @db.Timestamptz(3)
+  createDate            DateTime                     @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate          DateTime                     @updatedAt @map("modified_date") @db.Timestamptz(3)
+  user                  User                         @relation(fields: [userId], references: [id])
+  revisions             ListingApplicationRevision[]
+
+  @@index([userId, status, lastSavedAt])
+  @@index([status, expiresAt])
+  @@map("listing_applications")
+}
+
+// ─── 회원 알림 ───────────────────────────────────────
+
+enum NotificationType {
+  ORDER
+  PRICE
+  LISTING_DRAFT_EXPIRING
+
+  @@map("notification_type")
+}
+
+/// 앱 내 알림 이력. eventKey는 생산자가 재시도해도 바뀌지 않는 이벤트 식별자다.
+model Notification {
+  id           Int              @id @default(autoincrement()) @map("notification_id")
+  userId       Int              @map("user_id")
+  type         NotificationType @map("notification_type")
+  eventKey     String           @map("event_key") @db.VarChar(200)
+  content      String           @db.VarChar(500)
+  /// 이벤트 발생 당시의 값. 금액·수량·거래 식별자는 문자열로 보존한다.
+  payload      Json
+  isRead       Boolean          @default(false) @map("is_read")
+  readAt       DateTime?        @map("read_at") @db.Timestamptz(3)
+  createDate   DateTime         @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime         @updatedAt @map("modified_date") @db.Timestamptz(3)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, eventKey])
+  @@index([userId, createDate, id])
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+/// 보완 요청 한 회차. 재요청은 새 행으로 남기고 최초 신청번호와 접수일은 유지한다.
+model ListingApplicationRevision {
+  id                   Int                   @id @default(autoincrement()) @map("revision_id")
+  applicationId        Int                   @map("application_id")
+  requestedById        Int                   @map("requested_by_id")
+  requestContent       String                @map("request_content") @db.VarChar(2000)
+  deadline             DateTime              @db.Timestamptz(3)
+  /// 관리자 기한 연장 이력. 최초 지정 시점도 기록한다.
+  deadlineHistory      Json                  @default("[]") @map("deadline_history")
+  /// 보완 요청 당시 신청 데이터. 재제출로 기존 입력값을 잃지 않게 한다.
+  previousData         Json                  @map("previous_data")
+  resubmittedAt        DateTime?             @map("resubmitted_at") @db.Timestamptz(3)
+  evidenceCollectionId String?               @unique @map("evidence_collection_id") @db.Uuid
+  evidenceSnapshot     Json?                 @map("evidence_snapshot")
+  createDate           DateTime              @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate         DateTime              @updatedAt @map("modified_date") @db.Timestamptz(3)
+  application          ListingApplication    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  requestedBy          User                  @relation("RevisionRequestAuthor", fields: [requestedById], references: [id])
+  evidenceCollection   AttachmentCollection? @relation(fields: [evidenceCollectionId], references: [id], onDelete: Restrict)
+
+  // 미재제출 회차는 신청서당 하나만 허용하는 부분 UNIQUE 인덱스를 migration.sql에 추가한다.
+  @@index([applicationId, id])
+  @@map("listing_application_revisions")
 }
