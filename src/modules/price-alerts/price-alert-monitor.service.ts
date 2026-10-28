@@ -70,6 +70,8 @@ export class PriceAlertMonitorService implements OnModuleInit, OnModuleDestroy {
           stockId: event.stockId,
           isActive: true,
           targetPrice: { gte: low, lte: high },
+          // 감지가 체결 커밋 뒤에 돌아서, 그 사이 등록·수정한 알림은 이 체결로 울리지 않게 한다.
+          modifiedDate: { lte: event.createDate },
         },
         select: { id: true, version: true },
         orderBy: { id: 'asc' },

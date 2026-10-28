@@ -80,6 +80,8 @@ describe('PriceAlertMonitorService', () => {
           stockId: STOCK_ID,
           isActive: true,
           targetPrice: { gte: 6_990n, lte: 7_010n },
+          // 체결 뒤에 등록·수정한 알림은 이 체결로 울리지 않는다.
+          modifiedDate: { lte: TRADE_DATE },
         },
       }),
     );
