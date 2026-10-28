@@ -38,6 +38,9 @@ const ALERT_STOCK_SELECT = {
   minOrderPrice: true,
 } as const satisfies Prisma.StockSelect;
 
+/** PostgreSQL INT 최댓값 */
+const INT_MAX = 2_147_483_647;
+
 type PriceAlertWithStock = PriceAlert & { stock: AlertStock };
 
 @Injectable()
@@ -71,6 +74,48 @@ export class PriceAlertsService {
       }),
     );
     return this.toRes({ ...alert, stock }, currentPrice);
+  }
+
+  /**
+   * 설정 가격을 바꾸고 알림을 다시 켠다. 이미 울린 알림도 다시 울릴 수 있게 된다.
+   */
+  async updateAlert(
+    userId: number,
+    alertId: number,
+    targetPriceValue: number,
+  ): Promise<PriceAlertResDto> {
+    const targetPrice = BigInt(targetPriceValue);
+    this.assertAlertId(alertId);
+    const owned = await this.prisma.priceAlert.findFirst({
+      where: { id: alertId, userId },
+      include: { stock: { select: ALERT_STOCK_SELECT } },
+    });
+    if (!owned) {
+      throw new BusinessException(PriceAlertErrors.NOT_FOUND);
+    }
+    const currentPrice = await this.currentPriceOf(owned.stock);
+    this.validateTarget(owned.stock, targetPrice, currentPrice);
+
+    // version을 올려 이전 설정으로 감지 중인 도달은 반영되지 않게 한다.
+    const alert = await this.withDuplicateCheck(() =>
+      this.prisma.priceAlert.update({
+        where: { id: owned.id },
+        data: {
+          targetPrice,
+          isActive: true,
+          triggeredDate: null,
+          version: { increment: 1 },
+        },
+      }),
+    );
+    return this.toRes({ ...alert, stock: owned.stock }, currentPrice);
+  }
+
+  /** INT 범위를 벗어난 ID는 DB 에러 대신 없는 알림으로 처리한다. */
+  private assertAlertId(alertId: number): void {
+    if (alertId < 1 || alertId > INT_MAX) {
+      throw new BusinessException(PriceAlertErrors.NOT_FOUND);
+    }
   }
 
   private async currentPriceOf(stock: AlertStock): Promise<bigint> {

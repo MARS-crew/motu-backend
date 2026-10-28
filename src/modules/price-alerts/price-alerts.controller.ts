@@ -1,16 +1,19 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Param, Patch, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
+import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { CreatePriceAlertReqDto } from './dto/req/create-price-alert-req.dto.js';
+import { UpdatePriceAlertReqDto } from './dto/req/update-price-alert-req.dto.js';
 import { PriceAlertResDto } from './dto/res/price-alert-res.dto.js';
 import { PriceAlertsService } from './price-alerts.service.js';
 
@@ -40,5 +43,32 @@ export class PriceAlertsController {
     @Body() dto: CreatePriceAlertReqDto,
   ): Promise<PriceAlertResDto> {
     return this.priceAlertsService.createAlert(user.userId, dto);
+  }
+
+  @Patch(':alertId')
+  @ApiOperation({
+    summary: '지정가 알림 수정',
+    description:
+      '설정 가격을 바꾸고 알림을 다시 켠다. 이미 울린 알림도 다시 울릴 수 있게 되며, 같은 가격으로 수정해도 다시 켜진다.',
+  })
+  @ApiOkResponse({ type: PriceAlertResDto })
+  @ApiBadRequestResponse({
+    description:
+      'BAD_REQUEST / PRICE_ALERT_INVALID_PRICE_TICK / PRICE_ALERT_PRICE_TOO_LOW / PRICE_ALERT_SAME_AS_CURRENT_PRICE',
+  })
+  @ApiNotFoundResponse({ description: 'PRICE_ALERT_NOT_FOUND' })
+  @ApiConflictResponse({
+    description: 'PRICE_ALERT_STOCK_NOT_ALERTABLE / PRICE_ALERT_DUPLICATE',
+  })
+  updateAlert(
+    @CurrentUser() user: AuthUser,
+    @Param('alertId', ParseIdPipe) alertId: number,
+    @Body() dto: UpdatePriceAlertReqDto,
+  ): Promise<PriceAlertResDto> {
+    return this.priceAlertsService.updateAlert(
+      user.userId,
+      alertId,
+      dto.targetPrice,
+    );
   }
 }

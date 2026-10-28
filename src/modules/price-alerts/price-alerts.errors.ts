@@ -2,6 +2,11 @@ import { HttpStatus } from '@nestjs/common';
 import { ErrorDefinition } from '../../common/exceptions/business.exception.js';
 
 export const PriceAlertErrors = {
+  NOT_FOUND: {
+    code: 'PRICE_ALERT_NOT_FOUND',
+    message: '존재하지 않는 알림입니다.',
+    status: HttpStatus.NOT_FOUND,
+  },
   /** 거래 대기(PENDING)·종료(CLOSED) 상품 */
   STOCK_NOT_ALERTABLE: {
     code: 'PRICE_ALERT_STOCK_NOT_ALERTABLE',

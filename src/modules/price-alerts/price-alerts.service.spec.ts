@@ -186,4 +186,77 @@ describe('PriceAlertsService', () => {
       expect(error.error).toBe(PriceAlertErrors.DUPLICATE);
     });
   });
+
+  describe('updateAlert', () => {
+    beforeEach(() => {
+      priceAlert.findFirst.mockResolvedValue({
+        ...alertOf({
+          isActive: false,
+          version: 2n,
+          triggeredDate: CREATE_DATE,
+        }),
+        stock: stockOf(),
+      });
+      priceAlert.update.mockImplementation(({ data }) =>
+        Promise.resolve(
+          alertOf({ targetPrice: data.targetPrice, version: 3n }),
+        ),
+      );
+    });
+
+    it('설정 가격을 바꾸고 버전을 올려 다시 켠다', async () => {
+      const result = await service.updateAlert(USER_ID, 12, 7_500);
+
+      expect(priceAlert.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 12, userId: USER_ID } }),
+      );
+      expect(priceAlert.update).toHaveBeenCalledWith({
+        where: { id: 12 },
+        data: {
+          targetPrice: 7_500n,
+          isActive: true,
+          triggeredDate: null,
+          version: { increment: 1 },
+        },
+      });
+      expect(result).toMatchObject({
+        targetPrice: 7_500,
+        isActive: true,
+        triggeredDate: null,
+      });
+    });
+
+    it('없거나 다른 회원의 알림이면 거부한다', async () => {
+      priceAlert.findFirst.mockResolvedValue(null);
+
+      const error = await errorOf(service.updateAlert(USER_ID, 12, 7_500));
+
+      expect(error.error).toBe(PriceAlertErrors.NOT_FOUND);
+      expect(priceAlert.update).not.toHaveBeenCalled();
+    });
+
+    it('INT 범위를 벗어난 ID는 DB를 조회하지 않고 없는 알림으로 처리한다', async () => {
+      const error = await errorOf(
+        service.updateAlert(USER_ID, 2_147_483_648, 7_500),
+      );
+
+      expect(error.error).toBe(PriceAlertErrors.NOT_FOUND);
+      expect(priceAlert.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('설정 가격 규칙은 등록과 같다', async () => {
+      const error = await errorOf(service.updateAlert(USER_ID, 12, 6_750));
+
+      expect(error.error).toBe(PriceAlertErrors.SAME_AS_CURRENT_PRICE);
+      expect(priceAlert.update).not.toHaveBeenCalled();
+    });
+
+    it('같은 상품의 다른 알림과 가격이 겹치면 거부한다', async () => {
+      priceAlert.update.mockRejectedValue(duplicateError());
+
+      const error = await errorOf(service.updateAlert(USER_ID, 12, 7_500));
+
+      expect(error.error).toBe(PriceAlertErrors.DUPLICATE);
+    });
+  });
 });

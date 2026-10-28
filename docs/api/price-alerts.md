@@ -7,6 +7,7 @@
 | 기능 | API | 응답 |
 |------|------|------|
 | 설정 | `POST /api/price-alerts` | 201, 알림 |
+| 수정 | `PATCH /api/price-alerts/:alertId` | 200, 알림 |
 
 ## 알림 규칙
 
@@ -38,3 +39,13 @@
 | 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 | |
 | 409 `PRICE_ALERT_STOCK_NOT_ALERTABLE` + `details { tradeStatus }` | 거래 대기·종료 상품 | 알림 버튼 비활성화 |
 | 409 `PRICE_ALERT_DUPLICATE` | 같은 상품에 같은 가격의 알림이 이미 있음 | 기존 알림을 수정하도록 안내 |
+
+## 수정
+
+수정 모달(⑤)에서 "수정 완료"(⑧)를 누르면 호출합니다. 설정 가격을 바꾸고 알림을 다시 켭니다.
+
+```json
+{ "targetPrice": 7500 }
+```
+
+에러는 [설정](#설정)과 같고, 없거나 다른 회원의 알림이면 404 `PRICE_ALERT_NOT_FOUND`입니다.
