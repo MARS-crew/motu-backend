@@ -18,11 +18,13 @@ describe('AccountsService', () => {
   };
   const cashLedger = { create: vi.fn(), findMany: vi.fn(), count: vi.fn() };
   const pointResetHistory = { create: vi.fn() };
+  const holding = { count: vi.fn() };
   const tx = { account, cashLedger, pointResetHistory };
   const prisma = {
     account,
     cashLedger,
     pointResetHistory,
+    holding,
     $transaction: vi.fn((arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
@@ -45,6 +47,7 @@ describe('AccountsService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     account.updateMany.mockResolvedValue({ count: 1 });
+    holding.count.mockResolvedValue(0);
   });
 
   describe('grantPoint', () => {
@@ -213,6 +216,27 @@ describe('AccountsService', () => {
       });
     });
 
+    it('보유 종목이 있으면 화면 순서상 첫 번째 사유로 거부한다', async () => {
+      account.findUnique.mockResolvedValue(
+        accountOf({ cash: 200_000n, lockedCash: 10_000n }),
+      );
+      holding.count.mockResolvedValue(2);
+
+      await expect(service.resetPoint(1)).rejects.toMatchObject({
+        response: {
+          message: '현재 보유 중인 종목이 존재해 리셋이 불가능합니다.',
+          details: {
+            conditions: [
+              PointResetCondition.NO_HOLDINGS,
+              PointResetCondition.NO_LOCKED_CASH,
+            ],
+          },
+        },
+      });
+      expect(holding.count).toHaveBeenCalledWith({ where: { accountId: 10 } });
+      expect(account.updateMany).not.toHaveBeenCalled();
+    });
+
     it('예약 포인트가 있거나 7일이 지나지 않았으면 거부한다', async () => {
       account.findUnique.mockResolvedValue(
         accountOf({
@@ -278,6 +302,7 @@ describe('AccountsService', () => {
         available: false,
         reason: '보유 포인트가 리셋 가능 기준(300,000P) 이상입니다.',
         conditions: [
+          { condition: PointResetCondition.NO_HOLDINGS, met: true },
           { condition: PointResetCondition.NO_LOCKED_CASH, met: true },
           { condition: PointResetCondition.CASH_BELOW_LIMIT, met: false },
           { condition: PointResetCondition.RESET_INTERVAL_PASSED, met: false },
