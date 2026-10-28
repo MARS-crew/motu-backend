@@ -86,7 +86,7 @@ export class StockTradingService {
   }
 
   /**
-   * 상품의 거래를 종료한다. 미체결 주문을 모두 취소하고 예약(매수 포인트, 매도 수량)을 푼다.
+   * 상품의 거래를 종료한다. 미체결 주문을 모두 취소하고 예약(매수 포인트, 매도 수량)을 푼다. 켜진 지정가 알림도 끈다.
    * 이미 종료된 상품이면 취소할 주문이 없으므로 그대로 끝난다.
    */
   async closeStock(stockId: number): Promise<{ canceledCount: number }> {
@@ -155,6 +155,11 @@ export class StockTradingService {
         await tx.stock.update({
           where: { id: stockId },
           data: { tradeStatus: TradeStatus.CLOSED },
+        });
+        // 더는 체결되지 않으므로 켜진 지정가 알림도 끈다.
+        await tx.priceAlert.updateMany({
+          where: { stockId, isActive: true },
+          data: { isActive: false },
         });
         return openOrders.length;
       }, TRADING_TX_OPTIONS);

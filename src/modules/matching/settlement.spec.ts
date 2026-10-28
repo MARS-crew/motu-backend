@@ -6,6 +6,7 @@ import {
   OrderType,
   Prisma,
 } from '../../generated/prisma/client.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { calculateFillAmounts, SettlementService } from './settlement.js';
 
 describe('calculateFillAmounts', () => {
@@ -143,11 +144,15 @@ describe('SettlementService', () => {
       delete: vi.fn(),
     },
     trade: { create: vi.fn() },
-    account: { update: vi.fn() },
+    account: { update: vi.fn(), findMany: vi.fn() },
     cashLedger: { create: vi.fn() },
+    stock: { findUniqueOrThrow: vi.fn() },
   };
   const client = tx as unknown as Prisma.TransactionClient;
-  const service = new SettlementService();
+  const notifications = { createOrderFilled: vi.fn() };
+  const service = new SettlementService(
+    notifications as unknown as NotificationsService,
+  );
   const STOCK_ID = 1;
 
   const orderOf = (overrides: Partial<Order>): Order => ({
@@ -176,6 +181,12 @@ describe('SettlementService', () => {
       Promise.resolve({ id: (tradeId += 1n), createDate: new Date(), ...data }),
     );
     tx.account.update.mockResolvedValue({ cash: 999n });
+    tx.stock.findUniqueOrThrow.mockResolvedValue({ name: 'PLI' });
+    // 계좌 n의 회원 ID는 n + 100
+    tx.account.findMany.mockImplementation(
+      ({ where }: { where: { id: { in: number[] } } }) =>
+        Promise.resolve(where.id.in.map((id) => ({ id, userId: id + 100 }))),
+    );
     tx.order.update.mockImplementation(({ where, data }) =>
       Promise.resolve({ id: where.id, ...data }),
     );
@@ -438,6 +449,49 @@ describe('SettlementService', () => {
             buyAccountId: 1,
             sellAccountId: 3,
           },
+        ]);
+      });
+
+      it('같은 트랜잭션에서 체결마다 매수자·매도자에게 체결 알림을 남긴다', async () => {
+        await service.settle(client, taker, fills);
+
+        const events = notifications.createOrderFilled.mock.calls.map(
+          ([event, txArg]) => {
+            expect(txArg).toBe(client);
+            return event as Record<string, unknown>;
+          },
+        );
+        expect(events).toEqual([
+          expect.objectContaining({
+            userId: 101,
+            tradeId: '101',
+            orderId: '20',
+            side: 'BUY',
+            stockId: STOCK_ID,
+            stockName: 'PLI',
+            quantity: '3',
+            price: '4900',
+          }),
+          expect.objectContaining({
+            userId: 102,
+            tradeId: '101',
+            orderId: '11',
+            side: 'SELL',
+          }),
+          expect.objectContaining({
+            userId: 101,
+            tradeId: '102',
+            orderId: '20',
+            side: 'BUY',
+            quantity: '2',
+            price: '5000',
+          }),
+          expect.objectContaining({
+            userId: 103,
+            tradeId: '102',
+            orderId: '12',
+            side: 'SELL',
+          }),
         ]);
       });
     });
