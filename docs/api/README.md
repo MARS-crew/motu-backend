@@ -18,6 +18,7 @@
 | [주문](orders.md) | 거래 규칙, 주문 가능 정보, 매수·매도 주문, 주문 취소, 내 주문, 호가 5단계 | `modules/orders`, `modules/matching` |
 | [체결](trades.md) | 최근 체결 | `modules/trades` |
 | [차트·시세](charts.md) | 당일 거래 요약, 기간별 차트, 실시간 시세(SSE) | `modules/charts` |
+| [지정가 알림](price-alerts.md) | 지정가 알림 설정·수정·해제·목록, 도달 감지 | `modules/price-alerts` |
 | [알림](notifications.md) | 내 알림 목록·읽음·미확인 수, 체결·목표가 생성 서비스, 임시저장 만료 안내 | `modules/notifications`, `modules/listing-applications` |
 | [상장 신청](listing-applications.md) | 임시저장·작성 중 목록, 단계별 검증·저장, 본인 상세·상태 조회 | `modules/listing-applications` |
 | [보완 요청·재제출](listing-revisions.md) | 본인 보완 요청 조회·기한 검사·증빙 재제출 | `modules/listing-applications` |
