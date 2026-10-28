@@ -111,6 +111,19 @@ export class PriceAlertsService {
     return this.toRes({ ...alert, stock: owned.stock }, currentPrice);
   }
 
+  /**
+   * 알림을 해제(삭제)한다. 이미 울린 알림 내역은 알림 목록에 그대로 남는다.
+   */
+  async deleteAlert(userId: number, alertId: number): Promise<void> {
+    this.assertAlertId(alertId);
+    const { count } = await this.prisma.priceAlert.deleteMany({
+      where: { id: alertId, userId },
+    });
+    if (count === 0) {
+      throw new BusinessException(PriceAlertErrors.NOT_FOUND);
+    }
+  }
+
   /** INT 범위를 벗어난 ID는 DB 에러 대신 없는 알림으로 처리한다. */
   private assertAlertId(alertId: number): void {
     if (alertId < 1 || alertId > INT_MAX) {

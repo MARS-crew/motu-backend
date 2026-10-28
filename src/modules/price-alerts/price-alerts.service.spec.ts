@@ -259,4 +259,24 @@ describe('PriceAlertsService', () => {
       expect(error.error).toBe(PriceAlertErrors.DUPLICATE);
     });
   });
+
+  describe('deleteAlert', () => {
+    it('내 알림만 삭제한다', async () => {
+      priceAlert.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.deleteAlert(USER_ID, 12);
+
+      expect(priceAlert.deleteMany).toHaveBeenCalledWith({
+        where: { id: 12, userId: USER_ID },
+      });
+    });
+
+    it('없거나 다른 회원의 알림이면 거부한다', async () => {
+      priceAlert.deleteMany.mockResolvedValue({ count: 0 });
+
+      const error = await errorOf(service.deleteAlert(USER_ID, 12));
+
+      expect(error.error).toBe(PriceAlertErrors.NOT_FOUND);
+    });
+  });
 });

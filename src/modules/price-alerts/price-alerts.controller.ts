@@ -1,9 +1,19 @@
-import { Body, Controller, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -70,5 +80,22 @@ export class PriceAlertsController {
       alertId,
       dto.targetPrice,
     );
+  }
+
+  @Delete(':alertId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: '지정가 알림 해제',
+    description:
+      '알림을 삭제한다. 해제 후에는 설정 가격에 도달해도 알리지 않는다.',
+  })
+  @ApiNoContentResponse()
+  @ApiBadRequestResponse({ description: 'BAD_REQUEST (alertId가 숫자가 아님)' })
+  @ApiNotFoundResponse({ description: 'PRICE_ALERT_NOT_FOUND' })
+  deleteAlert(
+    @CurrentUser() user: AuthUser,
+    @Param('alertId', ParseIdPipe) alertId: number,
+  ): Promise<void> {
+    return this.priceAlertsService.deleteAlert(user.userId, alertId);
   }
 }

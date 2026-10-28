@@ -8,6 +8,7 @@
 |------|------|------|
 | 설정 | `POST /api/price-alerts` | 201, 알림 |
 | 수정 | `PATCH /api/price-alerts/:alertId` | 200, 알림 |
+| 해제 | `DELETE /api/price-alerts/:alertId` | 204 |
 
 ## 알림 규칙
 
@@ -49,3 +50,11 @@
 ```
 
 에러는 [설정](#설정)과 같고, 없거나 다른 회원의 알림이면 404 `PRICE_ALERT_NOT_FOUND`입니다.
+
+## 해제
+
+수정 모달의 "알림 해제"(⑦) → 확인 모달(⑨)의 "알림 해제"(⑪)를 누르면 호출합니다. 확인 문구의 상품명과 가격은 목록 항목의 `stockName`, `targetPrice`를 씁니다.
+
+| 에러 | 상황 |
+|------|------|
+| 404 `PRICE_ALERT_NOT_FOUND` | 없거나 다른 회원의 알림, 이미 해제한 알림 |
