@@ -17,6 +17,7 @@
 | [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |
 | [주문](orders.md) | 거래 규칙, 주문 가능 정보, 매수·매도 주문, 주문 취소, 내 주문, 호가 5단계 | `modules/orders`, `modules/matching` |
 | [체결](trades.md) | 최근 체결 | `modules/trades` |
+| [거래내역](trade-histories.md) | 거래 요약, 거래내역, 체결주문, 미체결주문 | `modules/trade-histories` |
 | [차트·시세](charts.md) | 당일 거래 요약, 기간별 차트, 실시간 시세(SSE) | `modules/charts` |
 | [알림](notifications.md) | 내 알림 목록·읽음·미확인 수, 체결·목표가 생성 서비스, 임시저장 만료 안내 | `modules/notifications`, `modules/listing-applications` |
 | [상장 신청](listing-applications.md) | 임시저장·작성 중 목록, 단계별 검증·저장, 본인 상세·상태 조회 | `modules/listing-applications` |
