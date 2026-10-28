@@ -206,6 +206,8 @@ model PasswordResetToken {
 
 /// 포인트 리셋 조건
 enum PointResetCondition {
+  /// 보유 종목이 0개
+  NO_HOLDINGS
   /// 주문에 예약된 포인트가 0P
   NO_LOCKED_CASH
   /// 보유 포인트가 초기 포인트의 10% 미만
