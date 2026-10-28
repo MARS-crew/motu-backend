@@ -100,6 +100,8 @@ model Account {
   user              User                @relation(fields: [userId], references: [id])
   ledgers           CashLedger[]
   pointResetHistory PointResetHistory[]
+  holdings          Holding[]
+  orders            Order[]
 
   @@map("accounts")
 }
@@ -107,16 +109,24 @@ model Account {
 model CashLedger {
   id           BigInt         @id @default(autoincrement()) @map("ledger_id")
   accountId    Int            @map("account_id")
+  /// 체결로 생긴 기록(BUY, SELL)이면 해당 체결. 지급·리셋·조정 등은 null이다.
+  tradeId      BigInt?        @map("trade_id")
   type         CashLedgerType
-  /// 증감 금액 (+ 또는 -)
+  /// 증감 금액 (+ 또는 -). 수수료까지 반영한 실제 증감액이다.
   amount       BigInt
+  /// amount 중 수수료
+  fee          BigInt         @default(0)
+  /// 실현손익. SELL일 때만 값이 있다. (매도대금 - 매도 수수료 - 매도분 매입금액)
+  realizedPnl  BigInt?        @map("realized_pnl")
   /// 반영 직후 잔액
   balanceAfter BigInt         @map("balance_after")
   createDate   DateTime       @default(now()) @map("create_date") @db.Timestamptz(3)
 
   account Account @relation(fields: [accountId], references: [id])
+  trade   Trade?  @relation(fields: [tradeId], references: [id], onDelete: Restrict)
 
   @@index([accountId, createDate])
+  @@index([tradeId])
   @@map("cash_ledgers")
 }
 
@@ -279,6 +289,12 @@ model Stock {
   listedShares      BigInt      @map("listed_shares")
   /// 기준가 (최종 상장가). 체결이 없으면 현재가로 쓴다.
   basePrice         BigInt      @map("base_price")
+  /// 호가 단위. 주문 가격은 이 값의 배수여야 한다.
+  priceTickSize     BigInt      @map("price_tick_size")
+  /// 최소 주문 가격
+  minOrderPrice     BigInt      @map("min_order_price")
+  /// 최소 주문 수량
+  minOrderQty       BigInt      @map("min_order_qty")
   listingDate       DateTime    @map("listing_date") @db.Timestamptz(3)
   tradeStatus       TradeStatus @map("trade_status")
   /// 주요 서비스 지표 (상장 신청에서 입력한 값, 없으면 null)
@@ -302,6 +318,10 @@ model Stock {
   sector        Sector        @relation(fields: [sectorCode], references: [code])
   viewHistories ViewHistory[]
   wishlists     Wishlist[]
+  holdings      Holding[]
+  orders        Order[]
+  trades        Trade[]
+  charts        Chart[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -352,6 +372,150 @@ model Wishlist {
   @@id([userId, stockId])
   @@index([userId, createDate])
   @@map("wishlists")
+}
+
+// ─── 거래 ───────────────────────────────────────────
+
+/// 보유 상품. 보유 수량이 0이 되면 행을 지운다.
+model Holding {
+  id           Int      @id @default(autoincrement()) @map("holding_id")
+  accountId    Int      @map("account_id")
+  stockId      Int      @map("stock_id")
+  /// 보유 수량. 매도 주문에 묶인 수량(lockedQty)을 포함한다.
+  qty          BigInt
+  /// 매도 주문에 묶인 수량. 매도 가능 수량은 qty - lockedQty다.
+  lockedQty    BigInt   @default(0) @map("locked_qty")
+  /// 총 매입 금액 (매수 수수료 포함). 평균 매입 단가는 totalAmount / qty로 계산한다.
+  totalAmount  BigInt   @map("total_amount")
+  createDate   DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  account Account @relation(fields: [accountId], references: [id])
+  stock   Stock   @relation(fields: [stockId], references: [id])
+
+  @@unique([accountId, stockId])
+  @@index([stockId])
+  @@map("holdings")
+}
+
+enum OrderSide {
+  BUY
+  SELL
+
+  @@map("order_side")
+}
+
+/// 주문 종류. 지금은 지정가만 지원한다.
+enum OrderType {
+  LIMIT
+
+  @@map("order_type")
+}
+
+enum OrderStatus {
+  /// 접수 (체결 전)
+  ACCEPTED
+  /// 일부 체결
+  PARTIAL
+  /// 전부 체결
+  FILLED
+  /// 취소 (일부 체결 후 남은 수량을 취소한 경우도 포함)
+  CANCELED
+
+  @@map("order_status")
+}
+
+/// 주문. 정정은 없고 취소 후 다시 주문한다.
+model Order {
+  id            BigInt      @id @default(autoincrement()) @map("order_id")
+  accountId     Int         @map("account_id")
+  stockId       Int         @map("stock_id")
+  /// 중복 요청 방지용 키. 프론트가 주문마다 만든 UUID이고, 재전송할 때는 같은 값을 보낸다.
+  clientOrderId String      @map("client_order_id") @db.Uuid
+  side          OrderSide
+  orderType     OrderType   @default(LIMIT) @map("order_type")
+  /// 주문 가격 (지정가)
+  price         BigInt
+  /// 주문 수량
+  qty           BigInt
+  /// 누적 체결 수량
+  filledQty     BigInt      @default(0) @map("filled_qty")
+  /// 매수 주문에 아직 묶여 있는 포인트 (수수료 포함). 체결될 때마다 줄고, 취소하면 남은 금액을 푼다. 매도 주문은 0이다.
+  lockedAmount  BigInt      @default(0) @map("locked_amount")
+  status        OrderStatus @default(ACCEPTED)
+  canceledDate  DateTime?   @map("canceled_date") @db.Timestamptz(3)
+  createDate    DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate  DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  account    Account @relation(fields: [accountId], references: [id])
+  stock      Stock   @relation(fields: [stockId], references: [id])
+  buyTrades  Trade[] @relation("BuyOrderTrades")
+  sellTrades Trade[] @relation("SellOrderTrades")
+
+  @@unique([accountId, clientOrderId])
+  // 서버 재시작 시 미체결 주문으로 호가창을 복구할 때 쓴다.
+  @@index([stockId, status, side, price, createDate])
+  @@index([accountId, createDate])
+  @@map("orders")
+}
+
+/// 체결. 매수·매도 주문 한 쌍이 한 가격에 체결된 기록이다.
+/// 나중에 들어온 주문이 체결을 일으킨 쪽이다. buyOrderId > sellOrderId면 매수 체결, 아니면 매도 체결이다.
+model Trade {
+  id          BigInt   @id @default(autoincrement()) @map("trade_id")
+  stockId     Int      @map("stock_id")
+  buyOrderId  BigInt   @map("buy_order_id")
+  sellOrderId BigInt   @map("sell_order_id")
+  /// 체결가 (먼저 호가창에 있던 주문의 가격)
+  price       BigInt
+  /// 체결 수량
+  qty         BigInt
+  createDate  DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  stock     Stock        @relation(fields: [stockId], references: [id])
+  buyOrder  Order        @relation("BuyOrderTrades", fields: [buyOrderId], references: [id])
+  sellOrder Order        @relation("SellOrderTrades", fields: [sellOrderId], references: [id])
+  ledgers   CashLedger[]
+
+  // 최근 체결, 당일 거래 요약
+  @@index([stockId, createDate])
+  @@index([buyOrderId])
+  @@index([sellOrderId])
+  @@map("trades")
+}
+
+/// 봉 단위
+enum ChartInterval {
+  MINUTE
+  HOUR
+  DAY
+  /// 월요일 시작
+  WEEK
+  MONTH
+
+  @@map("chart_interval")
+}
+
+/// 차트 봉. 체결될 때마다 해당 시각이 속한 단위별 봉을 갱신한다.
+/// 일·주·월 봉의 경계는 한국 시간 00시 기준이다. 체결이 없는 구간은 행이 없다.
+model Chart {
+  stockId     Int           @map("stock_id")
+  interval    ChartInterval @map("candle_interval")
+  /// 봉 시작 시각
+  candleTime  DateTime      @map("candle_time") @db.Timestamptz(3)
+  openPrice   BigInt        @map("open_price")
+  highPrice   BigInt        @map("high_price")
+  lowPrice    BigInt        @map("low_price")
+  closePrice  BigInt        @map("close_price")
+  /// 거래량 (체결 수량 합계)
+  volume      BigInt
+  /// 거래대금 (체결가 × 수량 합계)
+  tradeAmount BigInt        @map("trade_amount")
+
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  @@id([stockId, interval, candleTime])
+  @@map("charts")
 }
 
 // 신청서 모듈에 연결하기 전에도 소유자와 첨부 개수 제한을 유지하는 작성 단위.
