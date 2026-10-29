@@ -19,6 +19,7 @@ const testUrl = new URL(originalUrl);
 testUrl.pathname = `/${databaseName}`;
 const root = new pg.Client({ connectionString: originalUrl.toString() });
 let app;
+let peerApp;
 let createdDatabase = false;
 let base;
 let checks = 0;
@@ -26,8 +27,16 @@ const check = (condition, message) => {
   assert(condition, message);
   checks++;
 };
-async function call(path, token, method = 'GET', body, status = 200, code) {
-  const response = await fetch(base + path, {
+async function call(
+  path,
+  token,
+  method = 'GET',
+  body,
+  status = 200,
+  code,
+  origin = base,
+) {
+  const response = await fetch(origin + path, {
     method,
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -135,8 +144,27 @@ try {
     null,
     'POST',
     { loginId: active.loginId, password },
-    403,
-    'INQUIRY_ACCOUNT_NOT_RESTRICTED',
+    401,
+    'INQUIRY_INVALID_CREDENTIALS',
+  );
+  await call(
+    '/inquiries/access-token',
+    null,
+    'POST',
+    { loginId: active.loginId, password: 'wrong' },
+    401,
+    'INQUIRY_INVALID_CREDENTIALS',
+  );
+  check(
+    (await prisma.user.findUnique({ where: { id: active.id } }))
+      .loginFailCount === 0,
+    '정상 계정은 비밀번호 정오와 관계없이 동일 401이며 일반 로그인 실패 횟수 보존',
+  );
+  check(
+    (await prisma.inquiryAccessAttempt.count({
+      where: { userId: active.id },
+    })) === 0,
+    '정상 계정은 문의 비밀번호 검사/실패 집계 대상 아님',
   );
   const sessionA = await call('/inquiries/access-token', null, 'POST', {
     loginId: locked.loginId,
@@ -555,6 +583,308 @@ try {
     '관리자 문의 변경 API 미노출',
   );
   check((await prisma.inquiry.count()) === 15, '예상 문의만 저장');
+  // DTO를 거치지 않는 서비스 호출과 DB 직접 저장도 검증한다.
+  const { InquiriesService } =
+    await import('../dist/modules/inquiries/inquiries.service.js');
+  const inquiries = app.get(InquiriesService);
+  for (const [input, code] of [
+    [{ title: '제목', content: '나'.repeat(5001) }, 'INQUIRY_INVALID_CONTENT'],
+    [{ title: '제목', content: '  \n ' }, 'INQUIRY_INVALID_CONTENT'],
+    [{ title: '가'.repeat(101), content: '본문' }, 'INQUIRY_INVALID_TITLE'],
+  ]) {
+    await assert.rejects(
+      inquiries.create(blocked.id, input),
+      (error) => error.response.code === code,
+    );
+    checks++;
+  }
+  for (const content of ['나'.repeat(5001), '']) {
+    await assert.rejects(
+      prisma.inquiry.create({
+        data: {
+          userId: blocked.id,
+          inquiryCode: 'INQ-DB-REJECT',
+          inquiryType: 'SUSPENDED',
+          title: '제목',
+          content,
+        },
+      }),
+    );
+    checks++;
+  }
+  check(
+    (await prisma.inquiry.count()) === 15,
+    '서비스/DB 제한 초과 거절 후 저장 건수 보존',
+  );
+  const emojiInquiry = await call(
+    '/inquiries',
+    b,
+    'POST',
+    { title: '😀'.repeat(100), content: '😀'.repeat(5000) },
+    201,
+  );
+  check(
+    (await call(`/inquiries/${emojiInquiry.id}`, b)).content ===
+      '😀'.repeat(5000),
+    'DTO·서비스·DB가 이모지 5000자 경계에서 같은 기준 사용',
+  );
+  await call(
+    '/inquiries',
+    b,
+    'POST',
+    { title: '제목', content: '😀'.repeat(5001) },
+    400,
+    'BAD_REQUEST',
+  );
+  const contentColumn = await prisma.$queryRaw`
+    SELECT data_type, character_maximum_length FROM information_schema.columns
+    WHERE table_name='inquiries' AND column_name='content'
+  `;
+  check(
+    contentColumn[0].data_type === 'character varying' &&
+      contentColumn[0].character_maximum_length === 5000,
+    '실제 DB 본문 VARCHAR(5000) 적용',
+  );
+
+  const createLimited = (loginId) =>
+    prisma.user.create({
+      data: {
+        loginId,
+        password: passwordHash,
+        email: `${loginId}@motu.test`,
+        nickname: loginId,
+        birthDate: new Date('2000-01-01'),
+        termsAgreed: true,
+        privacyAgreed: true,
+        marketingAgreed: false,
+        userStatus: 'LOCKED',
+        loginFailCount: 5,
+      },
+    });
+  const securityUser = await createLimited('inqretry');
+  const badCredentials = { loginId: securityUser.loginId, password: 'wrong' };
+  const goodCredentials = { loginId: securityUser.loginId, password };
+  const beforeBlock = Date.now();
+  for (let i = 1; i <= 4; i++) {
+    await call(
+      '/inquiries/access-token',
+      null,
+      'POST',
+      badCredentials,
+      401,
+      'INQUIRY_INVALID_CREDENTIALS',
+    );
+    check(
+      (
+        await prisma.inquiryAccessAttempt.findUnique({
+          where: { userId: securityUser.id },
+        })
+      ).failCount === i,
+      '인증 실패 응답 뒤에도 실패 횟수 DB 커밋',
+    );
+  }
+  await call(
+    '/inquiries/access-token',
+    null,
+    'POST',
+    badCredentials,
+    429,
+    'INQUIRY_ACCESS_TEMPORARILY_BLOCKED',
+  );
+  const savedBlock = await prisma.inquiryAccessAttempt.findUnique({
+    where: { userId: securityUser.id },
+  });
+  check(
+    savedBlock.failCount === 5 &&
+      savedBlock.blockedUntil.getTime() >= beforeBlock + 900000 &&
+      savedBlock.blockedUntil.getTime() <= Date.now() + 900000,
+    '5번째 실패부터 15분 차단',
+  );
+  await call(
+    '/inquiries/access-token',
+    null,
+    'POST',
+    goodCredentials,
+    429,
+    'INQUIRY_ACCESS_TEMPORARILY_BLOCKED',
+  );
+  check(
+    (
+      await prisma.inquiryAccessAttempt.findUnique({
+        where: { userId: securityUser.id },
+      })
+    ).blockedUntil.getTime() === savedBlock.blockedUntil.getTime(),
+    '차단 중 올바른 비밀번호도 거절하고 차단 만료는 연장하지 않음',
+  );
+
+  const blockedSecurityUser = await prisma.user.create({
+    data: {
+      loginId: 'inqblocked',
+      password: passwordHash,
+      email: 'inqblocked@motu.test',
+      nickname: 'inqblocked',
+      birthDate: new Date('2000-01-01'),
+      termsAgreed: true,
+      privacyAgreed: true,
+      marketingAgreed: false,
+      userStatus: 'BLOCKED',
+    },
+  });
+  for (let i = 1; i <= 5; i++) {
+    await call(
+      '/inquiries/access-token',
+      null,
+      'POST',
+      { loginId: blockedSecurityUser.loginId, password: 'wrong' },
+      i < 5 ? 401 : 429,
+      i < 5
+        ? 'INQUIRY_INVALID_CREDENTIALS'
+        : 'INQUIRY_ACCESS_TEMPORARILY_BLOCKED',
+    );
+  }
+  await call(
+    '/inquiries/access-token',
+    null,
+    'POST',
+    { loginId: blockedSecurityUser.loginId, password },
+    429,
+    'INQUIRY_ACCESS_TEMPORARILY_BLOCKED',
+  );
+  check(
+    (await prisma.user.findUnique({ where: { id: blockedSecurityUser.id } }))
+      .userStatus === 'BLOCKED',
+    '정지 계정에도 5회 실패 차단 적용, 원래 정지 상태 유지',
+  );
+
+  // 별도 앱 인스턴스(독립 요청 제한 Guard)에서도 DB 실패/차단 기록을 공유한다.
+  peerApp = await NestFactory.create(AppModule, { logger: false });
+  setupApp(peerApp);
+  await peerApp.listen(0, '127.0.0.1');
+  const peerBase = `http://127.0.0.1:${peerApp.getHttpServer().address().port}/api`;
+  await call(
+    '/inquiries/access-token',
+    null,
+    'POST',
+    goodCredentials,
+    429,
+    'INQUIRY_ACCESS_TEMPORARILY_BLOCKED',
+    peerBase,
+  );
+  await prisma.inquiryAccessAttempt.update({
+    where: { userId: securityUser.id },
+    data: { blockedUntil: new Date(Date.now() - 1) },
+  });
+  await call(
+    '/inquiries/access-token',
+    null,
+    'POST',
+    badCredentials,
+    401,
+    'INQUIRY_INVALID_CREDENTIALS',
+    peerBase,
+  );
+  check(
+    (
+      await prisma.inquiryAccessAttempt.findUnique({
+        where: { userId: securityUser.id },
+      })
+    ).failCount === 1,
+    '15분 차단 만료 후 잘못된 비밀번호는 다시 1회부터 집계',
+  );
+  await call(
+    '/inquiries/access-token',
+    null,
+    'POST',
+    goodCredentials,
+    200,
+    undefined,
+    peerBase,
+  );
+  check(
+    (await prisma.inquiryAccessAttempt.count({
+      where: { userId: securityUser.id },
+    })) === 0,
+    '성공 시 문의 전용 실패 기록 초기화',
+  );
+  const userAfter = await prisma.user.findUnique({
+    where: { id: securityUser.id },
+  });
+  check(
+    userAfter.userStatus === 'LOCKED' &&
+      userAfter.loginFailCount === 5 &&
+      userAfter.lastLoginDate === null,
+    '문의 실패·차단·성공은 일반 로그인 상태/횟수/시각을 변경하지 않음',
+  );
+
+  // 별도 프로세스의 새 서비스에서도 동일 차단이 유지되는지 실제 자식 프로세스로 확인한다.
+  const childScript = `
+    import { NestFactory } from '@nestjs/core';
+    import { AppModule } from './dist/app.module.js';
+    import { InquiriesService } from './dist/modules/inquiries/inquiries.service.js';
+    const app = await NestFactory.createApplicationContext(AppModule, {logger:false});
+    try {
+      await app.get(InquiriesService).createAccessToken({loginId:'inqretry', password:'wrong'});
+      process.exitCode=1;
+    } catch (e) {
+      if (e.response?.code !== 'INQUIRY_ACCESS_TEMPORARILY_BLOCKED') throw e;
+    } finally { await app.close(); }
+  `;
+  await prisma.inquiryAccessAttempt.create({
+    data: {
+      userId: securityUser.id,
+      failCount: 5,
+      blockedUntil: new Date(Date.now() + 900000),
+    },
+  });
+  await promisify(execFile)(
+    process.execPath,
+    ['--input-type=module', '-e', childScript],
+    { env: process.env, timeout: 60000 },
+  );
+  checks++;
+
+  const parallelUser = await createLimited('inqrace');
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, async (_, index) => {
+      const response = await fetch(
+        (index % 2 ? base : peerBase) + '/inquiries/access-token',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            loginId: parallelUser.loginId,
+            password: 'wrong',
+          }),
+        },
+      );
+      return { status: response.status, ...(await response.json()) };
+    }),
+  );
+  check(
+    responses.filter(
+      (x) => x.status === 401 && x.error.code === 'INQUIRY_INVALID_CREDENTIALS',
+    ).length === 4 &&
+      responses.filter(
+        (x) =>
+          x.status === 429 &&
+          x.error.code === 'INQUIRY_ACCESS_TEMPORARILY_BLOCKED',
+      ).length === 4,
+    '2개 앱의 동시 인증 실패 8건에서도 5회 상한 유지·500 없음',
+  );
+  check(
+    (
+      await prisma.inquiryAccessAttempt.findUnique({
+        where: { userId: parallelUser.id },
+      })
+    ).failCount === 5,
+    '동시 실패 DB 횟수 손실/상한 초과 없음',
+  );
+  check(
+    (await prisma.refreshToken.count({
+      where: { userId: { in: [parallelUser.id, securityUser.id] } },
+    })) === 0,
+    '문의 인증 보강 후에도 일반 Refresh 세션 미발급',
+  );
   console.log(
     JSON.stringify({
       result: 'PASS',
@@ -564,6 +894,7 @@ try {
     }),
   );
 } finally {
+  if (peerApp) await peerApp.close();
   if (app) await app.close();
   if (createdDatabase) await root.query(`DROP DATABASE "${databaseName}"`);
   await root.end();
