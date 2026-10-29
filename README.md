@@ -47,6 +47,7 @@ npm run start:dev       # 개발 서버 (watch 모드)
 | `motulocked` | 로그인 5회 실패로 잠김 (`AUTH_ACCOUNT_LOCKED`) |
 | `motublocked` | 이용 정지 (`AUTH_ACCOUNT_BLOCKED`) |
 | `motudraft` | 임시저장 신청서 5건으로 새 신청서 작성 불가 (`LISTING_DRAFT_LIMIT_EXCEEDED`) |
+| `motusecure` | 2차 보안 설정 완료 (휴대폰 01000000000). 새 기기 로그인·첫 주문·휴대폰 변경 때 SMS 인증. 로컬은 인증번호가 서버 로그에 출력됨 |
 | `motumaker` / `motutaker` | 시장 조성용. 매일 서로 거래해 시세·차트를 만들고, 현재가 위아래로 미체결 주문을 걸어 호가 5단계를 채움 |
 
 `motuuser`에는 포인트 이력, 관심상품 4개, 최근 본 종목 5개, 최근 검색어 3개, 상장 신청서 7건(임시저장 2건, 그중 1건은 만료 임박, 접수·검토 중·보완 요청·승인·반려 각 1건)이 들어갑니다. 신청서 ID는 seed 실행 결과에 출력됩니다. 이미 기록이 있는 항목은 건너뜁니다.
