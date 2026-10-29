@@ -23,7 +23,9 @@
 |------|------|
 | 화면 | USR-MY-001(2차 보안 영역), USR-MY-004 |
 | API | `GET /api/two-factor` |
-| 응답 | `status`, `maskedPhoneNumber`(`010-****-4821`, 설정 완료일 때만), `enabledDate`(설정일시), `lastVerifiedDate`(최근 인증), `verifiedUntil`(재인증 유효 시각, 지났으면 null), `lockedUntil`(제한 중이면 시각) |
+| 응답 | `status`, `maskedPhoneNumber`(`010-****-4821`, 설정 완료일 때만), `enabledDate`(설정일시), `lastVerifiedDate`(최근 인증), `verifiedUntil`(재인증 유효 시각, 지났으면 null), `lockedUntil`(제한 중이면 시각), `remainingAttempts`(SMS 남은 입력 횟수) |
+
+- 공통 2차 보안 화면에 들어가기 전에 이 API로 `lockedUntil`을 보면 제한 중인지 미리 알 수 있습니다.
 
 ## 2차 보안 설정 (휴대폰 인증)
 
@@ -35,6 +37,7 @@
 | 응답 | ① `maskedPhoneNumber`, `expiresAt`, `resendAvailableAt`, `remainingAttempts` ② [2차 보안 상태](#2차-보안-상태)와 같음 |
 
 - 인증하면 바로 `ENABLED`가 되고, 이 인증도 재인증으로 쳐서 10분 동안 유효합니다.
+- 다른 번호로 인증번호를 새로 받으면 이전 번호로 받은 인증번호는 쓸 수 없습니다. ②의 `phoneNumber`는 ①에서 보낸 번호와 같아야 하며, 다르면 404 `VERIFICATION_NOT_FOUND`입니다.
 - **등록 휴대폰 변경**: 이미 설정한 계정은 ①을 부르기 전에 기존 번호로 [재인증](#중요-기능-재인증)을 해야 합니다. 안 했으면 `403 TWO_FACTOR_REQUIRED` + `details.action = PHONE_CHANGE`입니다.
 - 설정·변경 이력(`two_factor_histories`)에 번호, IP, User-Agent가 남습니다.
 
@@ -45,7 +48,8 @@
 | 429 `TWO_FACTOR_LOCKED` + `details { lockedUntil }` | 5회 연속 실패, 또는 제한 중 | 실패 횟수 초과 상태(USR-AUTH-009-S02), 확인 시 이전 화면 |
 | 403 `TWO_FACTOR_REQUIRED` + `details { action: PHONE_CHANGE }` | 설정 계정이 재인증 없이 번호 변경 | 공통 2차 보안 화면으로 이동 후 다시 요청 |
 | 409 `TWO_FACTOR_SAME_PHONE_NUMBER` | 이미 등록된 번호 | |
-| 429 `VERIFICATION_RESEND_TOO_SOON` | 30초 안에 재발송 | `resendAvailableAt`까지 버튼 비활성화 |
+| 400 `VERIFICATION_EXPIRED` / 404 `VERIFICATION_NOT_FOUND` | 5분 지남 / 발송 전 확인, 번호가 ①과 다름 | 인증번호 다시 받기 |
+| 429 `VERIFICATION_RESEND_TOO_SOON` + `details { resendAvailableAt }` | 30초 안에 재발송 | `resendAvailableAt`까지 버튼 비활성화 |
 | 503 `SMS_SEND_FAILED` | SMS 발송 실패 | 잠시 후 다시 시도 안내 |
 
 ## 2차 보안 해제
@@ -82,6 +86,8 @@
 | 400 `VERIFICATION_CODE_MISMATCH` + `details { remainingAttempts }` | 오입력 | 실패 문구와 남은 횟수 (USR-AUTH-009-S01) |
 | 429 `TWO_FACTOR_LOCKED` + `details { lockedUntil }` | 5회 연속 실패 | 실패 횟수 초과 (USR-AUTH-009-S02). 하던 작업은 완료하지 않음 |
 | 400 `VERIFICATION_EXPIRED` / 404 `VERIFICATION_NOT_FOUND` | 5분 지남 / 발송 전 확인 | 인증번호 다시 받기 |
+| 429 `VERIFICATION_RESEND_TOO_SOON` + `details { resendAvailableAt }` | 30초 안에 재발송 | `resendAvailableAt`까지 버튼 비활성화 |
+| 400 `VERIFICATION_REQUIRED` | [인증 완료]를 연달아 눌러 같은 인증번호가 두 번 처리됨 | 요청 중 버튼 비활성화 |
 | 503 `SMS_SEND_FAILED` | SMS 발송 실패 | 잠시 후 다시 시도 |
 
 ### 주문 기능 최초 활성화
@@ -93,6 +99,18 @@
 ### 다른 기능에서 쓰기 (백엔드)
 
 `TwoFactorModule`을 import하고 `TwoFactorService.requireVerification(userId, TwoFactorAction.LISTING_SUBMIT)`을 호출합니다. 미설정이면 409 `TWO_FACTOR_NOT_ENABLED`, 10분 안에 재인증하지 않았으면 403 `TWO_FACTOR_REQUIRED`를 던집니다.
+
+## 프론트 연동 체크리스트
+
+| 상황 | 처리 |
+|------|------|
+| 에러 분기 | **HTTP 상태가 아니라 `error.code`로** 분기합니다. 403은 계정 잠김·정지(`AUTH_ACCOUNT_*`)와 재인증 필요(`TWO_FACTOR_REQUIRED`)가 섞여 있어, 403이라고 로그아웃하면 안 됩니다 |
+| 401 | 새 기기 확인의 401 `AUTH_INVALID_LOGIN_TOKEN`은 로그인 전 단계라 토큰 재발급 대상이 아닙니다. 로그인 화면으로 보냅니다 |
+| 기기 ID | 앱 설치(웹은 브라우저 저장소)마다 UUID 하나를 만들어 계속 씁니다. 로그아웃해도 지우지 않습니다. 지우면 새 기기로 봅니다 |
+| 재인증 후 재시도 | `TWO_FACTOR_REQUIRED`로 막힌 요청은 재인증 성공 후 **같은 요청을 그대로** 다시 보냅니다. 주문은 같은 `clientOrderId`를 써도 됩니다 (막힌 주문은 접수되지 않았음) |
+| 제한 중 | `TWO_FACTOR_LOCKED`의 `lockedUntil`까지 발송·확인 버튼을 막고, 하던 작업은 완료하지 않은 채 이전 화면으로 돌아갑니다. 제한 중에는 2차 보안 설정 계정의 새 기기 로그인, 첫 주문, 번호 변경을 할 수 없습니다 |
+| 타이머 | `expiresAt`(유효시간), `resendAvailableAt`(재발송), `remainingAttempts`(시도 n/5)는 모두 응답 값으로 그립니다. 재발송 429에도 `resendAvailableAt`이 옵니다 |
+| 중복 클릭 | 발송·확인 버튼은 요청 중 비활성화합니다 |
 
 ## SMS 발송
 
