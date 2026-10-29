@@ -18,6 +18,7 @@
 | [주문](orders.md) | 거래 규칙, 주문 가능 정보, 매수·매도 주문, 주문 취소, 내 주문, 호가 5단계 | `modules/orders`, `modules/matching` |
 | [체결](trades.md) | 최근 체결 | `modules/trades` |
 | [포트폴리오](portfolio.md) | 총 자산, 평가손익, 자산 구성, 보유 종목 | `modules/portfolio` |
+| [거래내역](trade-histories.md) | 거래 요약, 거래내역, 체결주문, 미체결주문 | `modules/trade-histories` |
 | [차트·시세](charts.md) | 당일 거래 요약, 기간별 차트, 실시간 시세(SSE) | `modules/charts` |
 | [지정가 알림](price-alerts.md) | 지정가 알림 설정·수정·해제·목록, 도달 감지 | `modules/price-alerts` |
 | [알림](notifications.md) | 내 알림 목록·읽음·미확인 수, 체결·목표가 생성 서비스, 임시저장 만료 안내 | `modules/notifications`, `modules/listing-applications` |

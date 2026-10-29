@@ -21,6 +21,7 @@ import { PriceAlertsModule } from './modules/price-alerts/price-alerts.module.js
 import { SearchHistoriesModule } from './modules/search-histories/search-histories.module.js';
 import { SectorsModule } from './modules/sectors/sectors.module.js';
 import { StocksModule } from './modules/stocks/stocks.module.js';
+import { TradeHistoriesModule } from './modules/trade-histories/trade-histories.module.js';
 import { TradesModule } from './modules/trades/trades.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 
@@ -55,6 +56,7 @@ import { UsersModule } from './modules/users/users.module.js';
     ChartsModule,
     PriceAlertsModule,
     PortfolioModule,
+    TradeHistoriesModule,
   ],
 })
 export class AppModule {}
