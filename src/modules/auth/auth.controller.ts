@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiBody,
   ApiCreatedResponse,
   ApiExtraModels,
   ApiOkResponse,
@@ -48,6 +49,24 @@ export class AuthController {
     summary: '로그인',
     description:
       '비밀번호를 틀리면 401 AUTH_INVALID_CREDENTIALS와 `details.failCount`를 내려준다. 5회째 틀리면 계정이 잠기고 403 AUTH_ACCOUNT_LOCKED를 내려준다. deviceId가 신뢰하지 않은 기기면 토큰 대신 `verificationRequired: true`와 loginToken을 내려주며, 새 기기 확인 API로 로그인을 마친다.',
+  })
+  // 예시가 하나면 Swagger가 deviceId까지 채워 새 기기 확인으로 빠지므로, 기본 예시는 deviceId 없이 둔다.
+  @ApiBody({
+    type: LoginReqDto,
+    examples: {
+      login: {
+        summary: '바로 로그인 (기기 확인 생략)',
+        value: { loginId: 'motuuser', password: 'motuuser1!' },
+      },
+      newDevice: {
+        summary: '새 기기 확인 (deviceId 포함)',
+        value: {
+          loginId: 'motuuser',
+          password: 'motuuser1!',
+          deviceId: '3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a12',
+        },
+      },
+    },
   })
   @ApiOkResponse({
     schema: {
