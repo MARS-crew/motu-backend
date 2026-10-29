@@ -11,6 +11,7 @@ import { FaqsModule } from './modules/faqs/faqs.module.js';
 import { FilesModule } from './modules/files/files.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { HoldingsModule } from './modules/holdings/holdings.module.js';
+import { InquiriesModule } from './modules/inquiries/inquiries.module.js';
 import { ListingApplicationsModule } from './modules/listing-applications/listing-applications.module.js';
 import { MatchingModule } from './modules/matching/matching.module.js';
 import { NoticesModule } from './modules/notices/notices.module.js';
@@ -51,6 +52,7 @@ import { UsersModule } from './modules/users/users.module.js';
     FaqsModule,
     OrdersModule,
     HoldingsModule,
+    InquiriesModule,
     MatchingModule,
     TradesModule,
     ChartsModule,
