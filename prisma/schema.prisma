@@ -61,6 +61,7 @@ model User {
   listingApplications     ListingApplication[]
   notifications           Notification[]
   revisionRequestsCreated ListingApplicationRevision[] @relation("RevisionRequestAuthor")
+  priceAlerts             PriceAlert[]
 
   @@map("users")
 }
@@ -324,6 +325,7 @@ model Stock {
   orders        Order[]
   trades        Trade[]
   charts        Chart[]
+  priceAlerts   PriceAlert[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -518,6 +520,34 @@ model Chart {
 
   @@id([stockId, interval, candleTime])
   @@map("charts")
+}
+
+/// 지정가 알림. 체결가가 설정가에 처음 도달하면 한 번 알리고 꺼진다. 수정하면 다시 켜진다.
+model PriceAlert {
+  id            Int       @id @default(autoincrement()) @map("alert_id")
+  userId        Int       @map("user_id")
+  stockId       Int       @map("stock_id")
+  /// 설정가
+  targetPrice   BigInt    @map("target_price")
+  /// 도달하면 false. 거래가 종료된 상품도 false다.
+  isActive      Boolean   @default(true) @map("is_active")
+  /// 수정할 때마다 올린다. 알림의 revision으로 써서 같은 설정은 한 번만 알린다.
+  version       BigInt    @default(0)
+  /// 알림이 울린 시각. 수정하면 비운다.
+  triggeredDate DateTime? @map("triggered_date") @db.Timestamptz(3)
+  createDate    DateTime  @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate  DateTime  @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  // 같은 상품에 같은 가격은 한 번만 등록한다.
+  @@unique([userId, stockId, targetPrice])
+  // 내 알림 목록
+  @@index([userId, id])
+  // 체결가 도달 감지
+  @@index([stockId, isActive, targetPrice])
+  @@map("price_alerts")
 }
 
 // 신청서 모듈에 연결하기 전에도 소유자와 첨부 개수 제한을 유지하는 작성 단위.

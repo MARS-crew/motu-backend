@@ -1,5 +1,7 @@
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { TradeStatus } from '../../generated/prisma/client.js';
+import { ChartsService } from '../charts/charts.service.js';
+import { GetDailySummaryResDto } from '../charts/dto/res/get-daily-summary-res.dto.js';
 import { SearchHistoriesService } from '../search-histories/search-histories.service.js';
 import { StockSort } from './stocks.constants.js';
 import { StocksService } from './stocks.service.js';
@@ -28,9 +30,36 @@ describe('StocksService', () => {
     ),
   } as unknown as PrismaService;
   const record = vi.fn();
-  const service = new StocksService(prisma, {
-    record,
-  } as unknown as SearchHistoriesService);
+  /** 상품 ID별 당일 시세. 없으면 체결이 없는 상품(현재가 = 기준가)으로 본다. */
+  let market: Record<number, Partial<GetDailySummaryResDto>> = {};
+  const getDailySummaries = vi.fn(
+    (stocks: { id: number; basePrice: bigint }[]) =>
+      Promise.resolve(
+        new Map(
+          stocks.map(({ id, basePrice }) => [
+            id,
+            {
+              stockId: id,
+              currentPrice: Number(basePrice),
+              prevClosePrice: Number(basePrice),
+              changeAmount: 0,
+              changeRate: 0,
+              openPrice: null,
+              highPrice: null,
+              lowPrice: null,
+              volume: 0,
+              tradeAmount: 0,
+              ...market[id],
+            },
+          ]),
+        ),
+      ),
+  );
+  const service = new StocksService(
+    prisma,
+    { record } as unknown as SearchHistoriesService,
+    { getDailySummaries } as unknown as ChartsService,
+  );
 
   const stockOf = (id: number, overrides: Record<string, unknown> = {}) => ({
     id,
@@ -48,17 +77,18 @@ describe('StocksService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    market = {};
     viewHistory.findMany.mockResolvedValue([]);
     wishlist.findMany.mockResolvedValue([]);
   });
 
   describe('getStocks', () => {
-    it('삭제되지 않은 상품을 카테고리로 걸러 최근 상장순으로 조회하고 현재가는 기준가로 내려준다', async () => {
+    it('최근 상장순은 삭제되지 않은 상품을 카테고리로 걸러 DB에서 정렬하고, 체결이 없으면 현재가는 기준가다', async () => {
       findMany.mockResolvedValue([stockOf(1)]);
 
       const result = await service.getStocks(undefined, {
         sectorCode: 1,
-        sort: StockSort.TRADE_AMOUNT,
+        sort: StockSort.LISTING_DATE,
         size: 20,
       });
 
@@ -85,11 +115,11 @@ describe('StocksService', () => {
       });
     });
 
-    it('다음 페이지가 있으면 커서를 내려주고, 그 커서로 이어서 조회한다', async () => {
+    it('최근 상장순은 다음 페이지가 있으면 커서를 내려주고, 그 커서로 이어서 조회한다', async () => {
       findMany.mockResolvedValueOnce([stockOf(3), stockOf(2), stockOf(1)]);
 
       const first = await service.getStocks(undefined, {
-        sort: StockSort.TRADE_AMOUNT,
+        sort: StockSort.LISTING_DATE,
         size: 2,
       });
 
@@ -98,7 +128,7 @@ describe('StocksService', () => {
 
       findMany.mockResolvedValueOnce([stockOf(1)]);
       await service.getStocks(undefined, {
-        sort: StockSort.TRADE_AMOUNT,
+        sort: StockSort.LISTING_DATE,
         cursor: first.nextCursor!,
         size: 2,
       });
@@ -115,6 +145,73 @@ describe('StocksService', () => {
           },
         ],
       });
+    });
+
+    it('거래대금 많은순은 당일 시세를 붙여 정렬하고, 같은 값이면 최근 상장순이다', async () => {
+      findMany.mockResolvedValue([
+        stockOf(1),
+        stockOf(2, { listingDate: new Date('2026-10-05T00:00:00.000Z') }),
+        stockOf(3),
+      ]);
+      market = {
+        1: {
+          currentPrice: 4_500,
+          changeAmount: 150,
+          changeRate: 3.45,
+          volume: 10,
+          tradeAmount: 45_000,
+        },
+      };
+
+      const result = await service.getStocks(undefined, {
+        sectorCode: 1,
+        sort: StockSort.TRADE_AMOUNT,
+        size: 20,
+      });
+
+      expect(findMany).toHaveBeenCalledWith({
+        where: { AND: [{ sectorCode: 1 }, { isDeleted: false }] },
+        include: { sector: true },
+      });
+      expect(result.items.map(({ stockId }) => stockId)).toEqual([1, 2, 3]);
+      expect(result.items[0]).toMatchObject({
+        currentPrice: 4_500,
+        changeAmount: 150,
+        changeRate: 3.45,
+        volume: 10,
+        tradeAmount: 45_000,
+      });
+    });
+
+    it('등락률 낮은순은 등락률이 낮은 상품부터 내려준다', async () => {
+      findMany.mockResolvedValue([stockOf(1), stockOf(2), stockOf(3)]);
+      market = { 1: { changeRate: 2.5 }, 2: { changeRate: -1.2 } };
+
+      const result = await service.getStocks(undefined, {
+        sort: StockSort.CHANGE_RATE_ASC,
+        size: 20,
+      });
+
+      expect(result.items.map(({ stockId }) => stockId)).toEqual([2, 3, 1]);
+    });
+
+    it('시세 기준 정렬도 커서로 마지막 상품 다음부터 이어서 내려준다', async () => {
+      findMany.mockResolvedValue([stockOf(1), stockOf(2), stockOf(3)]);
+      market = { 1: { volume: 30 }, 2: { volume: 20 }, 3: { volume: 10 } };
+
+      const first = await service.getStocks(undefined, {
+        sort: StockSort.VOLUME,
+        size: 2,
+      });
+      const second = await service.getStocks(undefined, {
+        sort: StockSort.VOLUME,
+        cursor: first.nextCursor!,
+        size: 2,
+      });
+
+      expect(first.items.map(({ stockId }) => stockId)).toEqual([1, 2]);
+      expect(second.items.map(({ stockId }) => stockId)).toEqual([3]);
+      expect(second.nextCursor).toBeNull();
     });
 
     it('정렬을 바꾼 뒤 이전 커서를 쓰면 처음부터 다시 불러오라고 한다', async () => {
@@ -231,6 +328,7 @@ describe('StocksService', () => {
         where: { id: 5, isDeleted: false },
         include: { sector: true },
       });
+      expect(getDailySummaries).toHaveBeenCalledWith([detailOf()]);
       expect(result).toMatchObject({
         stockId: 5,
         summary: '한 줄 소개입니다.',
