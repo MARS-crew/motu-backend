@@ -82,6 +82,22 @@ describe('VerificationsService', () => {
       });
     });
 
+    it('30초 안에 다시 요청하면 재발송 가능 시각을 알려준다', async () => {
+      const sentAt = new Date(Date.now() - 10_000);
+      verification.findFirst.mockResolvedValue(pending({ sentAt }));
+
+      await expect(
+        service.sendEmailCode(VerificationPurpose.SIGNUP, EMAIL),
+      ).rejects.toMatchObject({
+        status: 429,
+        response: {
+          code: 'VERIFICATION_RESEND_TOO_SOON',
+          details: { resendAvailableAt: new Date(sentAt.getTime() + 30_000) },
+        },
+      });
+      expect(sendMail).not.toHaveBeenCalled();
+    });
+
     it('유효한 인증번호가 남아 있으면 같은 번호를 다시 보낸다', async () => {
       verification.findFirst.mockResolvedValue(null);
       await service.sendEmailCode(VerificationPurpose.SIGNUP, EMAIL);
