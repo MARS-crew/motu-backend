@@ -1,28 +1,42 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiCreatedResponse,
+  ApiExtraModels,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  getSchemaPath,
 } from '@nestjs/swagger';
 import { Public } from '../../common/auth/public.decorator.js';
 import { AuthService } from './auth.service.js';
 import { ConfirmLoginIdVerificationReqDto } from './dto/req/confirm-login-id-verification-req.dto.js';
+import { ConfirmLoginVerificationReqDto } from './dto/req/confirm-login-verification-req.dto.js';
 import { LoginReqDto } from './dto/req/login-req.dto.js';
 import { LogoutReqDto } from './dto/req/logout-req.dto.js';
 import { RefreshTokenReqDto } from './dto/req/refresh-token-req.dto.js';
 import { RequestPasswordResetReqDto } from './dto/req/request-password-reset-req.dto.js';
 import { ResetPasswordReqDto } from './dto/req/reset-password-req.dto.js';
 import { SendLoginIdVerificationReqDto } from './dto/req/send-login-id-verification-req.dto.js';
+import { SendLoginVerificationReqDto } from './dto/req/send-login-verification-req.dto.js';
 import { VerifyPasswordResetReqDto } from './dto/req/verify-password-reset-req.dto.js';
 import { FindLoginIdResDto } from './dto/res/find-login-id-res.dto.js';
 import { LoginResDto } from './dto/res/login-res.dto.js';
+import { LoginVerificationRequiredResDto } from './dto/res/login-verification-required-res.dto.js';
 import { RefreshTokenResDto } from './dto/res/refresh-token-res.dto.js';
 import { SendLoginIdVerificationResDto } from './dto/res/send-login-id-verification-res.dto.js';
+import { SendLoginVerificationResDto } from './dto/res/send-login-verification-res.dto.js';
 import { VerifyPasswordResetResDto } from './dto/res/verify-password-reset-res.dto.js';
 
 @ApiTags('Auth')
+@ApiExtraModels(LoginResDto, LoginVerificationRequiredResDto)
 @Public()
 @Controller('auth')
 export class AuthController {
@@ -33,11 +47,52 @@ export class AuthController {
   @ApiOperation({
     summary: '로그인',
     description:
-      '비밀번호를 틀리면 401 AUTH_INVALID_CREDENTIALS와 `details.failCount`를 내려준다. 5회째 틀리면 계정이 잠기고 403 AUTH_ACCOUNT_LOCKED를 내려준다.',
+      '비밀번호를 틀리면 401 AUTH_INVALID_CREDENTIALS와 `details.failCount`를 내려준다. 5회째 틀리면 계정이 잠기고 403 AUTH_ACCOUNT_LOCKED를 내려준다. deviceId가 신뢰하지 않은 기기면 토큰 대신 `verificationRequired: true`와 loginToken을 내려주며, 새 기기 확인 API로 로그인을 마친다.',
+  })
+  @ApiOkResponse({
+    schema: {
+      oneOf: [
+        { $ref: getSchemaPath(LoginResDto) },
+        { $ref: getSchemaPath(LoginVerificationRequiredResDto) },
+      ],
+    },
+  })
+  login(
+    @Body() dto: LoginReqDto,
+  ): Promise<LoginResDto | LoginVerificationRequiredResDto> {
+    return this.authService.login(dto);
+  }
+
+  @Post('login/verifications')
+  @ApiOperation({
+    summary: '새 기기 확인 인증번호 발송',
+    description:
+      '2차 보안 미설정 계정은 가입 이메일, 설정 계정은 등록 휴대폰 SMS로 보낸다. 재발송은 30초 후 가능하다. loginToken이 만료되면 401 AUTH_INVALID_LOGIN_TOKEN.',
+  })
+  @ApiCreatedResponse({ type: SendLoginVerificationResDto })
+  sendLoginVerification(
+    @Body() dto: SendLoginVerificationReqDto,
+  ): Promise<SendLoginVerificationResDto> {
+    return this.authService.sendLoginVerification(dto.loginToken);
+  }
+
+  @Post('login/verifications/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '새 기기 확인 후 로그인',
+    description:
+      '인증번호가 맞으면 기기를 30일 동안 신뢰하고 토큰을 발급한다. SMS는 5회 연속 틀리면 30분 동안 429 TWO_FACTOR_LOCKED (계정은 잠기지 않음).',
   })
   @ApiOkResponse({ type: LoginResDto })
-  login(@Body() dto: LoginReqDto): Promise<LoginResDto> {
-    return this.authService.login(dto);
+  confirmLoginVerification(
+    @Body() dto: ConfirmLoginVerificationReqDto,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<LoginResDto> {
+    return this.authService.confirmLoginVerification(
+      dto.loginToken,
+      dto.code,
+      userAgent,
+    );
   }
 
   @Post('refresh')
