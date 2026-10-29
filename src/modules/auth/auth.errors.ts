@@ -51,6 +51,12 @@ export const AuthErrors = {
     message: '현재 비밀번호와 다른 비밀번호를 입력해 주세요.',
     status: HttpStatus.BAD_REQUEST,
   },
+  /** 새 기기 확인용 로그인 토큰이 없거나 만료됨. 프론트는 로그인 화면으로 돌아간다. */
+  INVALID_LOGIN_TOKEN: {
+    code: 'AUTH_INVALID_LOGIN_TOKEN',
+    message: '로그인 확인 정보가 올바르지 않습니다. 다시 로그인해 주세요.',
+    status: HttpStatus.UNAUTHORIZED,
+  },
   FORBIDDEN: {
     code: 'AUTH_FORBIDDEN',
     message: '접근 권한이 없습니다.',
