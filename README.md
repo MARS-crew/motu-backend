@@ -38,6 +38,21 @@ npm run start:dev       # 개발 서버 (watch 모드)
 | ADMIN | `motuadmin` | `motuadmin1!` | 모투관리자 | `admin@motu.test` |
 | USER | `motuuser` | `motuuser1!` | 모투테스터 | `user@motu.test` |
 
+화면 상태를 확인하는 계정도 같이 만들어집니다. 비밀번호는 모두 `motuuser`와 같습니다.
+
+| 아이디 | 상태 |
+|------|------|
+| `motureset` | 보유 포인트 250,000P. 바로 포인트 리셋 가능 |
+| `motugrant` | 2시간 전에 추가 포인트를 받아 지급 대기 중 |
+| `motulocked` | 로그인 5회 실패로 잠김 (`AUTH_ACCOUNT_LOCKED`) |
+| `motublocked` | 이용 정지 (`AUTH_ACCOUNT_BLOCKED`) |
+| `motudraft` | 임시저장 신청서 5건으로 새 신청서 작성 불가 (`LISTING_DRAFT_LIMIT_EXCEEDED`) |
+| `motumaker` / `motutaker` | 시장 조성용. 매일 서로 거래해 시세·차트를 만들고, 현재가 위아래로 미체결 주문을 걸어 호가 5단계를 채움 |
+
+`motuuser`에는 포인트 이력, 관심상품 4개, 최근 본 종목 5개, 최근 검색어 3개, 상장 신청서 7건(임시저장 2건, 그중 1건은 만료 임박, 접수·검토 중·보완 요청·승인·반려 각 1건)이 들어갑니다. 신청서 ID는 seed 실행 결과에 출력됩니다. 이미 기록이 있는 항목은 건너뜁니다.
+
+테스트 거래(`prisma/seed-market.ts`)도 같이 만들어집니다. 거래 가능한 상품 7개(`MOTU0001`~`MOTU0007`)는 상장 다음 날부터 오늘까지 시세·차트·최근 체결이 있고, `MOTU0006`은 오늘 체결이 없습니다. `motuuser`는 보유 종목 7개, 이번 달 체결 12건, 부분 체결 주문(20주 중 8주), 일부 체결 후 취소한 주문, 미체결 매수·매도 주문을 갖습니다. 보유 종목이 있어 `motuuser`는 포인트 리셋이 안 됩니다. `motumaker` 계정이 이미 있으면 건너뜁니다.
+
 - Swagger에서 `POST /api/auth/login`으로 로그인한 뒤, 응답의 `accessToken`을 오른쪽 위 **Authorize**에 넣으면 로그인이 필요한 API를 호출할 수 있습니다.
 - 저장소에 공개된 비밀번호라 **로컬 전용**입니다. production(`NODE_ENV=production`)에서는 `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`를 지정하지 않으면 seed가 실행되지 않습니다.
 

@@ -22,6 +22,7 @@ describe('StockTradingService', () => {
     account: { findUnique: vi.fn(), update: vi.fn() },
     holding: { create: vi.fn(), update: vi.fn() },
     order: { create: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
+    priceAlert: { updateMany: vi.fn() },
   };
   const transaction = vi.fn((fn: (client: typeof tx) => Promise<unknown>) =>
     fn(tx),
@@ -231,6 +232,10 @@ describe('StockTradingService', () => {
       expect(tx.stock.update).toHaveBeenCalledWith({
         where: { id: STOCK_ID },
         data: { tradeStatus: TradeStatus.CLOSED },
+      });
+      expect(tx.priceAlert.updateMany).toHaveBeenCalledWith({
+        where: { stockId: STOCK_ID, isActive: true },
+        data: { isActive: false },
       });
       expect(result).toEqual({ canceledCount: 5 });
     });
