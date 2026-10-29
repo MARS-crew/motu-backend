@@ -159,7 +159,11 @@ export class AccountsService {
   async getPointResetStatus(userId: number): Promise<GetPointResetResDto> {
     const account = await this.findAccount(userId);
     const now = new Date();
-    const conditions = this.checkResetConditions(account, now);
+    const conditions = this.checkResetConditions(
+      account,
+      await this.countHoldings(account),
+      now,
+    );
     const unmet = conditions.find(({ met }) => !met);
     const nextAvailableAt = this.nextResetAt(account, now);
     return {
@@ -176,14 +180,17 @@ export class AccountsService {
   /**
    * 보유 포인트를 초기 포인트로 재설정한다. 리셋 조건을 모두 충족해야 한다.
    * 추가 포인트 지급 대기시간은 리셋과 관계없이 유지한다. 실패한 시도도 리셋 이력에 남긴다.
-   * 거래내역 삭제는 주문 테이블이 생기면 추가한다. 관심상품은 리셋해도 유지한다.
+   * 거래내역은 리셋 시각 이후 거래만 보여 주는 방식으로 지운다. 관심상품은 리셋해도 유지한다.
+   * 확인한 뒤 체결로 보유 종목이 생기면 계좌 버전이 바뀌어 리셋이 반영되지 않는다.
    */
   async resetPoint(userId: number): Promise<ResetPointResDto> {
     const account = await this.findAccount(userId);
     const now = new Date();
-    const unmet = this.checkResetConditions(account, now).filter(
-      ({ met }) => !met,
-    );
+    const unmet = this.checkResetConditions(
+      account,
+      await this.countHoldings(account),
+      now,
+    ).filter(({ met }) => !met);
     if (unmet.length > 0) {
       const failedConditions = unmet.map(({ condition }) => condition);
       await this.recordResetAttempt(this.prisma, account, now, {
@@ -264,6 +271,10 @@ export class AccountsService {
           ? { lastPointGrantAt: null }
           : { lastPointResetAt: null },
     });
+  }
+
+  private countHoldings(account: Account): Promise<number> {
+    return this.prisma.holding.count({ where: { accountId: account.id } });
   }
 
   private async findAccount(userId: number): Promise<Account> {
@@ -386,14 +397,19 @@ export class AccountsService {
   /**
    * 리셋 조건을 화면 순서대로 확인한다. 사유 문구는 기획에서 정한 문구다.
    * 미체결 주문·처리 중 거래는 예약 포인트가 남아 있는 것과 같은 조건으로 본다.
-   * 보유 종목 0개 조건은 보유 테이블이 생기면 맨 앞에 추가한다.
-   * (문구: "현재 보유 중인 종목이 존재해 리셋이 불가능합니다.")
+   * 미체결 매도 주문은 보유 종목이 있어야 걸 수 있으므로 보유 종목 조건에 포함된다.
    */
   private checkResetConditions(
     account: Account,
+    holdingCount: number,
     now: Date,
   ): CheckedResetCondition[] {
     return [
+      {
+        condition: PointResetCondition.NO_HOLDINGS,
+        met: holdingCount === 0,
+        reason: '현재 보유 중인 종목이 존재해 리셋이 불가능합니다.',
+      },
       {
         condition: PointResetCondition.NO_LOCKED_CASH,
         met: account.lockedCash === 0n,
