@@ -9,8 +9,9 @@
 | 화면 | USR-AUTH-001, 001-E01, 001-M01 |
 | API | `POST /api/auth/login` |
 | 로그인 | 불필요 |
-| 요청 | `loginId`, `password` |
-| 응답 | `accessToken`, `accessTokenExpiresIn`(초), `refreshToken`, `user { userId, loginId, nickname, role }` |
+| 요청 | `loginId`, `password`, `deviceId`(선택, [새 기기 확인](#새-기기-확인)) |
+| 응답 | `verificationRequired: false`, `accessToken`, `accessTokenExpiresIn`(초), `refreshToken`, `user { userId, loginId, nickname, role }` |
+| 응답 (새 기기) | `verificationRequired: true`, `loginToken`, `loginTokenExpiresIn`(초), `method`(`EMAIL`/`SMS`), `maskedTarget` → [새 기기 확인](#새-기기-확인)으로 |
 
 | 에러 | 상황 | 화면 처리 |
 |------|------|------|
@@ -19,8 +20,40 @@
 | 403 `AUTH_ACCOUNT_LOCKED` | 5회째 틀림, 또는 이미 잠긴 계정 | 계정 잠금 상태로 전환 (문의하기 안내) |
 | 403 `AUTH_ACCOUNT_BLOCKED` | 정지된 계정 | 정지 안내 (문의하기 안내) |
 
-- 로그인에 성공하면 실패 횟수는 0으로 초기화됩니다.
+- 로그인에 성공하면 실패 횟수는 0으로 초기화됩니다. 새 기기 확인이 필요하면 확인을 마칠 때 초기화합니다.
 - 잠긴 계정은 비밀번호 재설정으로 풀리지 않습니다.
+
+## 새 기기 확인
+
+| 항목 | 내용 |
+|------|------|
+| 화면 | USR-AUTH-001-S02 (2차 보안 미설정, 이메일), USR-AUTH-009 (2차 보안 설정, SMS) |
+| API | ① `POST /api/auth/login/verifications` ② `POST /api/auth/login/verifications/confirm` |
+| 로그인 | 불필요 (`loginToken` 사용) |
+| 요청 | ① `loginToken` ② `loginToken`, `code` |
+| 응답 | ① `method`, `maskedTarget`, `expiresAt`, `resendAvailableAt` ② [로그인](#로그인) 성공 응답과 같음 |
+
+**흐름**
+1. 앱·웹은 처음 실행할 때 UUID를 하나 만들어 저장해 두고, 로그인할 때마다 `deviceId`로 같은 값을 보냅니다.
+2. 비밀번호가 맞아도 신뢰하지 않은 기기면 토큰 대신 `verificationRequired: true`와 `loginToken`(10분)을 받습니다. 기본 로그인 화면에는 기기 정보를 보여 주지 않습니다.
+3. `method`에 따라 추가 확인 화면을 띄웁니다.
+   - `EMAIL`: 2차 보안 미설정 계정. **가입 이메일**로 보냅니다. 회원가입 때 입력한 휴대폰 번호로는 보내지 않습니다. 확인 후 "마이페이지에서 2차 보안을 설정할 수 있다"고 안내합니다.
+   - `SMS`: 2차 보안 설정 계정. **등록 휴대폰**으로 보냅니다. [2차 보안](two-factor.md#정책)의 5회 연속 실패 30분 제한이 적용됩니다.
+4. ②가 성공하면 토큰을 받고, 그 기기는 **마지막 사용 후 30일** 동안 추가 확인 없이 로그인합니다.
+
+- `loginToken`은 일반 API에 쓸 수 없습니다.
+- 비밀번호를 재설정하면 신뢰 기기가 모두 지워져 모든 기기에서 다시 확인합니다.
+- `deviceId`를 보내지 않으면 기기 확인 없이 로그인합니다. **프론트 연동 전까지만** 두는 동작이며, 연동이 끝나면 필수로 바꿀 예정입니다.
+
+| 에러 | 상황 | 화면 처리 |
+|------|------|------|
+| 401 `AUTH_INVALID_LOGIN_TOKEN` | `loginToken`이 만료(10분)되었거나 잘못됨 | 로그인 화면으로 |
+| 403 `AUTH_ACCOUNT_LOCKED` / `AUTH_ACCOUNT_BLOCKED` | 확인 도중 잠기거나 정지됨 | 로그인과 같음 |
+| 400 `VERIFICATION_CODE_MISMATCH` + `details { remainingAttempts }` | 오입력 | 남은 횟수 표시 |
+| 429 `TWO_FACTOR_LOCKED` + `details { lockedUntil }` | SMS 5회 연속 실패 | 실패 횟수 초과 안내 후 로그인 화면 (계정은 잠기지 않음) |
+| 429 `VERIFICATION_ATTEMPTS_EXCEEDED` | 이메일 인증번호 5회 초과 | 인증번호 다시 받기 |
+| 그 밖의 인증번호 에러 | [인증번호 공통 규칙](#인증번호-공통-규칙) | |
+| 503 `MAIL_SEND_FAILED` / `SMS_SEND_FAILED` | 발송 실패 | 잠시 후 다시 시도 |
 
 ## 토큰 재발급
 
@@ -93,7 +126,7 @@
 
 ## 인증번호 공통 규칙
 
-[가입 이메일 인증](users.md#가입-이메일-인증)과 [아이디 찾기](#아이디-찾기)의 인증번호는 같은 규칙입니다.
+[가입 이메일 인증](users.md#가입-이메일-인증), [아이디 찾기](#아이디-찾기), [새 기기 확인](#새-기기-확인), [2차 보안](two-factor.md) SMS 인증번호는 같은 규칙입니다. SMS는 여기에 [5회 연속 실패 30분 제한](two-factor.md#정책)이 더해집니다.
 
 | 규칙 | 값 |
 |------|------|
