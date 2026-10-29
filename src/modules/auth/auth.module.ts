@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { EnvironmentVariables } from '../../config/env.validation.js';
+import { TwoFactorModule } from '../two-factor/two-factor.module.js';
 import { UsersModule } from '../users/users.module.js';
 import { VerificationsModule } from '../verifications/verifications.module.js';
 import { AuthController } from './auth.controller.js';
@@ -14,6 +15,7 @@ import { RolesGuard } from './guards/roles.guard.js';
   imports: [
     UsersModule,
     VerificationsModule,
+    TwoFactorModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<EnvironmentVariables, true>) => ({
