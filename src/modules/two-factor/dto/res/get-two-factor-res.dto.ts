@@ -44,4 +44,11 @@ export class GetTwoFactorResDto {
       '5회 연속 실패로 SMS 인증이 제한되는 시각까지. 제한 중이 아니면 null',
   })
   lockedUntil: Date | null;
+
+  @ApiProperty({
+    description:
+      'SMS 인증번호 남은 입력 가능 횟수 (연속 5회 실패 시 30분 제한)',
+    example: 5,
+  })
+  remainingAttempts: number;
 }
