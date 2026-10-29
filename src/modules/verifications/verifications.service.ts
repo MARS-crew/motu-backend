@@ -124,6 +124,27 @@ export class VerificationsService {
     });
   }
 
+  /**
+   * `prefix`로 시작하는 다른 구분 값의 인증번호를 쓸 수 없게 한다.
+   * 회원이 다른 번호로 인증번호를 새로 받으면 이전 번호로 받은 인증번호를 무효로 할 때 쓴다.
+   */
+  async invalidateOthers(
+    channel: VerificationChannel,
+    purpose: VerificationPurpose,
+    prefix: string,
+    keep: string,
+  ): Promise<void> {
+    await this.prisma.verification.updateMany({
+      where: {
+        channel,
+        purpose,
+        target: { startsWith: prefix, not: keep },
+        consumedAt: null,
+      },
+      data: { consumedAt: new Date() },
+    });
+  }
+
   private async sendCode(
     channel: VerificationChannel,
     purpose: VerificationPurpose,
@@ -137,7 +158,16 @@ export class VerificationsService {
       latest?.sentAt &&
       now.getTime() - latest.sentAt.getTime() < RESEND_COOLDOWN_MS
     ) {
-      throw new BusinessException(VerificationErrors.RESEND_TOO_SOON);
+      // 화면을 다시 열었을 때도 버튼을 언제 풀지 알 수 있도록 시각을 같이 준다.
+      throw new BusinessException(
+        VerificationErrors.RESEND_TOO_SOON,
+        undefined,
+        {
+          resendAvailableAt: new Date(
+            latest.sentAt.getTime() + RESEND_COOLDOWN_MS,
+          ),
+        },
+      );
     }
 
     const { id, code, expiresAt } =
