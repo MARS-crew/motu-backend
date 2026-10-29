@@ -16,4 +16,13 @@ export class SendLoginVerificationResDto {
 
   @ApiProperty({ description: '재발송 가능 시각' })
   resendAvailableAt: Date;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description:
+      'SMS일 때 남은 입력 가능 횟수 (연속 5회 실패 시 30분 제한). EMAIL은 null (인증번호당 5회)',
+    example: 5,
+  })
+  remainingAttempts: number | null;
 }
