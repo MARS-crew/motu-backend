@@ -17,6 +17,7 @@
 | [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |
 | [주문](orders.md) | 거래 규칙, 주문 가능 정보, 매수·매도 주문, 주문 취소, 내 주문, 호가 5단계 | `modules/orders`, `modules/matching` |
 | [체결](trades.md) | 최근 체결 | `modules/trades` |
+| [포트폴리오](portfolio.md) | 총 자산, 평가손익, 자산 구성, 보유 종목 | `modules/portfolio` |
 | [차트·시세](charts.md) | 당일 거래 요약, 기간별 차트, 실시간 시세(SSE) | `modules/charts` |
 | [지정가 알림](price-alerts.md) | 지정가 알림 설정·수정·해제·목록, 도달 감지 | `modules/price-alerts` |
 | [알림](notifications.md) | 내 알림 목록·읽음·미확인 수, 체결·목표가 생성 서비스, 임시저장 만료 안내 | `modules/notifications`, `modules/listing-applications` |
@@ -36,7 +37,6 @@
 | 항목 | 현재 동작 | 예정 |
 |------|------|------|
 | 포인트 리셋: 보유 종목 조건, 거래내역 삭제 | 없음 | 보유·주문 테이블 생성 완료, 리셋에 반영 예정 |
-| 보유 종목·포트폴리오 | 없음 (주문 내역은 [내 주문 목록](orders.md#내-주문-목록)) | 보유 종목 조회 API |
 | 체결 알림, 가격 도달 알림 | 없음 | 알림 작업 |
 | 새 기기 확인, 2차 보안(SMS) | 없음 | SMS 서비스 확정 후 |
 | 공지·FAQ 등록·수정·삭제 (관리자) | 없음, 로컬은 seed로 넣음 | 관리자 화면 작업 때 |
