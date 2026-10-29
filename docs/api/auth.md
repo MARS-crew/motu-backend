@@ -31,7 +31,7 @@
 | API | ① `POST /api/auth/login/verifications` ② `POST /api/auth/login/verifications/confirm` |
 | 로그인 | 불필요 (`loginToken` 사용) |
 | 요청 | ① `loginToken` ② `loginToken`, `code` |
-| 응답 | ① `method`, `maskedTarget`, `expiresAt`, `resendAvailableAt` ② [로그인](#로그인) 성공 응답과 같음 |
+| 응답 | ① `method`, `maskedTarget`, `expiresAt`, `resendAvailableAt`, `remainingAttempts`(SMS만, EMAIL은 null) ② [로그인](#로그인) 성공 응답과 같음 |
 
 **흐름**
 1. 앱·웹은 처음 실행할 때 UUID를 하나 만들어 저장해 두고, 로그인할 때마다 `deviceId`로 같은 값을 보냅니다.
@@ -49,10 +49,14 @@
 |------|------|------|
 | 401 `AUTH_INVALID_LOGIN_TOKEN` | `loginToken`이 만료(10분)되었거나 잘못됨 | 로그인 화면으로 |
 | 403 `AUTH_ACCOUNT_LOCKED` / `AUTH_ACCOUNT_BLOCKED` | 확인 도중 잠기거나 정지됨 | 로그인과 같음 |
+| 400 `BAD_REQUEST` | `loginToken` 없음, 인증번호 6자리 아님 | 입력칸 오류 |
 | 400 `VERIFICATION_CODE_MISMATCH` + `details { remainingAttempts }` | 오입력 | 남은 횟수 표시 |
-| 429 `TWO_FACTOR_LOCKED` + `details { lockedUntil }` | SMS 5회 연속 실패 | 실패 횟수 초과 안내 후 로그인 화면 (계정은 잠기지 않음) |
+| 400 `VERIFICATION_EXPIRED` | 인증번호 5분 지남 | 만료 상태, [인증번호 다시 받기] |
+| 404 `VERIFICATION_NOT_FOUND` | ①을 부르지 않고 ②, 또는 이미 로그인에 쓴 인증번호 | ①부터 |
+| 400 `VERIFICATION_REQUIRED` | [인증 확인]을 연달아 눌러 같은 인증번호가 두 번 처리됨 | 버튼을 요청 중 비활성화. 먼저 보낸 요청의 응답을 씀 |
+| 429 `VERIFICATION_RESEND_TOO_SOON` + `details { resendAvailableAt }` | 30초 안에 재발송 | `resendAvailableAt`까지 재발송 버튼 비활성화 |
+| 429 `TWO_FACTOR_LOCKED` + `details { lockedUntil }` | SMS 5회 연속 실패, 또는 제한 중에 발송·확인 | 실패 횟수 초과 안내 후 로그인 화면 (계정은 잠기지 않음) |
 | 429 `VERIFICATION_ATTEMPTS_EXCEEDED` | 이메일 인증번호 5회 초과 | 인증번호 다시 받기 |
-| 그 밖의 인증번호 에러 | [인증번호 공통 규칙](#인증번호-공통-규칙) | |
 | 503 `MAIL_SEND_FAILED` / `SMS_SEND_FAILED` | 발송 실패 | 잠시 후 다시 시도 |
 
 ## 토큰 재발급
@@ -143,5 +147,5 @@
 | 429 `VERIFICATION_ATTEMPTS_EXCEEDED` | 5회 초과 | "인증번호를 다시 받아 주세요" + 재발송 버튼 |
 | 400 `VERIFICATION_EXPIRED` | 5분 지남 | 재발송 안내 |
 | 404 `VERIFICATION_NOT_FOUND` | 인증번호를 요청하지 않고 확인 | 인증번호 발송부터 |
-| 429 `VERIFICATION_RESEND_TOO_SOON` | 30초 안에 재발송 | `resendAvailableAt`까지 재발송 버튼 비활성화 |
+| 429 `VERIFICATION_RESEND_TOO_SOON` + `details { resendAvailableAt }` | 30초 안에 재발송 | `resendAvailableAt`까지 재발송 버튼 비활성화 (화면을 다시 열었을 때도 이 값으로 복원) |
 | 503 `MAIL_SEND_FAILED` | 메일 발송 실패 | 잠시 후 다시 시도 안내 (재발송 제한 없음) |
