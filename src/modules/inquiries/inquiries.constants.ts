@@ -1,6 +1,10 @@
 import { createHmac } from 'node:crypto';
 
 export const INQUIRY_TOKEN_TTL = 15 * 60;
+export const INQUIRY_MAX_FAILURES = 5;
+export const INQUIRY_BLOCK_MS = 15 * 60 * 1000;
+export const INQUIRY_TITLE_MAX_LENGTH = 100;
+export const INQUIRY_CONTENT_MAX_LENGTH = 5000;
 export const INQUIRY_TOKEN_ISSUER = 'motu-inquiries';
 export const INQUIRY_TOKEN_AUDIENCE = 'inquiries';
 
