@@ -17,6 +17,9 @@ export class LoginUserResDto {
 }
 
 export class LoginResDto extends RefreshTokenResDto {
+  @ApiProperty({ description: '로그인 완료면 false', example: false })
+  verificationRequired: false;
+
   @ApiProperty({ type: LoginUserResDto })
   user: LoginUserResDto;
 }
