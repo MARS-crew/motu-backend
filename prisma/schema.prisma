@@ -63,6 +63,7 @@ model User {
   revisionRequestsCreated ListingApplicationRevision[] @relation("RevisionRequestAuthor")
   priceAlerts             PriceAlert[]
   inquiries               Inquiry[]
+  inquiryAccessAttempt    InquiryAccessAttempt?
 
   @@map("users")
 }
@@ -90,7 +91,7 @@ model Inquiry {
   inquiryCode  String        @unique @map("inquiry_code") @db.VarChar(32)
   inquiryType  InquiryType   @map("inquiry_type")
   title        String        @db.VarChar(100)
-  content      String        @db.Text
+  content      String        @db.VarChar(5000)
   status       InquiryStatus @default(SUBMITTED) @map("inquiry_status")
   createDate   DateTime      @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate DateTime      @updatedAt @map("modified_date") @db.Timestamptz(3)
@@ -98,6 +99,16 @@ model Inquiry {
 
   @@index([userId, createDate, id])
   @@map("inquiries")
+}
+
+/// 문의 본인 확인 전용 실패 기록. 일반 로그인 실패 횟수/잠금과 분리한다.
+model InquiryAccessAttempt {
+  userId       Int       @id @map("user_id")
+  failCount    Int       @default(0) @map("fail_count")
+  blockedUntil DateTime? @map("blocked_until") @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("inquiry_access_attempts")
 }
 
 // ─── 계좌 ───────────────────────────────────────────
