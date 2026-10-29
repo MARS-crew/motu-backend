@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { MailSender } from '../../common/mail/mail-sender.js';
+import { SmsSender } from '../../common/sms/sms-sender.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   VerificationChannel,
@@ -28,7 +29,14 @@ describe('VerificationsService', () => {
   const config = {
     get: () => 'test-jwt-access-secret-at-least-32-chars',
   } as unknown as ConfigService<never, true>;
-  const service = new VerificationsService(prisma, mailSender, config);
+  const sendSms = vi.fn();
+  const smsSender = { send: sendSms } as unknown as SmsSender;
+  const service = new VerificationsService(
+    prisma,
+    mailSender,
+    smsSender,
+    config,
+  );
   const sentCode = (call = 0) => {
     const { text } = sendMail.mock.calls[call][0] as { text: string };
     return /\[(\d{6})\]/.exec(text)?.[1];
@@ -242,6 +250,57 @@ describe('VerificationsService', () => {
           EMAIL,
         ),
       ).rejects.toMatchObject({ response: { code: 'VERIFICATION_REQUIRED' } });
+    });
+  });
+
+  describe('sendSmsCode', () => {
+    it('구분 값(target)으로 저장하고 SMS는 휴대폰 번호로 보낸다', async () => {
+      verification.findFirst.mockResolvedValue(null);
+
+      await service.sendSmsCode(
+        VerificationPurpose.TWO_FACTOR,
+        '01012344821',
+        '1:01012344821',
+      );
+
+      const { text, to } = sendSms.mock.calls[0][0] as {
+        text: string;
+        to: string;
+      };
+      const code = /\[(\d{6})\]/.exec(text)?.[1];
+      expect(to).toBe('01012344821');
+      expect(text).toContain('2차 보안');
+      expect(sendMail).not.toHaveBeenCalled();
+      const { data } = verification.create.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(data).toMatchObject({
+        channel: VerificationChannel.SMS,
+        target: '1:01012344821',
+        codeHash: createHash('sha256')
+          .update(`1:01012344821:${code}`)
+          .digest('hex'),
+      });
+    });
+  });
+
+  describe('invalidatePending', () => {
+    it('사용하지 않은 인증번호를 모두 사용 처리한다', async () => {
+      await service.invalidatePending(
+        VerificationChannel.SMS,
+        VerificationPurpose.TWO_FACTOR,
+        '1:01012344821',
+      );
+
+      expect(verification.updateMany).toHaveBeenCalledWith({
+        where: {
+          channel: VerificationChannel.SMS,
+          purpose: VerificationPurpose.TWO_FACTOR,
+          target: '1:01012344821',
+          consumedAt: null,
+        },
+        data: { consumedAt: expect.any(Date) },
+      });
     });
   });
 });
