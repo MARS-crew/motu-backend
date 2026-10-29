@@ -104,6 +104,7 @@
 | 400 `ORDER_QTY_TOO_LOW` + `details { minOrderQty }` | 최소 주문 수량 미만 | |
 | 400 `ORDER_INSUFFICIENT_CASH` + `details { availableCash, requiredAmount }` | 매수: 사용 가능 포인트 부족 | |
 | 400 `ORDER_INSUFFICIENT_QTY` + `details { sellableQty }` | 매도: 매도 가능 수량 부족 | |
+| 403 `TWO_FACTOR_REQUIRED` + `details { action: ORDER_ACTIVATION }` | 2차 보안 설정 계정의 첫 주문 ([주문 기능 최초 활성화](two-factor.md#주문-기능-최초-활성화)) | 공통 2차 보안 화면에서 재인증 후 같은 요청을 다시 보냄 |
 | 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 | |
 | 404 `ACCOUNT_NOT_FOUND` | 계좌가 없음 (보통 생기지 않음) | |
 | 409 `ORDER_STOCK_NOT_TRADABLE` + `details { tradeStatus }` | 거래 가능 상태가 아님 | 주문 버튼 비활성화 |
