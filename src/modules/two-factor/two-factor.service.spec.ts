@@ -38,6 +38,7 @@ describe('TwoFactorService', () => {
     confirmEmailCode: vi.fn(),
     consumeVerified: vi.fn(),
     invalidatePending: vi.fn(),
+    invalidateOthers: vi.fn(),
   };
   const service = new TwoFactorService(
     prisma,
@@ -90,6 +91,21 @@ describe('TwoFactorService', () => {
         maskedPhoneNumber: '010-****-4821',
         remainingAttempts: 5,
       });
+      // 다른 번호로 받아 둔 인증번호는 무효로 한다.
+      expect(verifications.invalidateOthers).toHaveBeenCalledWith(
+        VerificationChannel.SMS,
+        VerificationPurpose.TWO_FACTOR_SETUP,
+        '1:',
+        `1:${PHONE}`,
+      );
+    });
+
+    it('남은 입력 횟수는 연속 실패 횟수를 뺀 값이다', async () => {
+      user.findUnique.mockResolvedValue(member({ twoFactorFailCount: 2 }));
+
+      const result = await service.sendPhoneVerification(1, PHONE);
+
+      expect(result.remainingAttempts).toBe(3);
     });
 
     it('설정 계정이 번호를 바꾸려면 최근 재인증이 필요하다', async () => {
@@ -402,6 +418,21 @@ describe('TwoFactorService', () => {
         '1:kimmt1234@gmail.com',
       );
       expect(verifications.sendSmsCode).not.toHaveBeenCalled();
+    });
+
+    it('SMS로 보내면 남은 입력 횟수를, 이메일이면 null을 준다', async () => {
+      verifications.sendEmailCode.mockResolvedValue({
+        expiresAt: new Date(),
+        resendAvailableAt: new Date(),
+      });
+
+      const sms = await service.sendLoginVerification(
+        enabled({ twoFactorFailCount: 1 }),
+      );
+      const email = await service.sendLoginVerification(member());
+
+      expect(sms).toMatchObject({ method: 'SMS', remainingAttempts: 4 });
+      expect(email).toMatchObject({ method: 'EMAIL', remainingAttempts: null });
     });
 
     it('SMS로 확인하면 최근 2차 보안 인증 시각도 갱신한다', async () => {
