@@ -791,7 +791,7 @@ function listingApplicationOf(
       minOrderQuantity: '1',
       tickSize: '10',
       priceCalculationBasis: '최근 12개월 매출과 MAU를 기준으로 산정했습니다.',
-      desiredListingDate: '2026-12-01',
+      desiredListingDate: new Date(now + 30 * DAY).toISOString(),
     },
     {
       mau: '50000',
@@ -808,7 +808,7 @@ function listingApplicationOf(
       transactionVolume: '1000000000',
       metricsStartDate: '2025-10-01',
       metricsEndDate: '2026-09-30',
-      transactionVolumeBasis: '결제 완료 금액 합계',
+      transactionVolumeBasis: 'LAST_12_MONTHS',
       transactionVolumeSource: '내부 결제 시스템',
       transactionVolumeExtractDate: '2026-10-05',
     },
