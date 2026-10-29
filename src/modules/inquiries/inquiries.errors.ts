@@ -2,6 +2,21 @@ import { HttpStatus } from '@nestjs/common';
 import type { ErrorDefinition } from '../../common/exceptions/business.exception.js';
 
 export const InquiryErrors = {
+  INVALID_TITLE: {
+    code: 'INQUIRY_INVALID_TITLE',
+    message: '문의 제목은 1자 이상 100자 이하로 입력해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
+  INVALID_CONTENT: {
+    code: 'INQUIRY_INVALID_CONTENT',
+    message: '문의 내용은 1자 이상 5000자 이하로 입력해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
+  ACCESS_TEMPORARILY_BLOCKED: {
+    code: 'INQUIRY_ACCESS_TEMPORARILY_BLOCKED',
+    message: '문의 본인 확인에 5회 실패했습니다. 15분 후 다시 시도해 주세요.',
+    status: HttpStatus.TOO_MANY_REQUESTS,
+  },
   INVALID_CREDENTIALS: {
     code: 'INQUIRY_INVALID_CREDENTIALS',
     message: '아이디 또는 비밀번호를 확인해 주세요.',
