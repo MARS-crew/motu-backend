@@ -37,6 +37,7 @@ export interface SentLoginVerification {
   maskedTarget: string;
   expiresAt: Date;
   resendAvailableAt: Date;
+  remainingAttempts: number | null;
 }
 
 type TwoFactorUser = Pick<
@@ -78,6 +79,7 @@ export class TwoFactorService {
         user.twoFactorLockedUntil && user.twoFactorLockedUntil.getTime() > now
           ? user.twoFactorLockedUntil
           : null,
+      remainingAttempts: this.remainingAttempts(user),
     };
   }
 
@@ -98,10 +100,18 @@ export class TwoFactorService {
       this.assertRecentlyVerified(user, TwoFactorAction.PHONE_CHANGE);
     }
 
+    const target = verificationTarget(user.id, phoneNumber);
     const sent = await this.verifications.sendSmsCode(
       VerificationPurpose.TWO_FACTOR_SETUP,
       phoneNumber,
-      verificationTarget(user.id, phoneNumber),
+      target,
+    );
+    // 다른 번호로 받아 둔 인증번호는 쓸 수 없게 한다 (새 번호를 발송하면 이전 인증번호 무효).
+    await this.verifications.invalidateOthers(
+      VerificationChannel.SMS,
+      VerificationPurpose.TWO_FACTOR_SETUP,
+      `${user.id}:`,
+      target,
     );
     return {
       maskedPhoneNumber: maskPhoneNumber(phoneNumber),
@@ -357,7 +367,12 @@ export class TwoFactorService {
         phoneNumber,
         verificationTarget(user.id, phoneNumber),
       );
-      return { method, maskedTarget, ...sent };
+      return {
+        method,
+        maskedTarget,
+        ...sent,
+        remainingAttempts: this.remainingAttempts(user),
+      };
     }
 
     const sent = await this.verifications.sendEmailCode(
@@ -365,7 +380,7 @@ export class TwoFactorService {
       user.email,
       verificationTarget(user.id, user.email),
     );
-    return { method, maskedTarget, ...sent };
+    return { method, maskedTarget, ...sent, remainingAttempts: null };
   }
 
   /** 새 기기 확인 인증번호를 검증하고 사용 처리한다. SMS로 확인했으면 최근 인증 시각도 갱신한다. */
