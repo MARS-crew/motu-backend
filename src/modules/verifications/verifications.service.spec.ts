@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { MailSender } from '../../common/mail/mail-sender.js';
+import { SmsSender } from '../../common/sms/sms-sender.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   VerificationChannel,
@@ -28,7 +29,14 @@ describe('VerificationsService', () => {
   const config = {
     get: () => 'test-jwt-access-secret-at-least-32-chars',
   } as unknown as ConfigService<never, true>;
-  const service = new VerificationsService(prisma, mailSender, config);
+  const sendSms = vi.fn();
+  const smsSender = { send: sendSms } as unknown as SmsSender;
+  const service = new VerificationsService(
+    prisma,
+    mailSender,
+    smsSender,
+    config,
+  );
   const sentCode = (call = 0) => {
     const { text } = sendMail.mock.calls[call][0] as { text: string };
     return /\[(\d{6})\]/.exec(text)?.[1];
@@ -72,6 +80,22 @@ describe('VerificationsService', () => {
         where: { id: 2 },
         data: { sentAt: expect.any(Date) },
       });
+    });
+
+    it('30초 안에 다시 요청하면 재발송 가능 시각을 알려준다', async () => {
+      const sentAt = new Date(Date.now() - 10_000);
+      verification.findFirst.mockResolvedValue(pending({ sentAt }));
+
+      await expect(
+        service.sendEmailCode(VerificationPurpose.SIGNUP, EMAIL),
+      ).rejects.toMatchObject({
+        status: 429,
+        response: {
+          code: 'VERIFICATION_RESEND_TOO_SOON',
+          details: { resendAvailableAt: new Date(sentAt.getTime() + 30_000) },
+        },
+      });
+      expect(sendMail).not.toHaveBeenCalled();
     });
 
     it('유효한 인증번호가 남아 있으면 같은 번호를 다시 보낸다', async () => {
@@ -242,6 +266,57 @@ describe('VerificationsService', () => {
           EMAIL,
         ),
       ).rejects.toMatchObject({ response: { code: 'VERIFICATION_REQUIRED' } });
+    });
+  });
+
+  describe('sendSmsCode', () => {
+    it('구분 값(target)으로 저장하고 SMS는 휴대폰 번호로 보낸다', async () => {
+      verification.findFirst.mockResolvedValue(null);
+
+      await service.sendSmsCode(
+        VerificationPurpose.TWO_FACTOR,
+        '01012344821',
+        '1:01012344821',
+      );
+
+      const { text, to } = sendSms.mock.calls[0][0] as {
+        text: string;
+        to: string;
+      };
+      const code = /\[(\d{6})\]/.exec(text)?.[1];
+      expect(to).toBe('01012344821');
+      expect(text).toContain('2차 보안');
+      expect(sendMail).not.toHaveBeenCalled();
+      const { data } = verification.create.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(data).toMatchObject({
+        channel: VerificationChannel.SMS,
+        target: '1:01012344821',
+        codeHash: createHash('sha256')
+          .update(`1:01012344821:${code}`)
+          .digest('hex'),
+      });
+    });
+  });
+
+  describe('invalidatePending', () => {
+    it('사용하지 않은 인증번호를 모두 사용 처리한다', async () => {
+      await service.invalidatePending(
+        VerificationChannel.SMS,
+        VerificationPurpose.TWO_FACTOR,
+        '1:01012344821',
+      );
+
+      expect(verification.updateMany).toHaveBeenCalledWith({
+        where: {
+          channel: VerificationChannel.SMS,
+          purpose: VerificationPurpose.TWO_FACTOR,
+          target: '1:01012344821',
+          consumedAt: null,
+        },
+        data: { consumedAt: expect.any(Date) },
+      });
     });
   });
 });

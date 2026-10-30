@@ -14,6 +14,7 @@ import { ChartsService } from '../charts/charts.service.js';
 import { MatchingService } from '../matching/matching.service.js';
 import { SettlementService } from '../matching/settlement.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
+import { TwoFactorService } from '../two-factor/two-factor.service.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
 import { GetOrderAvailableResDto } from './dto/res/get-order-available-res.dto.js';
 import { GetOrderBookResDto } from './dto/res/get-order-book-res.dto.js';
@@ -79,6 +80,7 @@ export class OrdersService {
     private readonly matching: MatchingService,
     private readonly settlement: SettlementService,
     private readonly charts: ChartsService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
 
   /**
@@ -97,6 +99,8 @@ export class OrdersService {
     if (existing) {
       return this.toReplayedOrderRes(existing, dto);
     }
+    // 2차 보안을 설정한 계정은 첫 주문 전에 재인증한다 (주문 기능 최초 활성화).
+    await this.twoFactor.assertOrderAllowed(userId);
 
     const stock = await this.prisma.stock.findFirst({
       where: { id: dto.stockId, isDeleted: false },
@@ -186,6 +190,7 @@ export class OrdersService {
         this.matching.publishTrades(trades);
         return settled;
       });
+      await this.twoFactor.markOrderActivated(userId);
       return this.toOrderRes(order);
     } catch (error) {
       // 같은 요청이 동시에 들어와 다른 요청이 먼저 접수한 경우. 이 요청의 예약은 트랜잭션과 함께 취소된다.

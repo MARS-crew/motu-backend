@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
   MinLength,
   Max,
   Min,
@@ -108,6 +109,15 @@ export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   MAIL_FROM_NAME: string = 'MOTU';
+
+  /**
+   * SMS 발신자 이름 (영문·숫자 11자 이하, Brevo에 등록한 Sender ID).
+   * BREVO_API_KEY와 함께 있으면 Brevo로 SMS를 보낸다. 비우면 보내지 않고 서버 로그에 인증번호를 출력한다.
+   */
+  // .env.example을 그대로 복사하면 빈 값이 들어오므로 값이 있을 때만 검증한다.
+  @ValidateIf((env: EnvironmentVariables) => !!env.SMS_SENDER)
+  @Matches(/^[A-Za-z0-9]{1,11}$/)
+  SMS_SENDER?: string;
 }
 
 /** 운영 환경이거나 BREVO_API_KEY가 있으면 Brevo로 메일을 보낸다. */

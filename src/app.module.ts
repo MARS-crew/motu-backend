@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { MailModule } from './common/mail/mail.module.js';
+import { SmsModule } from './common/sms/sms.module.js';
 import { PrismaModule } from './common/prisma/prisma.module.js';
 import { validateEnv } from './config/env.validation.js';
 import { createLoggerOptions } from './config/logger.config.js';
@@ -24,6 +25,7 @@ import { SectorsModule } from './modules/sectors/sectors.module.js';
 import { StocksModule } from './modules/stocks/stocks.module.js';
 import { TradeHistoriesModule } from './modules/trade-histories/trade-histories.module.js';
 import { TradesModule } from './modules/trades/trades.module.js';
+import { TwoFactorModule } from './modules/two-factor/two-factor.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 
 @Module({
@@ -39,6 +41,7 @@ import { UsersModule } from './modules/users/users.module.js';
     }),
     PrismaModule,
     MailModule,
+    SmsModule,
     HealthModule,
     FilesModule,
     ListingApplicationsModule,
@@ -59,6 +62,7 @@ import { UsersModule } from './modules/users/users.module.js';
     PriceAlertsModule,
     PortfolioModule,
     TradeHistoriesModule,
+    TwoFactorModule,
   ],
 })
 export class AppModule {}

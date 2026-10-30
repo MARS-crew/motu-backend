@@ -12,6 +12,8 @@ import { ChartsService } from '../charts/charts.service.js';
 import { MatchingService } from '../matching/matching.service.js';
 import { SettlementService } from '../matching/settlement.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
+import { TwoFactorErrors } from '../two-factor/two-factor.errors.js';
+import { TwoFactorService } from '../two-factor/two-factor.service.js';
 import { CreateOrderReqDto } from './dto/req/create-order-req.dto.js';
 import {
   MAX_FILLS_PER_ORDER,
@@ -68,11 +70,16 @@ describe('OrdersService', () => {
     settle: vi.fn(),
   };
   const charts = { recordTrades: vi.fn() };
+  const twoFactor = {
+    assertOrderAllowed: vi.fn(),
+    markOrderActivated: vi.fn(),
+  };
   const service = new OrdersService(
     prisma,
     matching as unknown as MatchingService,
     settlement as unknown as SettlementService,
     charts as unknown as ChartsService,
+    twoFactor as unknown as TwoFactorService,
   );
 
   const stockOf = (overrides: Record<string, unknown> = {}) => ({
@@ -213,6 +220,29 @@ describe('OrdersService', () => {
       await service.placeOrder(USER_ID, buyOf(5_000, 200));
 
       expect(tx.order.create).toHaveBeenCalled();
+    });
+
+    it('접수하면 주문 기능을 활성화한 것으로 기록한다', async () => {
+      tx.$queryRaw.mockResolvedValue(lockedAccountOf(3_000_000n, 0n));
+
+      await service.placeOrder(USER_ID, buyOf(5_000, 200));
+
+      expect(twoFactor.assertOrderAllowed).toHaveBeenCalledWith(USER_ID);
+      expect(twoFactor.markOrderActivated).toHaveBeenCalledWith(USER_ID);
+    });
+
+    it('2차 보안 재인증이 필요하면(첫 주문) 예약하지 않고 거부한다', async () => {
+      twoFactor.assertOrderAllowed.mockRejectedValueOnce(
+        new BusinessException(TwoFactorErrors.REQUIRED),
+      );
+
+      const error = await errorOf(
+        service.placeOrder(USER_ID, buyOf(5_000, 200)),
+      );
+
+      expect(error.error).toBe(TwoFactorErrors.REQUIRED);
+      expect(transaction).not.toHaveBeenCalled();
+      expect(twoFactor.markOrderActivated).not.toHaveBeenCalled();
     });
 
     it('계좌 행을 잠근 뒤 포인트를 확인한다', async () => {

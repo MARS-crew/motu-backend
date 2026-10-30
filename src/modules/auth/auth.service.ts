@@ -1,7 +1,7 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, TokenExpiredError } from '@nestjs/jwt';
 import { verify } from 'argon2';
 import { AuthUser } from '../../common/auth/auth-user.type.js';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
@@ -15,11 +15,17 @@ import {
   VerificationChannel,
   VerificationPurpose,
 } from '../../generated/prisma/client.js';
+import {
+  hashDeviceId,
+  SentLoginVerification,
+  TwoFactorService,
+} from '../two-factor/two-factor.service.js';
 import { MAX_LOGIN_FAIL_COUNT } from '../users/users.constants.js';
 import { UsersService } from '../users/users.service.js';
 import { VerificationsService } from '../verifications/verifications.service.js';
 import { AuthErrors } from './auth.errors.js';
 import {
+  LOGIN_TOKEN_TTL,
   PASSWORD_RESET_COOLDOWN_MS,
   PASSWORD_RESET_TTL_MS,
   REFRESH_TOKEN_BYTES,
@@ -27,10 +33,12 @@ import {
 import { LoginReqDto } from './dto/req/login-req.dto.js';
 import { FindLoginIdResDto } from './dto/res/find-login-id-res.dto.js';
 import { LoginResDto } from './dto/res/login-res.dto.js';
+import { LoginVerificationRequiredResDto } from './dto/res/login-verification-required-res.dto.js';
 import { RefreshTokenResDto } from './dto/res/refresh-token-res.dto.js';
 import { SendLoginIdVerificationResDto } from './dto/res/send-login-id-verification-res.dto.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const LOGIN_TOKEN_PURPOSE = 'LOGIN_VERIFICATION';
 
 @Injectable()
 export class AuthService {
@@ -43,9 +51,16 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly verificationsService: VerificationsService,
     private readonly mailSender: MailSender,
+    private readonly twoFactorService: TwoFactorService,
   ) {}
 
-  async login(dto: LoginReqDto): Promise<LoginResDto> {
+  /**
+   * 비밀번호가 맞아도 신뢰하지 않은 기기(deviceId)면 토큰 대신 새 기기 확인용 로그인 토큰을 내려준다.
+   * 실패 횟수 초기화와 최근 접속일 갱신은 로그인을 마칠 때 한다.
+   */
+  async login(
+    dto: LoginReqDto,
+  ): Promise<LoginResDto | LoginVerificationRequiredResDto> {
     const user = await this.usersService.findByLoginId(dto.loginId);
     if (!user) {
       throw new BusinessException(AuthErrors.INVALID_CREDENTIALS);
@@ -65,11 +80,50 @@ export class AuthService {
       });
     }
 
+    if (dto.deviceId) {
+      const deviceIdHash = hashDeviceId(dto.deviceId);
+      if (
+        !(await this.twoFactorService.useTrustedDevice(user.id, deviceIdHash))
+      ) {
+        return {
+          verificationRequired: true,
+          loginToken: await this.signLoginToken(user.id, deviceIdHash),
+          loginTokenExpiresIn: LOGIN_TOKEN_TTL,
+          ...this.twoFactorService.loginMethod(user),
+        };
+      }
+    }
+
+    return this.completeLogin(user);
+  }
+
+  /** 새 기기 확인 인증번호를 보낸다. 2차 보안 설정 계정은 SMS, 미설정 계정은 가입 이메일이다. */
+  async sendLoginVerification(
+    loginToken: string,
+  ): Promise<SentLoginVerification> {
+    const { user } = await this.verifyLoginToken(loginToken);
+    return this.twoFactorService.sendLoginVerification(user);
+  }
+
+  /** 인증번호가 맞으면 기기를 30일 동안 신뢰하고 로그인을 마친다. */
+  async confirmLoginVerification(
+    loginToken: string,
+    code: string,
+    userAgent?: string,
+  ): Promise<LoginResDto> {
+    const { user, deviceIdHash } = await this.verifyLoginToken(loginToken);
+    await this.twoFactorService.confirmLoginVerification(user, code);
+    await this.twoFactorService.trustDevice(user.id, deviceIdHash, userAgent);
+    return this.completeLogin(user);
+  }
+
+  private async completeLogin(user: User): Promise<LoginResDto> {
     await this.usersService.recordLoginSuccess(user.id);
     const { accessToken, accessTokenExpiresIn, refreshToken } =
       await this.issueTokens({ userId: user.id, role: user.role });
 
     return {
+      verificationRequired: false,
       accessToken,
       accessTokenExpiresIn,
       refreshToken,
@@ -260,6 +314,8 @@ export class AuthService {
 
     await this.usersService.changePassword(user.id, newPassword);
     await this.revokeAllSessions(user.id);
+    // 비밀번호를 바꾸면 모든 기기에서 다시 새 기기 확인을 받는다.
+    await this.twoFactorService.forgetDevices(user.id);
   }
 
   private async findUsableResetToken(token: string) {
@@ -318,6 +374,59 @@ export class AuthService {
       }),
       refreshToken,
     };
+  }
+
+  /**
+   * 새 기기 확인용 로그인 토큰. Access 토큰과 서명 키를 분리해 일반 API에 쓸 수 없게 한다.
+   */
+  private signLoginToken(userId: number, deviceIdHash: string) {
+    return this.jwtService.signAsync(
+      { sub: userId, did: deviceIdHash, purpose: LOGIN_TOKEN_PURPOSE },
+      { secret: this.loginTokenSecret(), expiresIn: LOGIN_TOKEN_TTL },
+    );
+  }
+
+  /** 로그인 토큰을 확인하고, 그사이 잠기거나 정지된 회원이면 막는다. */
+  private async verifyLoginToken(
+    loginToken: string,
+  ): Promise<{ user: User; deviceIdHash: string }> {
+    let payload: { sub?: unknown; did?: unknown; purpose?: unknown };
+    try {
+      payload = await this.jwtService.verifyAsync(loginToken, {
+        secret: this.loginTokenSecret(),
+        algorithms: ['HS256'],
+      });
+    } catch (error) {
+      throw new BusinessException(
+        AuthErrors.INVALID_LOGIN_TOKEN,
+        error instanceof TokenExpiredError
+          ? '로그인 확인 시간이 지났습니다. 다시 로그인해 주세요.'
+          : undefined,
+      );
+    }
+    if (
+      payload.purpose !== LOGIN_TOKEN_PURPOSE ||
+      typeof payload.sub !== 'number' ||
+      typeof payload.did !== 'string'
+    ) {
+      throw new BusinessException(AuthErrors.INVALID_LOGIN_TOKEN);
+    }
+
+    const user = await this.usersService.findById(payload.sub);
+    if (!user) {
+      throw new BusinessException(AuthErrors.INVALID_LOGIN_TOKEN);
+    }
+    this.assertLoginAllowed(user);
+    return { user, deviceIdHash: payload.did };
+  }
+
+  private loginTokenSecret(): string {
+    return createHmac(
+      'sha256',
+      this.config.get('JWT_ACCESS_SECRET', { infer: true }),
+    )
+      .update('motu:login-verification:v1')
+      .digest('hex');
   }
 
   private hashToken(token: string): string {

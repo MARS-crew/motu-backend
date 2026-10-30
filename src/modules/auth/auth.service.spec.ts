@@ -6,9 +6,11 @@ import { BusinessException } from '../../common/exceptions/business.exception.js
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
 import { MailErrors } from '../../common/mail/mail.errors.js';
+import { TwoFactorService } from '../two-factor/two-factor.service.js';
 import { UsersService } from '../users/users.service.js';
 import { VerificationsService } from '../verifications/verifications.service.js';
 import { AuthService, maskLoginId } from './auth.service.js';
+import { LoginResDto } from './dto/res/login-res.dto.js';
 
 const sha256 = (value: string) =>
   createHash('sha256').update(value).digest('hex');
@@ -64,6 +66,14 @@ describe('AuthService', () => {
   } as unknown as VerificationsService;
   const sendMail = vi.fn();
   const mailSender = { send: sendMail } as unknown as MailSender;
+  const twoFactorService = {
+    useTrustedDevice: vi.fn(),
+    loginMethod: vi.fn(),
+    sendLoginVerification: vi.fn(),
+    confirmLoginVerification: vi.fn(),
+    trustDevice: vi.fn(),
+    forgetDevices: vi.fn(),
+  };
   const service = new AuthService(
     prisma,
     jwtService,
@@ -71,6 +81,7 @@ describe('AuthService', () => {
     usersService,
     verificationsService,
     mailSender,
+    twoFactorService as unknown as TwoFactorService,
   );
 
   let user: Record<string, unknown>;
@@ -115,7 +126,7 @@ describe('AuthService', () => {
       expect(refreshToken.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           userId: 1,
-          tokenHash: sha256(result.refreshToken),
+          tokenHash: sha256((result as LoginResDto).refreshToken),
         }),
       });
     });
@@ -160,6 +171,149 @@ describe('AuthService', () => {
       ).rejects.toMatchObject({
         response: { code: 'AUTH_INVALID_CREDENTIALS' },
       });
+    });
+  });
+
+  describe('새 기기 확인', () => {
+    const ACCESS_SECRET = 'test-jwt-access-secret-at-least-32-chars';
+    const realJwt = new JwtService({
+      secret: ACCESS_SECRET,
+      signOptions: { expiresIn: 900 },
+    });
+    const deviceService = new AuthService(
+      prisma,
+      realJwt,
+      {
+        get: (key: string) =>
+          ({
+            JWT_ACCESS_SECRET: ACCESS_SECRET,
+            JWT_ACCESS_EXPIRES_IN: 900,
+            JWT_REFRESH_EXPIRES_IN_DAYS: 14,
+          })[key],
+      } as unknown as ConfigService<never, true>,
+      usersService,
+      verificationsService,
+      mailSender,
+      twoFactorService as unknown as TwoFactorService,
+    );
+    const DEVICE_ID = '3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a12';
+    const login = () =>
+      deviceService.login({
+        loginId: 'motuuser',
+        password: 'motuuser1!',
+        deviceId: DEVICE_ID,
+      });
+
+    beforeEach(() => {
+      twoFactorService.loginMethod.mockReturnValue({
+        method: 'EMAIL',
+        maskedTarget: 'us**@motu.test',
+      });
+    });
+
+    it('신뢰한 기기면 바로 토큰을 발급한다', async () => {
+      twoFactorService.useTrustedDevice.mockResolvedValue(true);
+
+      const result = await login();
+
+      expect(twoFactorService.useTrustedDevice).toHaveBeenCalledWith(
+        1,
+        sha256(DEVICE_ID),
+      );
+      expect(result).toMatchObject({ verificationRequired: false });
+      expect(recordLoginSuccess).toHaveBeenCalledWith(1);
+    });
+
+    it('신뢰하지 않은 기기면 토큰 대신 로그인 토큰과 확인 수단을 내려준다', async () => {
+      twoFactorService.useTrustedDevice.mockResolvedValue(false);
+
+      const result = await login();
+
+      expect(result).toMatchObject({
+        verificationRequired: true,
+        loginTokenExpiresIn: 600,
+        method: 'EMAIL',
+        maskedTarget: 'us**@motu.test',
+      });
+      expect(result).not.toHaveProperty('accessToken');
+      // 로그인을 마치기 전에는 실패 횟수 초기화·Refresh 토큰 발급을 하지 않는다.
+      expect(recordLoginSuccess).not.toHaveBeenCalled();
+      expect(refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('로그인 토큰은 Access 토큰으로 쓸 수 없다', async () => {
+      twoFactorService.useTrustedDevice.mockResolvedValue(false);
+      const { loginToken } = (await login()) as { loginToken: string };
+
+      await expect(realJwt.verifyAsync(loginToken)).rejects.toThrow();
+    });
+
+    it('인증번호를 확인하면 기기를 신뢰하고 로그인을 마친다', async () => {
+      twoFactorService.useTrustedDevice.mockResolvedValue(false);
+      const { loginToken } = (await login()) as { loginToken: string };
+
+      const result = await deviceService.confirmLoginVerification(
+        loginToken,
+        '123456',
+        'Mozilla/5.0',
+      );
+
+      expect(twoFactorService.confirmLoginVerification).toHaveBeenCalledWith(
+        user,
+        '123456',
+      );
+      expect(twoFactorService.trustDevice).toHaveBeenCalledWith(
+        1,
+        sha256(DEVICE_ID),
+        'Mozilla/5.0',
+      );
+      expect(recordLoginSuccess).toHaveBeenCalledWith(1);
+      expect(result).toMatchObject({
+        verificationRequired: false,
+        user: { userId: 1 },
+      });
+    });
+
+    it('인증번호가 틀리면 기기를 신뢰하지 않는다', async () => {
+      twoFactorService.useTrustedDevice.mockResolvedValue(false);
+      const { loginToken } = (await login()) as { loginToken: string };
+      twoFactorService.confirmLoginVerification.mockRejectedValue(
+        new BusinessException({
+          code: 'VERIFICATION_CODE_MISMATCH',
+          message: '',
+          status: 400,
+        }),
+      );
+
+      await expect(
+        deviceService.confirmLoginVerification(loginToken, '000000'),
+      ).rejects.toMatchObject({
+        response: { code: 'VERIFICATION_CODE_MISMATCH' },
+      });
+      expect(twoFactorService.trustDevice).not.toHaveBeenCalled();
+      expect(recordLoginSuccess).not.toHaveBeenCalled();
+    });
+
+    it('Access 토큰이나 잘못된 토큰은 로그인 토큰으로 받지 않는다', async () => {
+      const accessToken = await realJwt.signAsync({ sub: 1, role: 'USER' });
+
+      for (const token of [accessToken, 'not-a-token']) {
+        await expect(
+          deviceService.sendLoginVerification(token),
+        ).rejects.toMatchObject({
+          response: { code: 'AUTH_INVALID_LOGIN_TOKEN' },
+        });
+      }
+    });
+
+    it('확인 도중 계정이 잠기면 로그인할 수 없다', async () => {
+      twoFactorService.useTrustedDevice.mockResolvedValue(false);
+      const { loginToken } = (await login()) as { loginToken: string };
+      findById.mockResolvedValue({ ...user, userStatus: 'LOCKED' });
+
+      await expect(
+        deviceService.sendLoginVerification(loginToken),
+      ).rejects.toMatchObject({ response: { code: 'AUTH_ACCOUNT_LOCKED' } });
     });
   });
 
@@ -370,6 +524,8 @@ describe('AuthService', () => {
         where: { userId: 1, revokedAt: null },
         data: { revokedAt: expect.any(Date) },
       });
+      // 신뢰 기기도 모두 지워 새 기기 확인을 다시 받게 한다.
+      expect(twoFactorService.forgetDevices).toHaveBeenCalledWith(1);
     });
 
     it.each([

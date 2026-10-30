@@ -10,6 +10,7 @@ import {
   PrismaClient,
   Role,
   TradeStatus,
+  TwoFactorStatus,
   UserStatus,
 } from '../src/generated/prisma/client.js';
 import { INITIAL_CASH } from '../src/modules/accounts/accounts.constants.js';
@@ -470,6 +471,8 @@ interface TestUserSeed {
   ledgers?: { type: CashLedgerType; amount: bigint; hoursAgo: number }[];
   /** 만들 임시저장 신청서 수 */
   draftCount?: number;
+  /** 2차 보안을 설정한 계정이면 인증 휴대폰 번호 */
+  twoFactorPhoneNumber?: string;
 }
 
 /**
@@ -511,6 +514,14 @@ const testUsers: TestUserSeed[] = [
     nickname: '신청테스터',
     email: 'draft@motu.test',
     draftCount: 5,
+  },
+  {
+    // 2차 보안 설정 완료. 새 기기 로그인·첫 주문·휴대폰 변경 때 SMS 인증을 받는다.
+    // 로컬은 SMS를 보내지 않고 서버 로그에 인증번호를 출력한다.
+    loginId: 'motusecure',
+    nickname: '보안테스터',
+    email: 'secure@motu.test',
+    twoFactorPhoneNumber: '01000000000',
   },
 ];
 
@@ -556,6 +567,11 @@ async function createTestUsers(): Promise<void> {
         role: Role.USER,
         userStatus: seed.userStatus,
         loginFailCount: seed.loginFailCount,
+        ...(seed.twoFactorPhoneNumber && {
+          twoFactorStatus: TwoFactorStatus.ENABLED,
+          twoFactorPhoneNumber: seed.twoFactorPhoneNumber,
+          twoFactorEnabledDate: new Date(now - DAY),
+        }),
         birthDate: new Date('2000-01-01'),
         termsAgreed: true,
         privacyAgreed: true,
