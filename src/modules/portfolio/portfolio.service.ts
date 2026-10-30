@@ -40,11 +40,13 @@ export class PortfolioService {
       now,
     );
     const valued = account.holdings.map((holding) => {
+      const summary = summaries.get(holding.stockId);
       const currentPrice = BigInt(
-        summaries.get(holding.stockId)?.currentPrice ?? holding.stock.basePrice,
+        summary?.currentPrice ?? holding.stock.basePrice,
       );
       return {
         holding,
+        summary,
         currentPrice,
         evaluationAmount: currentPrice * holding.qty,
       };
@@ -66,7 +68,7 @@ export class PortfolioService {
           Number(b.evaluationAmount - a.evaluationAmount) ||
           a.holding.stockId - b.holding.stockId,
       )
-      .map(({ holding, currentPrice, evaluationAmount }) => {
+      .map(({ holding, summary, currentPrice, evaluationAmount }) => {
         const profitLoss = evaluationAmount - holding.totalAmount;
         return {
           stockId: holding.stockId,
@@ -81,6 +83,12 @@ export class PortfolioService {
               (Number(holding.totalAmount) / Number(holding.qty)) * 100,
             ) / 100,
           currentPrice: Number(currentPrice),
+          // 상품 목록과 같은 당일 시세. 체결이 없으면 0이다.
+          changeAmount: summary?.changeAmount ?? 0,
+          changeRate: summary?.changeRate ?? 0,
+          volume: summary?.volume ?? 0,
+          tradeAmount: summary?.tradeAmount ?? 0,
+          listingDate: holding.stock.listingDate,
           purchaseAmount: Number(holding.totalAmount),
           evaluationAmount: Number(evaluationAmount),
           profitLoss: Number(profitLoss),
