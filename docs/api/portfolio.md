@@ -20,7 +20,7 @@
 | `purchaseAmount` | 보유 상품 매입 금액 합계 (P, 매수 수수료 포함) |
 | `profitLoss`, `profitRate` | 평가손익 (P) = 평가금액 - 매입 금액, 총 수익률 (%) = 평가손익 ÷ 매입 금액 |
 | `cashRatio` | 총 자산에서 예수금 비율 (%, 도넛 차트) |
-| `holdings[]` | 보유 종목. 평가금액이 큰 순서 |
+| `holdings[]` | 보유 종목 전체 (페이지 없음). 평가금액이 큰 순서이며, 다른 정렬(등락률·거래대금·거래량·상장일 등)은 화면에서 아래 필드로 정렬 |
 | `baseTime` | 시세 기준 시각. 이 시각의 현재가로 계산 |
 
 | `holdings[]` 필드 | 설명 |
@@ -29,6 +29,9 @@
 | `qty`, `sellableQty` | 보유 수량 (매도 주문에 묶인 수량 포함), 매도 가능 수량 |
 | `avgPrice` | 평균 매입 단가 (P) = 매입 금액 ÷ 보유 수량. 매수 수수료 포함, 소수점 둘째 자리까지 |
 | `currentPrice` | 현재가 (P). [상품 목록](stocks.md#상품-목록-항목-공통)과 같은 값 |
+| `changeAmount`, `changeRate` | 전일 대비 변동 금액 (P), 당일 등락률 (%). 상품 목록과 같은 값 |
+| `volume`, `tradeAmount` | 당일 거래량 (주), 당일 거래대금 (P). 체결이 없으면 0 |
+| `listingDate` | 상장일 |
 | `purchaseAmount`, `evaluationAmount` | 매입 금액, 평가금액 (= 현재가 × 보유 수량) |
 | `profitLoss`, `profitRate` | 평가손익 (P), 수익률 (%) |
 | `assetRatio` | 총 자산에서 이 종목 비율 (%, 도넛 차트) |
