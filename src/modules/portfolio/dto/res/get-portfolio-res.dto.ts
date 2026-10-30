@@ -41,6 +41,27 @@ export class PortfolioHoldingResDto {
   currentPrice: number;
 
   @ApiProperty({
+    description: '전일 대비 변동 금액 (P). 상품 목록과 같은 값',
+    example: 150,
+  })
+  changeAmount: number;
+
+  @ApiProperty({
+    description: '당일 등락률 (%). 상품 목록과 같은 값',
+    example: 3.45,
+  })
+  changeRate: number;
+
+  @ApiProperty({ description: '당일 거래량 (주)', example: 1_200 })
+  volume: number;
+
+  @ApiProperty({ description: '당일 거래대금 (P)', example: 5_400_000 })
+  tradeAmount: number;
+
+  @ApiProperty({ description: '상장일', example: '2026-10-15T00:00:00.000Z' })
+  listingDate: Date;
+
+  @ApiProperty({
     description: '매입 금액 (P, 매수 수수료 포함)',
     example: 43_508,
   })
