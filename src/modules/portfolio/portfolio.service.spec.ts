@@ -14,7 +14,13 @@ describe('PortfolioService', () => {
         new Map(
           stocks.map(({ id, basePrice }) => [
             id,
-            { currentPrice: prices[id] ?? Number(basePrice) },
+            {
+              currentPrice: prices[id] ?? Number(basePrice),
+              changeAmount: id * 10,
+              changeRate: id * 1.5,
+              volume: id * 100,
+              tradeAmount: id * 100_000,
+            },
           ]),
         ),
       ),
@@ -41,6 +47,7 @@ describe('PortfolioService', () => {
       name: `Stock${stockId}`,
       logoImageUrl: null,
       basePrice: 1_000n,
+      listingDate: new Date(`2026-10-0${stockId}T00:00:00.000Z`),
       tradeStatus: TradeStatus.ACTIVE,
     },
   });
@@ -103,6 +110,43 @@ describe('PortfolioService', () => {
         }),
       ],
       baseTime: now,
+    });
+  });
+
+  it('보유 종목마다 상품 목록과 같은 당일 시세와 상장일을 준다 (정렬용)', async () => {
+    account.findUnique.mockResolvedValue({
+      cash: 1_000_000n,
+      lockedCash: 0n,
+      holdings: [holdingOf(2, 10n, 10_002n)],
+    });
+
+    const { holdings } = await service.getPortfolio(7, now);
+
+    expect(holdings[0]).toMatchObject({
+      changeAmount: 20,
+      changeRate: 3,
+      volume: 200,
+      tradeAmount: 200_000,
+      listingDate: new Date('2026-10-02T00:00:00.000Z'),
+    });
+  });
+
+  it('체결이 없는 종목은 당일 시세가 0이다', async () => {
+    getDailySummaries.mockResolvedValueOnce(new Map());
+    account.findUnique.mockResolvedValue({
+      cash: 1_000_000n,
+      lockedCash: 0n,
+      holdings: [holdingOf(1, 10n, 10_002n)],
+    });
+
+    const { holdings } = await service.getPortfolio(7, now);
+
+    expect(holdings[0]).toMatchObject({
+      currentPrice: 1_000,
+      changeAmount: 0,
+      changeRate: 0,
+      volume: 0,
+      tradeAmount: 0,
     });
   });
 
