@@ -10,6 +10,7 @@ import {
   ParseEnumPipe,
   Patch,
   Query,
+  Req,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -21,9 +22,13 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
+import type { AuthUser } from '../../common/auth/auth-user.type.js';
+import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { Roles } from '../../common/auth/roles.decorator.js';
 import { INVALID_REQUEST_MESSAGE } from '../../common/constants/validation.constants.js';
 import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
+import { clientInfo } from '../../common/utils/client-info.js';
 import { Role } from '../../generated/prisma/client.js';
 import { PointCooldownType } from './accounts.constants.js';
 import { AccountsService } from './accounts.service.js';
@@ -62,17 +67,23 @@ export class AccountsAdminController {
 
   @Patch('cash')
   @ApiOperation({
-    summary: '회원 포인트 지급/차감',
+    summary: '회원 포인트 지급/회수',
     description:
-      'amount가 양수면 지급, 음수면 차감한다. 이력은 ADJUST로 남는다.',
+      'amount가 양수면 지급, 음수면 회수한다. 예약 포인트는 회수할 수 없다. 포인트 이력은 ADJUST로, 처리 사유는 관리자 활동 이력(POINT_GRANT / POINT_RECALL)에 남는다.',
   })
   @ApiOkResponse({ type: AdjustCashResDto })
   @ApiBadRequestResponse({ description: 'ACCOUNT_INSUFFICIENT_CASH' })
   adjustCash(
+    @CurrentUser() admin: AuthUser,
     @Param('userId', ParseIdPipe) userId: number,
     @Body() dto: AdjustCashReqDto,
+    @Req() request: Request,
   ): Promise<AdjustCashResDto> {
-    return this.accountsService.adjustCash(userId, dto.amount);
+    return this.accountsService.adjustCash(userId, dto.amount, {
+      adminId: admin.userId,
+      reason: dto.reason,
+      client: clientInfo(request),
+    });
   }
 
   @Delete('cooldowns/:type')
