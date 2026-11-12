@@ -90,6 +90,7 @@ model User {
   priceAlerts             PriceAlert[]
   inquiries               Inquiry[]
   inquiryAccessAttempt    InquiryAccessAttempt?
+  adminActivityLogs       AdminActivityLog[]
 
   @@map("users")
 }
@@ -878,4 +879,82 @@ model ListingApplicationRevision {
   // 미재제출 회차는 신청서당 하나만 허용하는 부분 UNIQUE 인덱스를 migration.sql에 추가한다.
   @@index([applicationId, id])
   @@map("listing_application_revisions")
+}
+
+/// 관리자 활동 이력의 작업 대상
+enum AdminActivityTarget {
+  /// 상장 신청
+  LISTING_APPLICATION
+  /// 상품
+  STOCK
+  /// 회원
+  USER
+  /// 관리자 계정
+  ADMIN
+  /// 공지
+  NOTICE
+  /// 이상 거래
+  ANOMALY
+
+  @@map("admin_activity_target")
+}
+
+/// 관리자 활동 이력의 수행 작업. 작업 대상별로 쓸 수 있는 작업이 정해져 있다(admin-activity-logs.constants.ts).
+enum AdminActivityAction {
+  LISTING_APPROVE
+  LISTING_REVISION_REQUEST
+  LISTING_REJECT
+  STOCK_UPDATE
+  STOCK_PAUSE
+  STOCK_RESUME
+  STOCK_CLOSE
+  USER_STATUS_CHANGE
+  USER_UNLOCK
+  POINT_GRANT
+  POINT_RECALL
+  ADMIN_CREATE
+  ADMIN_STATUS_CHANGE
+  NOTICE_PUBLISH
+  NOTICE_HIDE
+  NOTICE_DELETE
+  ANOMALY_ACTION
+
+  @@map("admin_activity_action")
+}
+
+enum AdminActivityResult {
+  SUCCESS
+  FAILURE
+
+  @@map("admin_activity_result")
+}
+
+/// 관리자 활동 이력. 운영 기록이므로 수정·삭제하지 않는다.
+model AdminActivityLog {
+  id          BigInt              @id @default(autoincrement()) @map("activity_log_id")
+  adminId     Int                 @map("admin_id")
+  targetType  AdminActivityTarget @map("target_type")
+  /// 대상의 PK (상장 신청 ID, 상품 ID, 회원·관리자 user_id, 공지 ID, 이상 거래 ID)
+  targetId    BigInt              @map("target_id")
+  /// 처리 당시 대상 이름 (상품명, 아이디, 공지 제목 등). 이름이 바뀌어도 당시 값을 남긴다.
+  targetLabel String?             @map("target_label") @db.VarChar(100)
+  action      AdminActivityAction
+  result      AdminActivityResult @default(SUCCESS)
+  /// 목록에 보여줄 변경 요약. 예) 거래 가능 → 거래 중지
+  summary     String?             @db.VarChar(200)
+  /// 변경 전 값 { 항목: 값 }
+  beforeValue Json?               @map("before_value")
+  /// 변경 후 값 { 항목: 값 }
+  afterValue  Json?               @map("after_value")
+  reason      String?             @db.VarChar(500)
+  ipAddress   String?             @map("ip_address") @db.VarChar(45)
+  userAgent   String?             @map("user_agent") @db.VarChar(255)
+  createDate  DateTime            @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  @@index([createDate])
+  @@index([adminId, createDate])
+  @@index([targetType, targetId, createDate])
+  @@map("admin_activity_logs")
 }
