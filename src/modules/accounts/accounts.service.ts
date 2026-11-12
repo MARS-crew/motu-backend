@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import type { ClientInfo } from '../../common/utils/client-info.js';
 import {
   Account,
+  AdminActivityAction,
+  AdminActivityTarget,
   CashLedgerType,
   PointResetCondition,
   PointResetResult,
@@ -16,6 +19,7 @@ import {
   POINT_RESET_MAX_CASH,
   PointCooldownType,
 } from './accounts.constants.js';
+import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
 import { AccountErrors } from './accounts.errors.js';
 import { AdjustCashResDto } from './dto/res/adjust-cash-res.dto.js';
 import { GetAccountResDto } from './dto/res/get-account-res.dto.js';
@@ -37,7 +41,10 @@ interface CheckedResetCondition {
 
 @Injectable()
 export class AccountsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly adminActivityLogs: AdminActivityLogsService,
+  ) {}
 
   /**
    * 계좌를 만들고 초기 포인트를 지급한다. 회원가입과 같은 트랜잭션에서 호출한다.
@@ -237,18 +244,49 @@ export class AccountsService {
   }
 
   /** 관리자가 포인트를 지급하거나 차감한다. 사용 가능 포인트보다 많이 차감할 수 없다. */
-  async adjustCash(userId: number, amount: number): Promise<AdjustCashResDto> {
+  /**
+   * 관리자가 포인트를 지급(양수)하거나 회수(음수)한다. 예약 포인트는 회수할 수 없다.
+   * 처리 사유와 변경 전·후 포인트를 관리자 활동 이력에 남긴다.
+   */
+  async adjustCash(
+    userId: number,
+    amount: number,
+    adjustment: { adminId: number; reason: string; client?: ClientInfo },
+  ): Promise<AdjustCashResDto> {
     const account = await this.findAccount(userId);
     const delta = BigInt(amount);
     const cashAfter = account.cash + delta;
     if (cashAfter < account.lockedCash) {
       throw new BusinessException(AccountErrors.INSUFFICIENT_CASH);
     }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { loginId: true },
+    });
 
+    const isGrant = delta > 0n;
     await this.updateCash(account, {
       type: CashLedgerType.ADJUST,
       cashAfter,
       now: new Date(),
+      afterUpdate: (tx) =>
+        this.adminActivityLogs.record(
+          {
+            adminId: adjustment.adminId,
+            targetType: AdminActivityTarget.USER,
+            targetId: userId,
+            targetLabel: user?.loginId,
+            action: isGrant
+              ? AdminActivityAction.POINT_GRANT
+              : AdminActivityAction.POINT_RECALL,
+            summary: `${formatPoint(isGrant ? delta : -delta)} ${isGrant ? '지급' : '회수'}`,
+            before: { cash: Number(account.cash) },
+            after: { cash: Number(cashAfter) },
+            reason: adjustment.reason,
+            client: adjustment.client,
+          },
+          tx,
+        ),
     });
 
     return {
