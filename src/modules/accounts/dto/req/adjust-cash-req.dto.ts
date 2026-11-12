@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, Max, Min, NotEquals } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsInt, IsString, Length, Max, Min, NotEquals } from 'class-validator';
 
 export class AdjustCashReqDto {
   @ApiProperty({
@@ -21,4 +22,15 @@ export class AdjustCashReqDto {
       '조정할 포인트는 -100,000,000 ~ 100,000,000 사이의 정수로 입력해 주세요.',
   })
   amount: number;
+
+  @ApiProperty({
+    description: '처리 사유 (1~200자). 관리자 활동 이력에 남는다.',
+    example: '운영 이벤트 지급',
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString({ message: '처리 사유를 입력해 주세요.' })
+  @Length(1, 200, { message: '처리 사유는 1~200자로 입력해 주세요.' })
+  reason: string;
 }
