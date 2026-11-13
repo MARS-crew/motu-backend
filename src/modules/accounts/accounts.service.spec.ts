@@ -1,9 +1,12 @@
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
+  AdminActivityAction,
+  AdminActivityTarget,
   CashLedgerType,
   PointResetCondition,
   PointResetResult,
 } from '../../generated/prisma/client.js';
+import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
 import { PointCooldownType } from './accounts.constants.js';
 import { AccountsService } from './accounts.service.js';
 
@@ -19,19 +22,25 @@ describe('AccountsService', () => {
   const cashLedger = { create: vi.fn(), findMany: vi.fn(), count: vi.fn() };
   const pointResetHistory = { create: vi.fn() };
   const holding = { count: vi.fn() };
+  const user = { findUnique: vi.fn() };
   const tx = { account, cashLedger, pointResetHistory };
   const prisma = {
     account,
     cashLedger,
     pointResetHistory,
     holding,
+    user,
     $transaction: vi.fn((arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
         : Promise.all(arg as Promise<unknown>[]),
     ),
   } as unknown as PrismaService;
-  const service = new AccountsService(prisma);
+  const adminActivityLogs = { record: vi.fn() };
+  const service = new AccountsService(
+    prisma,
+    adminActivityLogs as unknown as AdminActivityLogsService,
+  );
 
   const accountOf = (overrides: Record<string, unknown> = {}) => ({
     id: 10,
@@ -48,6 +57,7 @@ describe('AccountsService', () => {
     vi.clearAllMocks();
     account.updateMany.mockResolvedValue({ count: 1 });
     holding.count.mockResolvedValue(0);
+    user.findUnique.mockResolvedValue({ loginId: 'motuuser' });
   });
 
   describe('grantPoint', () => {
@@ -315,10 +325,18 @@ describe('AccountsService', () => {
   });
 
   describe('adjustCash', () => {
+    const adjustment = {
+      adminId: 99,
+      reason: '이벤트 중복 지급분 회수',
+      client: { ipAddress: '192.168.10.24' },
+    };
+
     it('관리자 조정 이력을 남기고 포인트를 더한다', async () => {
       account.findUnique.mockResolvedValue(accountOf());
 
-      await expect(service.adjustCash(1, -345_678)).resolves.toEqual({
+      await expect(
+        service.adjustCash(1, -345_678, adjustment),
+      ).resolves.toEqual({
         amount: -345_678,
         cashBefore: 2_345_678,
         cashAfter: 2_000_000,
@@ -331,14 +349,53 @@ describe('AccountsService', () => {
       });
     });
 
+    it('회수는 사유와 변경 전·후 포인트를 같은 트랜잭션에서 활동 이력에 남긴다', async () => {
+      account.findUnique.mockResolvedValue(accountOf());
+
+      await service.adjustCash(1, -345_678, adjustment);
+
+      expect(adminActivityLogs.record).toHaveBeenCalledWith(
+        {
+          adminId: 99,
+          targetType: AdminActivityTarget.USER,
+          targetId: 1,
+          targetLabel: 'motuuser',
+          action: AdminActivityAction.POINT_RECALL,
+          summary: '345,678P 회수',
+          before: { cash: 2_345_678 },
+          after: { cash: 2_000_000 },
+          reason: '이벤트 중복 지급분 회수',
+          client: { ipAddress: '192.168.10.24' },
+        },
+        tx,
+      );
+    });
+
+    it('양수는 지급으로 남긴다', async () => {
+      account.findUnique.mockResolvedValue(accountOf());
+
+      await service.adjustCash(1, 100_000, adjustment);
+
+      expect(adminActivityLogs.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AdminActivityAction.POINT_GRANT,
+          summary: '100,000P 지급',
+        }),
+        tx,
+      );
+    });
+
     it('사용 가능 포인트보다 많이 차감할 수 없다', async () => {
       account.findUnique.mockResolvedValue(
         accountOf({ cash: 100_000n, lockedCash: 50_000n }),
       );
 
-      await expect(service.adjustCash(1, -60_000)).rejects.toMatchObject({
+      await expect(
+        service.adjustCash(1, -60_000, adjustment),
+      ).rejects.toMatchObject({
         response: { code: 'ACCOUNT_INSUFFICIENT_CASH' },
       });
+      expect(adminActivityLogs.record).not.toHaveBeenCalled();
     });
   });
 

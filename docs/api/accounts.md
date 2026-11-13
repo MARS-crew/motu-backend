@@ -91,13 +91,15 @@
 |------|------|------|------|
 | 회원 계좌 조회 | `GET /api/admin/accounts/:userId` | | `userId`, `cash`, `lockedCash`, `availableCash`, `lastPointGrantAt`, `lastPointResetAt` |
 | 회원 포인트 이력 | `GET /api/admin/accounts/:userId/ledgers?page=&size=` | | [포인트 변경 이력](#포인트-변경-이력)과 같음 |
-| 포인트 지급·차감 | `PATCH /api/admin/accounts/:userId/cash` | `amount` (양수 지급, 음수 차감, ±100,000,000 이내, 0 불가) | `amount`, `cashBefore`, `cashAfter` |
+| 포인트 지급·회수 | `PATCH /api/admin/accounts/:userId/cash` | `amount` (양수 지급, 음수 회수, ±100,000,000 이내, 0 불가), `reason` (처리 사유 1~200자, 필수) | `amount`, `cashBefore`, `cashAfter` |
 | 대기시간 초기화 | `DELETE /api/admin/accounts/:userId/cooldowns/:type` | `type`: `grant`(24시간) / `reset`(7일) | 204 |
 
 | 에러 | 상황 |
 |------|------|
 | 404 `ACCOUNT_NOT_FOUND` | 없는 회원 |
-| 400 `ACCOUNT_INSUFFICIENT_CASH` | 사용 가능 포인트보다 많이 차감 |
+| 400 `ACCOUNT_INSUFFICIENT_CASH` | 사용 가능 포인트보다 많이 회수 (예약 포인트는 회수할 수 없음) |
+| 400 `BAD_REQUEST` | 처리 사유 누락·200자 초과 |
 | 403 `AUTH_FORBIDDEN` | 관리자가 아님 |
 
+- 포인트 지급·회수는 처리 사유, 변경 전·후 포인트, 처리 관리자, 접속 IP를 [관리자 활동 이력](admin-activity-logs.md)에 `POINT_GRANT` / `POINT_RECALL`로 남깁니다. 포인트 이력(`cash_ledgers`)에는 기존처럼 `ADJUST`로 남습니다.
 - 리셋을 테스트하려면 보유 종목을 모두 팔고 포인트를 300,000P 미만으로 차감한 뒤 리셋을 호출합니다.

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import type { ClientInfo } from '../../common/utils/client-info.js';
 import { maskEmail, maskPhoneNumber } from '../../common/utils/masking.js';
 import {
   TwoFactorAction as TwoFactorHistoryAction,
@@ -25,12 +26,6 @@ import {
   TwoFactorAction,
 } from './two-factor.constants.js';
 import { TwoFactorErrors } from './two-factor.errors.js';
-
-/** 해제 이력 등에 남길 접속 정보 */
-export interface ClientInfo {
-  ipAddress?: string;
-  userAgent?: string;
-}
 
 export interface SentLoginVerification {
   method: LoginVerificationMethod;

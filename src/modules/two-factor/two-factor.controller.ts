@@ -17,13 +17,14 @@ import {
 import type { Request } from 'express';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
+import { clientInfo } from '../../common/utils/client-info.js';
 import { ConfirmPhoneVerificationReqDto } from './dto/req/confirm-phone-verification-req.dto.js';
 import { ConfirmTwoFactorVerificationReqDto } from './dto/req/confirm-two-factor-verification-req.dto.js';
 import { SendPhoneVerificationReqDto } from './dto/req/send-phone-verification-req.dto.js';
 import { ConfirmTwoFactorVerificationResDto } from './dto/res/confirm-two-factor-verification-res.dto.js';
 import { GetTwoFactorResDto } from './dto/res/get-two-factor-res.dto.js';
 import { SendTwoFactorVerificationResDto } from './dto/res/send-two-factor-verification-res.dto.js';
-import { ClientInfo, TwoFactorService } from './two-factor.service.js';
+import { TwoFactorService } from './two-factor.service.js';
 
 @ApiTags('Two Factor')
 @ApiBearerAuth()
@@ -122,16 +123,4 @@ export class TwoFactorController {
   ): Promise<ConfirmTwoFactorVerificationResDto> {
     return this.twoFactorService.confirmVerification(user.userId, dto.code);
   }
-}
-
-/** 프록시(Railway)를 거치면 원래 IP는 X-Forwarded-For 맨 앞에 있다. */
-export function clientInfo(request: Request): ClientInfo {
-  const forwarded = request.headers['x-forwarded-for'];
-  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)
-    ?.split(',')[0]
-    ?.trim();
-  return {
-    ipAddress: first || request.ip,
-    userAgent: request.headers['user-agent'],
-  };
 }
