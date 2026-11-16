@@ -21,19 +21,41 @@ import {
 const DATE_TIME =
   /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 const DATE_MESSAGE = '접수 기간은 시간대를 포함한 ISO 일시로 입력해 주세요.';
+const trimSearch = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() || undefined : value;
 
 export class GetAdminListingApplicationsReqDto {
   @ApiPropertyOptional({
-    description: '신청번호 또는 서비스명 부분 검색',
+    description:
+      '신청자 로그인 아이디·닉네임, 신청번호 또는 서비스명 부분 검색',
     maxLength: 30,
   })
   @IsOptional()
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim() || undefined : value,
-  )
+  @Transform(trimSearch)
   @IsString({ message: INVALID_REQUEST_MESSAGE })
   @MaxLength(30, { message: '검색어는 30자 이내로 입력해 주세요.' })
   keyword?: string;
+
+  @ApiPropertyOptional({
+    description: '신청자 로그인 아이디 또는 닉네임 부분 검색',
+    maxLength: 30,
+  })
+  @IsOptional()
+  @Transform(trimSearch)
+  @IsString({ message: INVALID_REQUEST_MESSAGE })
+  @MaxLength(30, { message: '검색어는 30자 이내로 입력해 주세요.' })
+  applicant?: string;
+
+  @ApiPropertyOptional({
+    type: Number,
+    description: 'GET /api/sectors에서 조회한 카테고리 코드',
+    example: 1,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: INVALID_REQUEST_MESSAGE })
+  @Min(1, { message: INVALID_REQUEST_MESSAGE })
+  sectorCode?: number;
 
   @ApiPropertyOptional({ enum: [...REVIEWABLE_LISTING_STATUSES] })
   @IsOptional()
@@ -43,7 +65,7 @@ export class GetAdminListingApplicationsReqDto {
   @ApiPropertyOptional({
     type: String,
     format: 'date-time',
-    description: '접수 기간 시작 (포함)',
+    description: '접수 기간 시작 (포함). 시작과 종료를 모두 생략하면 전체 기간',
   })
   @IsOptional()
   @IsISO8601({ strict: true }, { message: DATE_MESSAGE })
@@ -60,14 +82,20 @@ export class GetAdminListingApplicationsReqDto {
   @Matches(DATE_TIME, { message: DATE_MESSAGE })
   to?: string;
 
-  @ApiPropertyOptional({ default: 1, minimum: 1, maximum: 100000 })
+  @ApiPropertyOptional({
+    type: Number,
+    default: 1,
+    minimum: 1,
+    maximum: 100000,
+  })
   @Type(() => Number)
   @IsInt({ message: INVALID_REQUEST_MESSAGE })
   @Min(1, { message: INVALID_REQUEST_MESSAGE })
   @Max(100000, { message: INVALID_REQUEST_MESSAGE })
-  page = 1;
+  page: number = 1;
 
   @ApiPropertyOptional({
+    type: Number,
     default: ADMIN_LISTING_PAGE_SIZE,
     minimum: 1,
     maximum: ADMIN_LISTING_MAX_PAGE_SIZE,
@@ -76,5 +104,5 @@ export class GetAdminListingApplicationsReqDto {
   @IsInt({ message: INVALID_REQUEST_MESSAGE })
   @Min(1, { message: INVALID_REQUEST_MESSAGE })
   @Max(ADMIN_LISTING_MAX_PAGE_SIZE, { message: INVALID_REQUEST_MESSAGE })
-  size = ADMIN_LISTING_PAGE_SIZE;
+  size: number = ADMIN_LISTING_PAGE_SIZE;
 }
