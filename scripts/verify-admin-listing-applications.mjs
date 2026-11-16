@@ -93,13 +93,13 @@ try {
 
   const password = 'Listing-Test1!';
   const passwordHash = await hash(password);
-  const createAccount = async (loginId, role) => {
+  const createAccount = async (loginId, role, nickname = loginId) => {
     const user = await prisma.user.create({
       data: {
         loginId,
         role,
         password: passwordHash,
-        nickname: loginId,
+        nickname,
         email: loginId + '@motu.test',
         birthDate: new Date('2000-01-01'),
         termsAgreed: true,
@@ -115,8 +115,14 @@ try {
     return { id: user.id, token: login.accessToken };
   };
   const admin = await createAccount('adminlist', 'ADMIN');
-  const owner = await createAccount('ownerlist', 'USER');
+  const owner = await createAccount('ownerlist', 'USER', '김신청');
   const other = await createAccount('otherlist', 'USER');
+  await prisma.sector.createMany({
+    data: [
+      { code: 1, name: 'SaaS / 소프트웨어' },
+      { code: 2, name: 'AI / 데이터' },
+    ],
+  });
   const createEvidence = async (
     token,
     { withLink = false, asPdf = false } = {},
@@ -177,6 +183,7 @@ try {
   const submitted = await listing('LST-261101-001', 'Alpha Market', {
     draftData: {
       serviceName: 'Alpha Market',
+      sectorCode: 1,
       evidenceCollectionId: current.id,
       mainImageCollectionId: foreign.id,
     },
@@ -186,10 +193,14 @@ try {
   const second = await listing('LST-261101-002', 'ALPHA_마켓', {
     status: 'APPROVED',
     userId: other.id,
-    draftData: { evidenceCollectionId: foreign.id },
+    draftData: { evidenceCollectionId: foreign.id, sectorCode: 2 },
   });
-  await listing('LST-261102-001', 'Beta', {
+  const newSubmission = await listing('LST-261102-001', 'Beta', {
     submittedAt: new Date('2026-11-02T00:00:00+09:00'),
+    draftData: { sectorCode: 999 },
+  });
+  const older = await listing('LST-260901-001', 'Older', {
+    submittedAt: new Date('2026-09-01T00:00:00+09:00'),
   });
   const hidden = [
     await listing(null, 'Draft', { status: 'DRAFT', submittedAt: null }),
@@ -225,23 +236,57 @@ try {
     await json(path, owner.token, { status: 403, code: 'AUTH_FORBIDDEN' });
   }
   const list = await json(route, admin.token);
-  assert.equal(list.totalCount, 3);
+  assert.equal(list.totalCount, 4);
   assert.deepEqual([list.page, list.size], [1, 20]);
   assert.deepEqual(
-    list.items.slice(1).map(({ id }) => id),
-    [second.id, submitted.id],
+    list.items.map(({ id }) => id),
+    [newSubmission.id, second.id, submitted.id, older.id],
   );
-  assert.deepEqual(list.items.at(-1).applicant, {
+  assert.deepEqual(list.items.find(({ id }) => id === submitted.id).applicant, {
     userId: owner.id,
     loginId: 'ownerlist',
-    nickname: 'ownerlist',
+    nickname: '김신청',
   });
+  assert.deepEqual(
+    list.items.map(({ sectorCode, sectorName }) => [sectorCode, sectorName]),
+    [
+      [999, null],
+      [2, 'AI / 데이터'],
+      [1, 'SaaS / 소프트웨어'],
+      [null, null],
+    ],
+  );
+  assert(list.items.every((item) => !Object.hasOwn(item, 'draftData')));
   for (const [query, expected] of [
     ['?keyword=alpha&size=1&page=1', [second.id]],
     ['?keyword=alpha&size=1&page=2', [submitted.id]],
     ['?keyword=261101-001&status=UNDER_REVIEW', [submitted.id]],
     ['?keyword=%5F', [second.id]],
     ['?keyword=%25', []],
+    ['?keyword=OTHERLIST', [second.id]],
+    [
+      '?keyword=' + encodeURIComponent('김신'),
+      [newSubmission.id, submitted.id, older.id],
+    ],
+    ['?applicant=%20OTHERLI%20', [second.id]],
+    [
+      '?applicant=' + encodeURIComponent('김신청'),
+      [newSubmission.id, submitted.id, older.id],
+    ],
+    ['?applicant=Alpha', []],
+    ['?applicant=%25', []],
+    ['?sectorCode=1', [submitted.id]],
+    ['?sectorCode=2', [second.id]],
+    ['?sectorCode=3', []],
+    [
+      '?keyword=alpha&applicant=otherlist&sectorCode=2&status=APPROVED&size=1',
+      [second.id],
+    ],
+    ['?keyword=alpha&applicant=otherlist&sectorCode=1', []],
+    [
+      '?from=2026-10-03T00:00:00%2B09:00&to=2026-11-02T00:00:00%2B09:00',
+      [second.id, submitted.id],
+    ],
     [
       '?from=2026-11-01T00:00:00%2B09:00&to=2026-11-02T00:00:00%2B09:00',
       [second.id, submitted.id],
@@ -252,12 +297,20 @@ try {
       result.items.map(({ id }) => id),
       expected,
     );
-    if (query.includes('size=1')) assert.equal(result.totalCount, 2);
+    assert.equal(
+      result.totalCount,
+      query.includes('keyword=alpha&size=1') ? 2 : expected.length,
+    );
   }
   for (const query of [
     '?status=DRAFT',
     '?page=0',
     '?size=101',
+    '?sectorCode=0',
+    '?sectorCode=1.5',
+    '?sectorCode=1&sectorCode=2',
+    '?sectorCode=not-a-number',
+    '?applicant=' + 'x'.repeat(31),
     '?from=2026-11-01',
     '?from=2026-02-30T00:00:00Z',
   ]) {
@@ -283,6 +336,8 @@ try {
 
   const detail = await json(detailPath, admin.token);
   assert.equal(detail.statusLabel, '검토 중');
+  assert.equal(detail.sectorCode, 1);
+  assert.equal(detail.sectorName, 'SaaS / 소프트웨어');
   assert.equal(detail.data.serviceName, submitted.serviceName);
   assert.equal(detail.reviewComment, '이전 보완 요청');
   assert.equal(detail.attachments.mainImage, null);
@@ -372,8 +427,30 @@ try {
     await prisma.listingApplication.findUnique({ where: { id: submitted.id } }),
     submitted,
   );
+  const submittedDetail = await json(
+    route + '/' + newSubmission.id,
+    admin.token,
+  );
+  assert.equal(submittedDetail.status, 'SUBMITTED');
+  assert.deepEqual(
+    await prisma.listingApplication.findUnique({
+      where: { id: newSubmission.id },
+    }),
+    newSubmission,
+  );
   assert.equal(await prisma.adminActivityLog.count(), 0);
   const swagger = await (await fetch(base + '/docs-json')).json();
+  const parameters = swagger.paths['/api' + route].get.parameters;
+  for (const name of ['sectorCode', 'page', 'size']) {
+    assert.equal(
+      parameters.find((parameter) => parameter.name === name)?.schema.type,
+      'number',
+    );
+  }
+  assert.equal(
+    parameters.find((parameter) => parameter.name === 'applicant')?.schema.type,
+    'string',
+  );
   const adminPaths = Object.entries(swagger.paths).filter(([path]) =>
     path.startsWith('/api' + route),
   );
