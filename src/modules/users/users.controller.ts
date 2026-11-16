@@ -11,6 +11,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -20,13 +21,16 @@ import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { Public } from '../../common/auth/public.decorator.js';
 import { CheckLoginIdReqDto } from './dto/req/check-login-id-req.dto.js';
 import { CheckNicknameReqDto } from './dto/req/check-nickname-req.dto.js';
+import { ConfirmContactPhoneVerificationReqDto } from './dto/req/confirm-contact-phone-verification-req.dto.js';
 import { ConfirmEmailVerificationReqDto } from './dto/req/confirm-email-verification-req.dto.js';
 import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
+import { SendContactPhoneVerificationReqDto } from './dto/req/send-contact-phone-verification-req.dto.js';
 import { SendEmailVerificationReqDto } from './dto/req/send-email-verification-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
 import { ConfirmEmailVerificationResDto } from './dto/res/confirm-email-verification-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
 import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
+import { SendContactPhoneVerificationResDto } from './dto/res/send-contact-phone-verification-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
 import { UsersService } from './users.service.js';
 
@@ -41,6 +45,45 @@ export class UsersController {
   @ApiOkResponse({ type: GetMyInfoResDto })
   getMyInfo(@CurrentUser() user: AuthUser): Promise<GetMyInfoResDto> {
     return this.usersService.getMyInfo(user.userId);
+  }
+
+  @Post('me/phone-verifications')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '연락처 변경 인증번호 발송',
+    description:
+      '마이페이지 연락처 변경. 2차 보안을 설정한 회원만 쓸 수 있고, 아니면 403 USER_CONTACT_TWO_FACTOR_REQUIRED. 새 번호로 SMS 인증번호를 보낸다. 재발송은 30초 후 가능하다.',
+  })
+  @ApiCreatedResponse({ type: SendContactPhoneVerificationResDto })
+  @ApiForbiddenResponse({ description: 'USER_CONTACT_TWO_FACTOR_REQUIRED' })
+  @ApiConflictResponse({ description: 'USER_SAME_PHONE_NUMBER' })
+  sendContactPhoneCode(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SendContactPhoneVerificationReqDto,
+  ): Promise<SendContactPhoneVerificationResDto> {
+    return this.usersService.sendContactPhoneCode(user.userId, dto.phoneNumber);
+  }
+
+  @Post('me/phone-verifications/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '연락처 변경 인증 확인 및 변경',
+    description:
+      '인증번호가 맞으면 연락처를 바꾸고 바뀐 내 정보를 내려준다. 2차 보안 번호는 바뀌지 않는다.',
+  })
+  @ApiOkResponse({ type: GetMyInfoResDto })
+  @ApiForbiddenResponse({ description: 'USER_CONTACT_TWO_FACTOR_REQUIRED' })
+  @ApiConflictResponse({ description: 'USER_SAME_PHONE_NUMBER' })
+  changeContactPhone(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ConfirmContactPhoneVerificationReqDto,
+  ): Promise<GetMyInfoResDto> {
+    return this.usersService.changeContactPhone(
+      user.userId,
+      dto.phoneNumber,
+      dto.code,
+    );
   }
 
   @Public()
