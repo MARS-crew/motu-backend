@@ -9,6 +9,7 @@ import {
 import type { CollectionResDto } from '../files/dto/res/attachment-res.dto.js';
 import { FileErrors } from '../files/files.errors.js';
 import { FilesService } from '../files/files.service.js';
+import { SectorsService } from '../sectors/sectors.service.js';
 import type { GetAdminListingApplicationsReqDto } from './dto/req/get-admin-listing-applications-req.dto.js';
 import type { ListingDraftDataReqDto } from './dto/req/listing-draft-data-req.dto.js';
 import type {
@@ -36,6 +37,7 @@ const listSelect = {
   serviceName: true,
   submittedAt: true,
   status: true,
+  draftData: true,
   user: { select: { id: true, loginId: true, nickname: true } },
 } satisfies Prisma.ListingApplicationSelect;
 
@@ -43,18 +45,28 @@ type ListingSummary = Prisma.ListingApplicationGetPayload<{
   select: typeof listSelect;
 }>;
 
+function containsSearch(value: string) {
+  // Prisma의 contains는 LIKE를 사용하므로 패턴 문자를 이스케이프한다.
+  return {
+    contains: value.replace(/[\\%_]/g, '\\$&'),
+    mode: 'insensitive' as const,
+  };
+}
+
 @Injectable()
 export class ListingApplicationsAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly steps: ListingStepValidationService,
     private readonly files: FilesService,
+    private readonly sectors: SectorsService,
   ) {}
 
   async list(
     query: GetAdminListingApplicationsReqDto,
   ): Promise<GetAdminListingApplicationsResDto> {
-    const { from, to, keyword, page, size, status } = query;
+    const { from, to, keyword, applicant, page, size, status, sectorCode } =
+      query;
     const start = from ? new Date(from) : undefined;
     const end = to ? new Date(to) : undefined;
     if (start && end && start >= end)
@@ -66,30 +78,40 @@ export class ListingApplicationsAdminService {
       ...reviewableWhere,
       ...(status && { status }),
       submittedAt: { not: null, gte: start, lt: end },
+      ...(sectorCode !== undefined && {
+        draftData: { path: ['sectorCode'], equals: sectorCode },
+      }),
     };
     if (keyword) {
-      // Prisma의 contains는 LIKE를 사용하므로 검색어의 패턴 문자를 이스케이프한다.
-      const contains = keyword.replace(/[\\%_]/g, '\\$&');
+      const matches = containsSearch(keyword);
       where.OR = [
-        { applicationNumber: { contains, mode: 'insensitive' } },
-        { serviceName: { contains, mode: 'insensitive' } },
+        { applicationNumber: matches },
+        { serviceName: matches },
+        { user: { OR: [{ loginId: matches }, { nickname: matches }] } },
       ];
     }
-    const [items, totalCount] = await this.prisma.$transaction(
-      [
-        this.prisma.listingApplication.findMany({
-          where,
-          select: listSelect,
-          orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
-          skip: (page - 1) * size,
-          take: size,
-        }),
-        this.prisma.listingApplication.count({ where }),
-      ],
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
+    if (applicant) {
+      const matches = containsSearch(applicant);
+      where.user = { OR: [{ loginId: matches }, { nickname: matches }] };
+    }
+    const [[items, totalCount], sectorNames] = await Promise.all([
+      this.prisma.$transaction(
+        [
+          this.prisma.listingApplication.findMany({
+            where,
+            select: listSelect,
+            orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+            skip: (page - 1) * size,
+            take: size,
+          }),
+          this.prisma.listingApplication.count({ where }),
+        ],
+        { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+      ),
+      this.sectorNames(),
+    ]);
     return {
-      items: items.map((item) => this.summary(item)),
+      items: items.map((item) => this.summary(item, sectorNames)),
       page,
       size,
       totalCount,
@@ -99,12 +121,12 @@ export class ListingApplicationsAdminService {
   async detail(id: number): Promise<AdminListingApplicationResDto> {
     const application = await this.findReviewable(id);
     const data = application.draftData as ListingDraftDataReqDto;
-    const attachments = await this.steps.getAttachments(
-      application.user.id,
-      data,
-    );
+    const [attachments, sectorNames] = await Promise.all([
+      this.steps.getAttachments(application.user.id, data),
+      this.sectorNames(),
+    ]);
     return {
-      ...this.summary(application),
+      ...this.summary(application, sectorNames),
       reviewComment: application.reviewComment,
       revisionDeadline: application.revisionDeadline,
       data,
@@ -167,7 +189,6 @@ export class ListingApplicationsAdminService {
         ...listSelect,
         reviewComment: true,
         revisionDeadline: true,
-        draftData: true,
         revisions: {
           orderBy: { id: 'desc' },
           select: {
@@ -187,12 +208,30 @@ export class ListingApplicationsAdminService {
     return application;
   }
 
-  private summary({ user, ...item }: ListingSummary) {
+  private async sectorNames(): Promise<ReadonlyMap<number, string>> {
+    const { items } = await this.sectors.getSectors();
+    return new Map(
+      items.map(({ sectorCode, sectorName }) => [sectorCode, sectorName]),
+    );
+  }
+
+  private summary(
+    { user, draftData, ...item }: ListingSummary,
+    sectorNames: ReadonlyMap<number, string>,
+  ) {
+    const code = (draftData as ListingDraftDataReqDto | null)?.sectorCode;
+    const sectorCode =
+      typeof code === 'number' && Number.isInteger(code) && code > 0
+        ? code
+        : null;
     // 상세 조회 결과도 들어오므로 목록 공통 항목을 명시적으로 선택한다.
     return {
       id: item.id,
       applicationNumber: item.applicationNumber,
       serviceName: item.serviceName,
+      sectorCode,
+      sectorName:
+        sectorCode === null ? null : (sectorNames.get(sectorCode) ?? null),
       submittedAt: item.submittedAt,
       status: item.status,
       statusLabel: LISTING_STATUS_LABELS[item.status],
