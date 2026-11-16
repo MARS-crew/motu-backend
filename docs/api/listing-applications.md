@@ -2,6 +2,8 @@
 
 본인 보완 요청 조회·기한 검사와 증빙 재제출은 [보완 요청·재제출](listing-revisions.md)을 참고한다. 재제출 시 기존 신청번호를 유지하고 검토 중으로 전환하며, 제출한 증빙 묶음은 변경을 차단한다.
 
+운영자의 심사 대상 조회는 [관리자 상장 신청 조회·서류 다운로드](#관리자-상장-신청-조회서류-다운로드)를 참고한다.
+
 관련 이슈: #33. MOTU-30-02-01, MOTU-32-02-01~03.
 
 단계별 저장·조회 추가: [#36](https://github.com/MARS-crew/motu-backend/issues/36). MOTU-36-02-01, MOTU-38-01-01~02. 이번 범위는 4단계 입력 저장과 본인 상세·상태 조회다. 최종 제출, 신청번호 발급, 제출에 따른 상태 전환, SMS/2차 보안 연동은 후속 작업이다.
@@ -154,9 +156,37 @@ PostgreSQL 부분 UNIQUE 인덱스 `listing_applications_active_url_key`가 동�
 
 ## ERD·파일 기능·후속 작업
 
-ERD의 최종 제출 필드는 미입력 임시저장과 양립하도록 이번에는 draftData(JSONB)에 보관한다. 검색/제약에 필요한 소유자·서비스명·URL·상태·단계·저장/만료일은 별도 컬럼이다. 최종 제출 모듈에서 draftData를 필수값/형식 검증하고 ERD의 정형 필드·신청번호·신청 상태로 전환해야 한다. 현재 접수·심사·보완 API는 제공하지 않는다.
+ERD의 최종 제출 필드는 미입력 임시저장과 양립하도록 이번에는 draftData(JSONB)에 보관한다. 검색/제약에 필요한 소유자·서비스명·URL·상태·단계·저장/만료일은 별도 컬럼이다. 최종 제출 모듈에서 draftData를 필수값/형식 검증하고 ERD의 정형 필드·신청번호·신청 상태로 전환해야 한다.
 
 logoCollectionId / mainImageCollectionId / evidenceCollectionId는 기존 [파일 API](files.md)의 작성 묶음 ID다. FilesService.getSavedCollection으로 소유자와 용도를 확인한다. 파일 ID나 임의 URL을 업로드 완료 자료로 간주하지 않는다. 이어서 작성할 때 파일 API로 해당 묶음의 saved 자료를 조회한다. 본 작업은 최종 제출 시 파일 불변 스냅샷이나 신청서-파일 FK를 구현하지 않는다. 임시저장 삭제/만료 시 파일을 함께 물리 삭제하지 않는다.
+
+## 관리자 상장 신청 조회·서류 다운로드
+
+이슈 #70. 관리자 Bearer 토큰(`Role.ADMIN`)이 필요하다. 신청번호·접수일이 있는 `SUBMITTED`, `UNDER_REVIEW`, `REVISION_REQUESTED`, `APPROVED`, `REJECTED` 신청서를 조회한다. 삭제된 신청서는 제외한다. 최초 접수 API 도입 전에는 로컬 seed의 접수 이후 신청서 또는 통합 검증의 테스트 데이터를 사용한다.
+
+| 메서드 | 경로 | 응답 |
+|---|---|---|
+| GET | `/api/admin/listing-applications` | 신청 목록, 페이지 정보 및 필터에 맞는 전체 건수 |
+| GET | `/api/admin/listing-applications/{id}` | 신청자, 접수 정보, 신청 입력값, 현재 첨부 및 보완 이력 |
+| GET | `/api/admin/listing-applications/{id}/attachments/{attachmentId}/content` | 파일 바이너리. 해당 신청서 상세의 `downloadPath` 사용 |
+
+목록은 `keyword`(최대 30자, 신청번호 또는 서비스명 부분 일치, 대소문자 구분 없음), `status`(위 상태 중 하나), `from`(포함), `to`(미포함)를 조합할 수 있다. 접수 기간은 시간대가 포함된 ISO 일시로 보낸다(예: `2026-11-01T00:00:00+09:00`). 종료 날짜까지 포함하려면 다음 날 0시를 `to`로 보낸다. `page`는 1~100000(기본 1), `size`는 1~100(기본 20)이다. 접수일 내림차순, 접수일이 같으면 ID 내림차순으로 `items`, `page`, `size`, `totalCount`를 반환한다.
+
+목록 각 항목에 신청 ID, 신청번호, 서비스명, 접수일, 상태 및 한글 상태명, 신청자 ID·로그인 아이디·닉네임을 반환한다. 상세에는 신청 입력값(`data`), 최근 심사 의견·보완 기한, 저장 완료된 로고·대표 이미지·증빙(`attachments`)과 보완 회차(`revisions`, ID 내림차순)가 추가된다. 재제출 회차의 `evidence`는 당시 스냅샷이다.
+
+파일은 관리자용 `downloadPath`로 토큰을 붙여 내려받고, 링크는 `url`을 표시한다. 다운로드 시 신청서에 연결된 저장 완료 파일 또는 해당 신청서의 재제출 스냅샷에 포함된 파일인지 확인하고, 실제 묶음의 소유자·용도·저장 여부도 확인한다. 다운로드 응답은 파일 형식, 원래 파일명, 캐시 금지 헤더를 제공한다.
+
+| 응답 | 상황 |
+|---|---|
+| 400 `BAD_REQUEST` | 쿼리나 경로 값 형식 오류 |
+| 400 `LISTING_INVALID_SUBMITTED_PERIOD` | 시작이 종료와 같거나 늦음 |
+| 401 / 403 | 인증 정보 없음 또는 관리자 권한 없음 |
+| 404 `LISTING_APPLICATION_NOT_FOUND` | 신청서가 없거나 심사 대상이 아님 |
+| 404 `FILE_NOT_FOUND` | 신청서에 연결되지 않았거나 다운로드 가능한 저장 완료 파일이 아님 |
+
+조회·다운로드는 읽기 전용이다. 심사 결과와 관리자 활동 이력은 후속 심사 처리에서 기록한다(관련 PR #69). 로컬 검증은 `npm run build` 후 `node scripts/verify-admin-listing-applications.mjs`로 실행한다. 일회용 로컬 DB와 임시 파일 저장소에서 권한, 검색·페이징, 보완 이력 및 파일 다운로드를 확인한다.
+
+Swagger에서는 관리자 로그인·Authorize → **Admin - Listing Applications**의 목록에서 `id` 확인 → 해당 `id`의 상세 조회 → 파일 항목의 `id`로 다운로드 순서로 검증한다. seed 신청서에 첨부가 없으면 목록·상세를 확인할 수 있으며, 파일이 연결된 예시는 위 통합 검증에서 생성한다.
 
 ## 오류
 
