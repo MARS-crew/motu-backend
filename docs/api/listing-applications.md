@@ -170,9 +170,12 @@ logoCollectionId / mainImageCollectionId / evidenceCollectionId는 기존 [파�
 | GET | `/api/admin/listing-applications/{id}` | 신청자, 접수 정보, 신청 입력값, 현재 첨부 및 보완 이력 |
 | GET | `/api/admin/listing-applications/{id}/attachments/{attachmentId}/content` | 파일 바이너리. 해당 신청서 상세의 `downloadPath` 사용 |
 
-목록은 `keyword`(최대 30자, 신청번호 또는 서비스명 부분 일치, 대소문자 구분 없음), `status`(위 상태 중 하나), `from`(포함), `to`(미포함)를 조합할 수 있다. 접수 기간은 시간대가 포함된 ISO 일시로 보낸다(예: `2026-11-01T00:00:00+09:00`). 종료 날짜까지 포함하려면 다음 날 0시를 `to`로 보낸다. `page`는 1~100000(기본 1), `size`는 1~100(기본 20)이다. 접수일 내림차순, 접수일이 같으면 ID 내림차순으로 `items`, `page`, `size`, `totalCount`를 반환한다.
+- 신청자 입력칸의 값은 `applicant`로 보낸다. 로그인 아이디 또는 닉네임에 부분 일치한다. 통합 검색용 `keyword`는 신청번호, 서비스명, 로그인 아이디, 닉네임을 검색한다. 두 검색어는 각각 최대 30자이며 대소문자를 구분하지 않는다. 두 쿼리를 함께 보내면 두 조건을 모두 충족하는 신청서를 반환한다.
+- 카테고리 목록은 `GET /api/sectors`를 사용한다. 선택한 카테고리의 `sectorCode`를 양의 정수로 보내면 해당 카테고리만 조회한다. 전체 카테고리를 선택하면 `sectorCode`를 생략한다. 신청 상태는 선택값을 `status`로 보낸다.
+- 첫 진입 시 프론트에서 최근 30일을 계산해 `from`(포함)과 `to`(미포함)를 보낸다. 시간대를 포함한 ISO 일시를 사용한다. 양 끝 날짜를 포함하려면 시작일 0시부터 종료일 다음 날 0시까지 보낸다. 날짜 필터를 초기화하면 두 쿼리를 모두 생략하고 API는 전체 기간을 조회한다. 한쪽만 보내면 해당 경계만 적용한다.
+- `page`는 1~100000(기본 1), `size`는 1~100(기본 20)이다. 접수일 내림차순, 접수일이 같으면 ID 내림차순으로 `items`, `page`, `size`, `totalCount`를 반환한다.
 
-목록 각 항목에 신청 ID, 신청번호, 서비스명, 접수일, 상태 및 한글 상태명, 신청자 ID·로그인 아이디·닉네임을 반환한다. 상세에는 신청 입력값(`data`), 최근 심사 의견·보완 기한, 저장 완료된 로고·대표 이미지·증빙(`attachments`)과 보완 회차(`revisions`, ID 내림차순)가 추가된다. 재제출 회차의 `evidence`는 당시 스냅샷이다.
+목록 각 항목에 신청 ID, 신청번호, 서비스명, 카테고리 코드·이름(`sectorCode`, `sectorName`), 접수일, 상태 및 한글 상태명, 신청자 ID·로그인 아이디·닉네임을 반환한다. 이전 신청서에 카테고리 코드가 없으면 두 값이 `null`이다. 등록되지 않은 카테고리 코드는 코드만 내려가고 이름은 `null`이다. 상세에는 신청 입력값(`data`), 최근 심사 의견·보완 기한, 저장 완료된 로고·대표 이미지·증빙(`attachments`)과 보완 회차(`revisions`, ID 내림차순)가 추가된다. 재제출 회차의 `evidence`는 당시 스냅샷이다.
 
 파일은 관리자용 `downloadPath`로 토큰을 붙여 내려받고, 링크는 `url`을 표시한다. 다운로드 시 신청서에 연결된 저장 완료 파일 또는 해당 신청서의 재제출 스냅샷에 포함된 파일인지 확인하고, 실제 묶음의 소유자·용도·저장 여부도 확인한다. 다운로드 응답은 파일 형식, 원래 파일명, 캐시 금지 헤더를 제공한다.
 
@@ -184,7 +187,9 @@ logoCollectionId / mainImageCollectionId / evidenceCollectionId는 기존 [파�
 | 404 `LISTING_APPLICATION_NOT_FOUND` | 신청서가 없거나 심사 대상이 아님 |
 | 404 `FILE_NOT_FOUND` | 신청서에 연결되지 않았거나 다운로드 가능한 저장 완료 파일이 아님 |
 
-조회·다운로드는 읽기 전용이다. 심사 결과와 관리자 활동 이력은 후속 심사 처리에서 기록한다(관련 PR #69). 로컬 검증은 `npm run build` 후 `node scripts/verify-admin-listing-applications.mjs`로 실행한다. 일회용 로컬 DB와 임시 파일 저장소에서 권한, 검색·페이징, 보완 이력 및 파일 다운로드를 확인한다.
+조회·다운로드는 읽기 전용이다. 최초 접수 건은 후속 심사 처리의 명시적인 검토 시작에서 `SUBMITTED`에서 `UNDER_REVIEW`로 전환하며, 검토 시작 전 대기 건수는 `SUBMITTED`를 기준으로 집계한다. 보완 자료가 재제출되면 기존 재제출 API에서 `UNDER_REVIEW`로 전환한다. 심사 결과와 관리자 활동 이력은 후속 심사 처리에서 기록한다(관련 PR #69).
+
+로컬 검증은 `npm run build` 후 `node scripts/verify-admin-listing-applications.mjs`로 실행한다. 일회용 로컬 DB와 임시 파일 저장소에서 권한, 검색·카테고리·기간·페이징, 상세 조회 시 상태 유지, 보완 이력 및 파일 다운로드를 확인한다.
 
 Swagger에서는 관리자 로그인·Authorize → **Admin - Listing Applications**의 목록에서 `id` 확인 → 해당 `id`의 상세 조회 → 파일 항목의 `id`로 다운로드 순서로 검증한다. seed 신청서에 첨부가 없으면 목록·상세를 확인할 수 있으며, 파일이 연결된 예시는 위 통합 검증에서 생성한다.
 
