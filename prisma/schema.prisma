@@ -419,6 +419,8 @@ model Stock {
   minOrderQty       BigInt      @map("min_order_qty")
   listingDate       DateTime    @map("listing_date") @db.Timestamptz(3)
   tradeStatus       TradeStatus @map("trade_status")
+  /// 사용자 화면 공개 여부 (노출 상태). 비공개 상품은 사용자 상품 목록·검색·신규 상장·최근 본 종목·관심상품에 나오지 않는다.
+  isPublic          Boolean     @default(true) @map("is_public")
   /// 주요 서비스 지표 (상장 신청에서 입력한 값, 없으면 null)
   /// 월간 활성 사용자 수
   mau               BigInt?
