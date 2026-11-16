@@ -13,6 +13,7 @@ import type { ListingDraftDataReqDto } from './dto/req/listing-draft-data-req.dt
 import {
   LISTING_DRAFT_LIFETIME_MS,
   LISTING_DRAFT_WARNING_MS,
+  LISTING_STATUS_LABELS,
   MAX_LISTING_DRAFTS,
 } from './listing-applications.constants.js';
 import { ListingApplicationErrors as Errors } from './listing-applications.errors.js';
@@ -229,19 +230,10 @@ export class ListingApplicationsService {
       item.status === ListingApplicationStatus.DRAFT && item.expiresAt <= now
         ? ListingApplicationStatus.EXPIRED
         : item.status;
-    const labels: Record<ListingApplicationStatus, string> = {
-      DRAFT: '임시 저장',
-      SUBMITTED: '접수',
-      UNDER_REVIEW: '검토 중',
-      REVISION_REQUESTED: '보완 요청',
-      APPROVED: '승인',
-      REJECTED: '반려',
-      EXPIRED: '만료',
-    };
     return {
       id: item.id,
       status,
-      statusLabel: labels[status],
+      statusLabel: LISTING_STATUS_LABELS[status],
       applicationNumber: item.applicationNumber,
       submittedAt: item.submittedAt ?? null,
       reviewComment: item.reviewComment ?? null,

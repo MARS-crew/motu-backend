@@ -3,6 +3,8 @@ import { FilesModule } from '../files/files.module.js';
 import { SectorsModule } from '../sectors/sectors.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { ListingApplicationsController } from './listing-applications.controller.js';
+import { ListingApplicationsAdminController } from './listing-applications-admin.controller.js';
+import { ListingApplicationsAdminService } from './listing-applications-admin.service.js';
 import { ListingApplicationsService } from './listing-applications.service.js';
 import { ListingDraftExpirationService } from './listing-draft-expiration.service.js';
 import { ListingStepValidationService } from './listing-step-validation.service.js';
@@ -15,11 +17,13 @@ import { ListingRevisionsService } from './listing-revisions.service.js';
   imports: [FilesModule, SectorsModule, NotificationsModule],
   controllers: [
     ListingApplicationsController,
+    ListingApplicationsAdminController,
     ListingApplicationQueriesController,
     ListingRevisionsController,
   ],
   providers: [
     ListingApplicationsService,
+    ListingApplicationsAdminService,
     ListingDraftExpirationService,
     ListingDraftNotificationsService,
     ListingStepValidationService,
