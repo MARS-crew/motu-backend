@@ -2,7 +2,7 @@
 
 [← API 명세서 목차](README.md)
 
-모두 로그인 없이 호출할 수 있습니다. 공지·FAQ를 등록하는 관리자 API는 [아직 없고](README.md#아직-구현되지-않은-것), 로컬에서는 seed(`npm run db:seed`)로 테스트 데이터를 넣습니다.
+사용자 공지·FAQ는 로그인 없이 조회할 수 있습니다. 공지 등록·수정·삭제는 관리자 API를 사용합니다. 로컬에서는 seed(`npm run db:seed`)로도 테스트 데이터를 넣을 수 있습니다.
 
 ## 공지 항목 (공통)
 
@@ -59,6 +59,48 @@
 | 400 `BAD_REQUEST` | `noticeId`가 숫자가 아님 | |
 
 - `content`는 줄바꿈(`\n`)이 들어간 텍스트입니다. 줄바꿈을 그대로 보여 주세요.
+
+## 관리자 공지사항
+
+MOTU-26-1-1, MOTU-26-1-2 (이슈 #75). 아래 경로는 관리자 Bearer 토큰이 필요합니다.
+
+| 메서드 | 경로 | 결과 |
+|------|------|------|
+| GET | `/api/admin/notices?page=1&size=10` | 삭제 전 공지 목록. 예약·게시 중·종료 공지를 모두 조회 |
+| GET | `/api/admin/notices/{noticeId}` | 공지 상세와 본문 |
+| POST | `/api/admin/notices` | 공지 등록 후 상세 반환 (201) |
+| PATCH | `/api/admin/notices/{noticeId}` | 전달한 필드만 변경하고 상세 반환 (200) |
+| DELETE | `/api/admin/notices/{noticeId}` | 삭제 시각을 저장하고 관리자·사용자 조회에서 제외 (204) |
+
+관리자 목록은 게시 시작일 내림차순, 같은 시각이면 ID 내림차순입니다. `items`, `page`, `size`, `totalCount`를 반환합니다. `page`는 1~100000, `size`는 1~50입니다. 각 항목에는 게시 기간과 현재 게시 상태(`SCHEDULED`, `PUBLISHED`, `ENDED`)가 들어 있습니다. 상태는 조회 시각과 게시 기간으로 계산합니다.
+
+다음은 등록 요청 예시입니다.
+
+```json
+{
+  "type": "ALL",
+  "title": "서비스 점검 안내",
+  "content": "서비스 점검 일정을 안내드립니다.",
+  "isImportant": true,
+  "postStartDate": "2026-11-16T09:00:00+09:00",
+  "postEndDate": "2026-11-18T09:00:00+09:00"
+}
+```
+
+- `type`, `title`, `content`, `postStartDate`는 등록 시 필수입니다. 제목은 공백을 제거한 뒤 1~100자, 본문은 공백을 제거한 뒤 한 글자 이상이어야 합니다. 본문의 줄바꿈은 유지합니다.
+- `isImportant`는 상단 고정 여부이며 생략하면 `false`입니다. 게시 일시는 시간대를 포함한 ISO 일시로 보냅니다. 게시 시작은 포함, 종료는 미포함입니다. `postEndDate: null`은 종료일 없는 게시를 뜻하며, PATCH로 전달하면 종료일을 지웁니다.
+- 고정 한도는 `ALL`과 `STOCK`을 합쳐 **같은 시각에 게시되는 공지 최대 3개**입니다. 등록·수정할 때 현재부터 미래의 게시 겹침을 확인합니다. 예약 기간이 순차적으로 이어지면 각각의 동시 게시 개수를 기준으로 판단합니다. 공지 삭제, 고정 해제, 기간 종료로 해당 시간의 자리가 비워집니다. 동시 등록·수정에서도 같은 제한을 적용합니다.
+- 등록(`NOTICE_PUBLISH`), 수정(`NOTICE_UPDATE`), 삭제(`NOTICE_DELETE`) 이력은 공지 변경과 같은 트랜잭션에 기록합니다. 수정 이력은 바뀐 필드의 이전·이후 값을 저장합니다. [관리자 활동 이력](admin-activity-logs.md)을 참고합니다.
+
+| 응답 | 상황 |
+|------|------|
+| 400 `BAD_REQUEST` | 요청 타입·필수값·날짜 형식 위반 |
+| 400 `NOTICE_INVALID_PERIOD` | 종료가 시작과 같거나 앞섬 |
+| 401 / 403 | 로그인 필요 / 관리자 권한 없음 |
+| 404 `NOTICE_ADMIN_NOT_FOUND` | 공지가 없거나 삭제됨 |
+| 409 `NOTICE_PIN_LIMIT_EXCEEDED` | 같은 시각에 게시되는 고정 공지가 3개를 초과함 |
+
+로컬 Swagger에서 직접 테스트하려면 로컬 DB에 `npm run db:deploy`로 마이그레이션을 적용한 뒤 **Admin - Notices**를 사용합니다. 자동 검증은 `npm run build` 후 `node scripts/verify-admin-notices.mjs`로 실행합니다. 관리자 권한, CRUD, 게시 상태, 현재·예약·동시 고정 한도, 활동 이력과 롤백을 일회용 로컬 PostgreSQL에서 확인합니다.
 
 ## FAQ 목록
 
