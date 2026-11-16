@@ -15,7 +15,7 @@
 | [상품](stocks.md) | 카테고리, 상품 목록, 신규 상장, 상품 상세, 최근 본 종목 | `modules/sectors`, `modules/stocks` |
 | [검색](search.md) | 상품 검색, 최근 검색어 | `modules/stocks`, `modules/search-histories` |
 | [관심상품](wishlists.md) | 관심상품 등록·해제, 관심 상품 목록 | `modules/stocks` |
-| [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |
+| [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, 관리자 공지 관리·상단 고정 검증, FAQ | `modules/notices`, `modules/faqs` |
 | [주문](orders.md) | 거래 규칙, 주문 가능 정보, 매수·매도 주문, 주문 취소, 내 주문, 호가 5단계 | `modules/orders`, `modules/matching` |
 | [체결](trades.md) | 최근 체결 | `modules/trades` |
 | [포트폴리오](portfolio.md) | 총 자산, 평가손익, 자산 구성, 보유 종목 | `modules/portfolio` |
@@ -40,6 +40,6 @@
 
 | 항목 | 현재 동작 | 예정 |
 |------|------|------|
-| 공지·FAQ 등록·수정·삭제 (관리자) | 없음, 로컬은 seed로 넣음 | 관리자 화면 작업 때 |
+| FAQ 등록·수정·삭제 (관리자) | 로컬은 seed로 넣음 | 관리자 화면 작업 때 |
 | 회원 탈퇴, 비밀번호 재설정 메일의 화면 주소 | 없음 / 로컬 주소 | 2차 개발 |
 
