@@ -917,6 +917,7 @@ enum AdminActivityAction {
   NOTICE_PUBLISH
   NOTICE_HIDE
   NOTICE_DELETE
+  NOTICE_UPDATE
   ANOMALY_ACTION
 
   @@map("admin_activity_action")
