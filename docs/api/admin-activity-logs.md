@@ -17,7 +17,7 @@
 | `STOCK` 상품 | `STOCK_UPDATE` 상품 정보 수정, `STOCK_PAUSE` 상품 거래 중지, `STOCK_RESUME` 상품 거래 재개, `STOCK_CLOSE` 상품 거래 종료 | 상품 ID |
 | `USER` 회원 | `USER_STATUS_CHANGE` 회원 상태 변경, `USER_UNLOCK` 계정 잠금 해제, `POINT_GRANT` 포인트 지급, `POINT_RECALL` 포인트 회수 | 회원 user_id |
 | `ADMIN` 관리자 계정 | `ADMIN_CREATE` 관리자 계정 생성, `ADMIN_STATUS_CHANGE` 관리자 계정 상태 변경 | 관리자 user_id |
-| `NOTICE` 공지 | `NOTICE_PUBLISH` 공지 게시, `NOTICE_HIDE` 공지 비공개, `NOTICE_DELETE` 공지 삭제 | 공지 ID |
+| `NOTICE` 공지 | `NOTICE_PUBLISH` 공지 등록·게시 예약, `NOTICE_UPDATE` 공지 수정, `NOTICE_HIDE` 공지 비공개, `NOTICE_DELETE` 공지 삭제 | 공지 ID |
 | `ANOMALY` 이상 거래 | `ANOMALY_ACTION` 이상 거래 조치 | 이상 거래 ID |
 
 - 화면에 보이는 대상 ID(예: 상품 `PRD-018`, 회원 `USR-1024`)는 `targetId`에 대상별 접두어를 붙여 만듭니다.
@@ -103,4 +103,4 @@ await this.prisma.$transaction(async (tx) => {
 - `action`은 `targetType`에 맞는 작업이어야 합니다. 맞지 않으면 서버 에러가 납니다(코드 실수).
 - `before`·`after`에는 바뀐 항목만 넣습니다. 화면에 그대로 보여 주기 쉬운 값으로 넣어 주세요.
 - 접속 IP·User-Agent는 컨트롤러에서 `clientInfo(request)`로 꺼내 넘깁니다.
-- 현재 기록을 남기는 곳: 회원 포인트 지급·회수(`PATCH /api/admin/accounts/:userId/cash`)
+- 현재 기록을 남기는 곳: 회원 포인트 지급·회수(`PATCH /api/admin/accounts/:userId/cash`), 공지 등록·수정·삭제([관리자 공지 API](notices.md#관리자-공지사항)).
