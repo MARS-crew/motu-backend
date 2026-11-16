@@ -10,7 +10,7 @@
 | [공통](common.md) | 응답 형식, 인증(로그인 필요·선택·관리자), 토큰 만료·계정 잠김 처리, 페이지네이션, 값 형식, 메일·SMS 발송 실패 | `src/common` |
 | [인증](auth.md) | 로그인, 새 기기 확인, 토큰 재발급, 로그아웃, 아이디 찾기, 비밀번호 재설정, 인증번호 공통 규칙 | `modules/auth`, `modules/verifications` |
 | [2차 보안](two-factor.md) | SMS 2차 보안 설정·해제·상태, 중요 기능 재인증, 주문 최초 활성화, SMS 발송 | `modules/two-factor`, `common/sms` |
-| [회원가입·회원](users.md) | 아이디·닉네임 중복 확인, 가입 이메일 인증, 회원가입, 내 정보 | `modules/users` |
+| [회원가입·회원](users.md) | 아이디·닉네임 중복 확인, 가입 이메일 인증, 회원가입, 내 정보(마이페이지), 연락처 변경 | `modules/users` |
 | [계좌·포인트](accounts.md) | 내 계좌, 포인트 이력, 추가 지급, 리셋, 관리자 계좌 관리 | `modules/accounts` |
 | [상품](stocks.md) | 카테고리, 상품 목록, 신규 상장, 상품 상세, 최근 본 종목 | `modules/sectors`, `modules/stocks` |
 | [검색](search.md) | 상품 검색, 최근 검색어 | `modules/stocks`, `modules/search-histories` |
