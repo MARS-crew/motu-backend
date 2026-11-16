@@ -87,8 +87,7 @@ export class UsersAdminService {
         ])
       : [0, 0];
 
-    return {
-      ...this.toItem(user),
+    return Object.assign(this.toItem(user), {
       security: {
         emailVerified: true,
         twoFactorStatus: user.twoFactorStatus,
@@ -104,7 +103,7 @@ export class UsersAdminService {
         holdingCount,
         openOrderCount,
       },
-    };
+    });
   }
 
   /**
