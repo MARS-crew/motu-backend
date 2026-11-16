@@ -118,13 +118,12 @@ export class AdminActivityLogsService {
       throw new BusinessException(AdminActivityLogErrors.NOT_FOUND);
     }
 
-    return {
-      ...this.toItem(log),
+    return Object.assign(this.toItem(log), {
       before: (log.beforeValue as Record<string, unknown> | null) ?? null,
       after: (log.afterValue as Record<string, unknown> | null) ?? null,
       reason: log.reason,
       ipAddress: log.ipAddress ? maskIpAddress(log.ipAddress) : null,
-    };
+    });
   }
 
   private toWhere(
