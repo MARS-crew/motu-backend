@@ -15,6 +15,8 @@ export class AdminListingApplicationItemResDto {
   @ApiProperty() id: number;
   @ApiProperty({ type: String }) applicationNumber: string | null;
   @ApiProperty({ type: String, nullable: true }) serviceName: string | null;
+  @ApiProperty({ type: Number, nullable: true }) sectorCode: number | null;
+  @ApiProperty({ type: String, nullable: true }) sectorName: string | null;
   @ApiProperty({ type: Date }) submittedAt: Date | null;
   @ApiProperty({ enum: [...REVIEWABLE_LISTING_STATUSES] })
   status: ListingApplicationStatus;
