@@ -1,0 +1,1 @@
+ALTER TYPE "admin_activity_action" ADD VALUE 'NOTICE_UPDATE' AFTER 'NOTICE_DELETE';
