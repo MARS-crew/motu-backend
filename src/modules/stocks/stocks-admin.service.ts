@@ -75,8 +75,7 @@ export class StocksAdminService {
       }),
     ]);
 
-    return {
-      ...this.toItem(stock, summaries),
+    return Object.assign(this.toItem(stock, summaries), {
       summary: stock.summary,
       description: stock.description,
       operatorName: stock.operatorName,
@@ -94,7 +93,7 @@ export class StocksAdminService {
         // DATE 컬럼은 UTC 자정으로 읽히므로 날짜 부분만 내려준다.
         baseDate: stock.metricsEndDate?.toISOString().slice(0, 10) ?? null,
       },
-    };
+    });
   }
 
   private toWhere(query: GetAdminStocksReqDto): Prisma.StockWhereInput {
