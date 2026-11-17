@@ -5,8 +5,10 @@ import {
   ErrorDefinition,
 } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { maskPhoneNumber } from '../../common/utils/masking.js';
 import {
   Prisma,
+  TwoFactorStatus,
   User,
   UserStatus,
   VerificationChannel,
@@ -18,6 +20,7 @@ import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
 import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
+import { SendContactPhoneVerificationResDto } from './dto/res/send-contact-phone-verification-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
 import { MAX_LOGIN_FAIL_COUNT } from './users.constants.js';
 import { UserErrors } from './users.errors.js';
@@ -132,7 +135,76 @@ export class UsersService {
       phoneNumber: user.phoneNumber,
       role: user.role,
       userStatus: user.userStatus,
+      twoFactorStatus: user.twoFactorStatus,
     };
+  }
+
+  /**
+   * 연락처 변경용 인증번호를 새 번호로 보낸다. 2차 보안을 설정한 회원만 바꿀 수 있다.
+   * 다른 번호로 받아 둔 인증번호는 쓸 수 없게 한다.
+   */
+  async sendContactPhoneCode(
+    userId: number,
+    phoneNumber: string,
+  ): Promise<SendContactPhoneVerificationResDto> {
+    const user = await this.findContactChangeUser(userId, phoneNumber);
+    const target = contactPhoneTarget(user.id, phoneNumber);
+    const sent = await this.verificationsService.sendSmsCode(
+      VerificationPurpose.CONTACT_PHONE_CHANGE,
+      phoneNumber,
+      target,
+    );
+    await this.verificationsService.invalidateOthers(
+      VerificationChannel.SMS,
+      VerificationPurpose.CONTACT_PHONE_CHANGE,
+      `${user.id}:`,
+      target,
+    );
+    return { maskedPhoneNumber: maskPhoneNumber(phoneNumber), ...sent };
+  }
+
+  /**
+   * 인증번호가 맞으면 연락처를 그 번호로 바꾼다. 2차 보안 번호는 바꾸지 않는다.
+   */
+  async changeContactPhone(
+    userId: number,
+    phoneNumber: string,
+    code: string,
+  ): Promise<GetMyInfoResDto> {
+    const user = await this.findContactChangeUser(userId, phoneNumber);
+    const target = contactPhoneTarget(user.id, phoneNumber);
+    await this.verificationsService.confirmSmsCode(
+      VerificationPurpose.CONTACT_PHONE_CHANGE,
+      target,
+      code,
+    );
+    await this.prisma.$transaction(async (tx) => {
+      await this.verificationsService.consumeVerified(
+        tx,
+        VerificationChannel.SMS,
+        VerificationPurpose.CONTACT_PHONE_CHANGE,
+        target,
+      );
+      await tx.user.update({ where: { id: user.id }, data: { phoneNumber } });
+    });
+    return this.getMyInfo(userId);
+  }
+
+  private async findContactChangeUser(
+    userId: number,
+    phoneNumber: string,
+  ): Promise<User> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new BusinessException(UserErrors.NOT_FOUND);
+    }
+    if (user.twoFactorStatus !== TwoFactorStatus.ENABLED) {
+      throw new BusinessException(UserErrors.CONTACT_TWO_FACTOR_REQUIRED);
+    }
+    if (user.phoneNumber === phoneNumber) {
+      throw new BusinessException(UserErrors.SAME_PHONE_NUMBER);
+    }
+    return user;
   }
 
   /** 로그인용 조회. 비밀번호 해시가 포함되므로 응답에 그대로 내보내지 않는다. */
@@ -214,4 +286,9 @@ export class UsersService {
 
 function toColumnName(field: UniqueField): string {
   return field.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
+}
+
+/** 회원마다 따로 인증하도록 인증번호 대상을 회원 ID와 번호로 만든다. */
+function contactPhoneTarget(userId: number, phoneNumber: string): string {
+  return `${userId}:${phoneNumber}`;
 }

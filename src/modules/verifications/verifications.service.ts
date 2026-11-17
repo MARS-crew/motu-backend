@@ -38,6 +38,7 @@ const PURPOSE_LABELS: Record<VerificationPurpose, string> = {
   [VerificationPurpose.NEW_DEVICE_LOGIN]: '새 기기 로그인',
   [VerificationPurpose.TWO_FACTOR_SETUP]: '2차 보안 휴대폰 등록',
   [VerificationPurpose.TWO_FACTOR]: '2차 보안',
+  [VerificationPurpose.CONTACT_PHONE_CHANGE]: '연락처 변경',
 };
 
 export interface SentVerification {

@@ -94,7 +94,9 @@ describe('StocksService', () => {
 
       expect(findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { AND: [{ sectorCode: 1 }, { isDeleted: false }, {}] },
+          where: {
+            AND: [{ sectorCode: 1 }, { isDeleted: false, isPublic: true }, {}],
+          },
           orderBy: [{ listingDate: 'desc' }, { id: 'desc' }],
           take: 21,
         }),
@@ -170,7 +172,9 @@ describe('StocksService', () => {
       });
 
       expect(findMany).toHaveBeenCalledWith({
-        where: { AND: [{ sectorCode: 1 }, { isDeleted: false }] },
+        where: {
+          AND: [{ sectorCode: 1 }, { isDeleted: false, isPublic: true }],
+        },
         include: { sector: true },
       });
       expect(result.items.map(({ stockId }) => stockId)).toEqual([1, 2, 3]);
@@ -392,7 +396,7 @@ describe('StocksService', () => {
     const result = await service.getRecentlyViewed(7);
 
     expect(viewHistory.findMany).toHaveBeenCalledWith({
-      where: { userId: 7, stock: { isDeleted: false } },
+      where: { userId: 7, stock: { isDeleted: false, isPublic: true } },
       include: { stock: { include: { sector: true } } },
       orderBy: { modifiedDate: 'desc' },
       take: 3,
@@ -437,7 +441,7 @@ describe('StocksService', () => {
       await service.addWishlist(7, 5);
 
       expect(findFirst).toHaveBeenCalledWith({
-        where: { id: 5, isDeleted: false },
+        where: { id: 5, isDeleted: false, isPublic: true },
         select: { id: true },
       });
       expect(wishlist.upsert).toHaveBeenCalledWith({
@@ -485,7 +489,7 @@ describe('StocksService', () => {
 
       expect(wishlist.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: 7, stock: { isDeleted: false } },
+          where: { userId: 7, stock: { isDeleted: false, isPublic: true } },
           orderBy: [{ createDate: 'desc' }, { stockId: 'desc' }],
           take: 3,
         }),

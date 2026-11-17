@@ -64,4 +64,111 @@
 |------|------|
 | API | `GET /api/users/me` |
 | 로그인 | 필요 |
-| 응답 | `userId`, `loginId`, `nickname`, `email`, `phoneNumber`(null 가능), `role`, `userStatus` |
+| 화면 | USR-MY-01 마이페이지 (`[2차 개발]모투화면설계서.pptx`) |
+| 응답 | `userId`, `loginId`, `nickname`, `email`, `phoneNumber`(연락처, null 가능), `role`, `userStatus`, `twoFactorStatus` |
+
+- 마이페이지 회원 기본 정보 영역에 닉네임·이메일·연락처(가운데 가림은 프론트)를 표시합니다.
+- `twoFactorStatus`로 2차 보안 영역을 그립니다. `ENABLED`면 "2차 보안 설정 완료"와 [2차 보안 관리], `NOT_SET`·`DISABLED`면 [2차 보안 설정하기]입니다. 등록 번호·설정일시는 [2차 보안 상태](two-factor.md)에서 가져옵니다.
+
+## 연락처 변경
+
+| 항목 | 내용 |
+|------|------|
+| 화면 | USR-MY-03-01 연락처 변경 (`[2차 개발]모투화면설계서.pptx`) |
+| 로그인 | 필요 |
+| 발송 | `POST /api/users/me/phone-verifications` `{ phoneNumber }` → `maskedPhoneNumber`, `expiresAt`(5분), `resendAvailableAt`(30초) |
+| 확인·변경 | `POST /api/users/me/phone-verifications/confirm` `{ phoneNumber, code }` → 바뀐 [내 정보](#내-정보) |
+
+- **2차 보안을 설정한 회원만** 바꿀 수 있습니다. 화면 진입 전에 `twoFactorStatus`가 `ENABLED`가 아니면 "2차 보안 설정 후 이용해 주세요." 토스트를 띄우고 2차 보안 설정 화면으로 보냅니다. (API도 403으로 막습니다.)
+- 새 번호로 SMS 인증번호를 보냅니다. 휴대폰 번호는 하이픈이 있어도 됩니다. 인증번호 규칙(5분 유효, 30초 후 재발송, 5회 오입력 시 새 인증번호 필요)은 [인증번호 공통 규칙](auth.md)과 같습니다.
+- 다른 번호로 다시 보내면 이전 번호로 받은 인증번호는 쓸 수 없습니다. 확인할 때는 인증번호를 받은 번호를 그대로 보냅니다.
+- 연락처는 **2차 보안 번호와 별개**입니다. 연락처를 바꿔도 2차 보안 번호는 그대로이고, 2차 보안 번호는 [2차 보안](two-factor.md)에서 바꿉니다.
+
+| 에러 | 상황 | 화면 처리 |
+|------|------|------|
+| 403 `USER_CONTACT_TWO_FACTOR_REQUIRED` | 2차 보안 미설정·해제 | "2차 보안 설정 후 이용해 주세요." 후 2차 보안 설정으로 이동 |
+| 409 `USER_SAME_PHONE_NUMBER` | 현재 연락처와 같은 번호 | 입력칸 아래 안내 |
+| 400 `BAD_REQUEST` | 휴대폰 번호·인증번호 형식 오류 | 입력칸 아래 안내 |
+| 429 `VERIFICATION_RESEND_TOO_SOON` | 30초 안에 다시 발송 | `details.resendAvailableAt`까지 버튼 비활성화 |
+| 400 `VERIFICATION_CODE_MISMATCH` | 인증번호 불일치 | "인증번호가 일치하지 않습니다. 다시 확인해 주세요." (`details.remainingAttempts`) |
+| 400 `VERIFICATION_EXPIRED` | 인증번호 만료 | 인증번호를 다시 받게 안내 |
+| 404 `VERIFICATION_NOT_FOUND` | 발송 전이거나 다른 번호로 확인 | 인증번호를 다시 받게 안내 |
+| 429 `VERIFICATION_ATTEMPTS_EXCEEDED` | 5회 오입력 | 인증번호를 다시 받게 안내 |
+| 503 `SMS_SEND_FAILED` | SMS 발송 실패 | "인증번호 발송에 실패했습니다. 다시 시도해 주세요." |
+
+---
+
+## 관리자 회원 관리
+
+모두 **관리자** 토큰이 필요합니다. 화면은 `[2차 개발]모투화면설계서.pptx`의 ADM-MBR-01·02입니다. 일반 회원(`role: USER`)만 다루고, 관리자 계정은 나오지 않습니다(상세·처리는 404).
+
+회원 상태: `ACTIVE` 정상, `LOCKED` 잠금(로그인 5회 실패 또는 관리자 처리), `BLOCKED` 정지
+
+### 회원 목록 (ADM-MBR-01)
+
+`GET /api/admin/users`
+
+| 쿼리 | 설명 |
+|------|------|
+| `loginId` | 아이디 일부 |
+| `nickname` | 닉네임 일부 |
+| `status` | 회원 상태 |
+| `page`, `size` | 페이지(1부터), 한 페이지 건수(기본 10, 최대 50) |
+
+응답 `items[]`: `userId`, `loginId`, `nickname`, `email`(가림), `createDate`(가입일시), `userStatus`, `lastLoginDate`(최근 접속, 없으면 null). 가입일 최신순이며 `page`, `size`, `totalCount`를 같이 내려줍니다.
+
+### 회원 상세 (ADM-MBR-02)
+
+`GET /api/admin/users/:userId`
+
+목록 항목에 더해 아래 값을 내려줍니다.
+
+| 영역 | 필드 |
+|------|------|
+| 인증·계정 `security` | `emailVerified`(가입 시 인증하므로 항상 true), `twoFactorStatus`, `twoFactorPhoneNumber`(가림, 없으면 null), `twoFactorVerifiedDate`(최근 2차 인증), `loginFailCount`(연속 로그인 실패 횟수) |
+| 자산·활동 `asset` | `availableCash`(사용 가능 포인트), `lockedCash`(예약 포인트), `holdingCount`(보유 상품 수), `openOrderCount`(미체결 주문 수) |
+
+- 최근 접속일시는 목록 항목의 `lastLoginDate`입니다.
+- 최근 처리 이력은 [관리자 활동 이력](admin-activity-logs.md) `GET /api/admin/activity-logs?targetType=USER&targetId={userId}&size=1`로 가져옵니다.
+- 포인트 지급·회수는 [관리자 계좌 관리](accounts.md#관리자-계좌-관리)의 `PATCH /api/admin/accounts/:userId/cash`를 씁니다. 회수 가능 금액은 `availableCash`까지입니다.
+- 잠금 사유는 `loginFailCount`가 5회 이상이면 "로그인 5회 누적 실패"로 표시합니다. 관리자가 잠근 경우는 활동 이력의 사유를 봅니다.
+
+### 회원 상태 변경 (ADM-MBR-02-01)
+
+`PATCH /api/admin/users/:userId/status`
+
+| 요청 | 설명 |
+|------|------|
+| `status` | 변경할 상태 (`ACTIVE` / `LOCKED` / `BLOCKED`) |
+| `reason` | 변경 사유, 1~200자, 필수 |
+
+응답: `userId`, `statusBefore`, `statusAfter`
+
+- 잠금·정지로 바꾸면 그 회원의 로그인 세션(Refresh 토큰)을 모두 만료합니다. 이미 받은 Access 토큰도 다음 요청부터 `AUTH_ACCOUNT_LOCKED` / `AUTH_ACCOUNT_BLOCKED`로 막힙니다.
+- 잠금에서 정상으로 바꾸면 로그인 실패 횟수도 0으로 초기화합니다.
+- 변경 전·후 상태와 사유는 관리자 활동 이력(`USER_STATUS_CHANGE`)에 남습니다.
+- 이상 거래 상세(ADM-MON-02)에서 진입한 경우 처리 후 그 화면으로 돌아가는 것은 프론트에서 처리합니다.
+
+### 계정 잠금 해제 (ADM-MBR-02-02)
+
+`POST /api/admin/users/:userId/unlock`
+
+| 요청 | 설명 |
+|------|------|
+| `reason` | 해제 사유, 1~200자, 필수 |
+
+응답: `userId`, `statusBefore`(`LOCKED`), `statusAfter`(`ACTIVE`)
+
+- 잠금 계정만 해제할 수 있습니다. 정상으로 바꾸고 로그인 실패 횟수를 0으로 초기화합니다.
+- 변경 전·후 상태·실패 횟수와 사유는 관리자 활동 이력(`USER_UNLOCK`)에 남습니다.
+
+### 에러
+
+| 에러 | 상황 | 화면 처리 |
+|------|------|------|
+| 400 `USER_STATUS_UNCHANGED` | 현재 상태와 같은 상태로 변경 | "변경하려는 상태와 현재 상태가 같습니다." |
+| 400 `BAD_REQUEST` | 사유 누락·200자 초과, 상태 값 오류 | 사유 누락이면 "사유 입력은 필수입니다." |
+| 404 `USER_NOT_FOUND` | 없는 회원, 관리자 계정 | |
+| 409 `USER_NOT_LOCKED` | 잠금 상태가 아닌 계정의 잠금 해제 | 상세를 다시 불러옵니다. |
+| 409 `USER_STATUS_CONFLICT` | 처리하는 사이 상태가 바뀜 (로그인 실패로 잠김, 다른 관리자 처리) | 상세를 다시 불러온 뒤 다시 처리합니다. |
+| 403 `AUTH_FORBIDDEN` | 관리자가 아님 | |

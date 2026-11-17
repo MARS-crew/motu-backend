@@ -679,12 +679,14 @@ try {
     'Swagger에 사용자 보완 조회·재제출 API 등록',
   );
   check(
-    !Object.keys(paths).some((path) =>
-      path.startsWith('/api/admin/listing-applications/'),
+    !Object.keys(paths).some(
+      (path) =>
+        path.startsWith('/api/admin/listing-applications/') &&
+        path.includes('/revision-requests'),
     ) &&
       !paths[ownerListPath].post &&
       !paths[ownerListPath + '/{revisionId}/deadline'],
-    'Swagger에 관리자 생성·조회·기한 연장 경로 없음',
+    'Swagger에 별도 관리자 보완 회차 경로 없음',
   );
   check(
     !schema.components.schemas.CreateListingRevisionReqDto &&

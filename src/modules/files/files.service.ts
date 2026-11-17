@@ -159,18 +159,28 @@ export class FilesService {
     // 먼저 DB 참조를 제거한다. 저장소 삭제 실패는 비공개 미참조 객체로 남으며 로그로 추적한다.
     if (key) await this.storage.cleanup([key]);
   }
-  async download(userId: number, id: string, attachmentId: string) {
-    const collection = await this.get(userId, id);
-    const item = collection.attachments.find(
-      (item) => item.id === attachmentId && item.kind === AttachmentKind.FILE,
-    );
-    if (!item) throw new BusinessException(FileErrors.NOT_FOUND);
-    const record = await this.prisma.attachment.findUniqueOrThrow({
-      where: { id: attachmentId },
+  async download(
+    userId: number,
+    id: string,
+    attachmentId: string,
+    savedPurpose?: AttachmentPurpose,
+  ) {
+    const record = await this.prisma.attachment.findFirst({
+      where: {
+        id: attachmentId,
+        collectionId: id,
+        kind: AttachmentKind.FILE,
+        collection: { userId, purpose: savedPurpose },
+        ...(savedPurpose ? { saved: true } : {}),
+      },
+      select: { objectKey: true, contentType: true, originalName: true },
     });
+    if (!record?.objectKey || !record.contentType)
+      throw new BusinessException(FileErrors.NOT_FOUND);
     return {
-      body: await this.storage.get(record.objectKey!),
-      contentType: record.contentType!,
+      body: await this.storage.get(record.objectKey),
+      contentType: record.contentType,
+      originalName: record.originalName,
     };
   }
   /** 신청서 모듈은 클라이언트 URL 대신 이 메서드가 반환한 저장 완료 자료만 연결한다. */

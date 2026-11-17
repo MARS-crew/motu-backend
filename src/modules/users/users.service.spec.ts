@@ -1,21 +1,31 @@
 import { verify } from 'argon2';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { Prisma } from '../../generated/prisma/client.js';
+import {
+  Prisma,
+  TwoFactorStatus,
+  VerificationChannel,
+  VerificationPurpose,
+} from '../../generated/prisma/client.js';
 import { AccountsService } from '../accounts/accounts.service.js';
 import { VerificationsService } from '../verifications/verifications.service.js';
 import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { UsersService } from './users.service.js';
 
 describe('UsersService', () => {
-  const tx = { user: { create: vi.fn() } };
+  const tx = { user: { create: vi.fn(), update: vi.fn() } };
   const countUsers = vi.fn();
   const createInitialAccount = vi.fn();
   const sendEmailCode = vi.fn();
   const consumeVerified = vi.fn();
   const updateUser = vi.fn();
   const updateManyUsers = vi.fn();
+  const findUniqueUser = vi.fn();
+  const sendSmsCode = vi.fn();
+  const confirmSmsCode = vi.fn();
+  const invalidateOthers = vi.fn();
   const prisma = {
     user: {
+      findUnique: findUniqueUser,
       count: countUsers,
       update: updateUser,
       updateMany: updateManyUsers,
@@ -28,6 +38,9 @@ describe('UsersService', () => {
   const verificationsService = {
     sendEmailCode,
     consumeVerified,
+    sendSmsCode,
+    confirmSmsCode,
+    invalidateOthers,
   } as unknown as VerificationsService;
   const service = new UsersService(
     prisma,
@@ -139,6 +152,110 @@ describe('UsersService', () => {
         where: { id: 1, userStatus: 'ACTIVE' },
         data: { userStatus: 'LOCKED' },
       });
+    });
+  });
+
+  describe('연락처 변경', () => {
+    const userOf = (overrides: Record<string, unknown> = {}) => ({
+      id: 6,
+      loginId: 'motuuser',
+      nickname: '모투테스터',
+      email: 'user@motu.test',
+      phoneNumber: '01012345678',
+      role: 'USER',
+      userStatus: 'ACTIVE',
+      twoFactorStatus: TwoFactorStatus.ENABLED,
+      ...overrides,
+    });
+    const sent = {
+      expiresAt: new Date('2026-11-16T07:05:00Z'),
+      resendAvailableAt: new Date('2026-11-16T07:00:30Z'),
+    };
+
+    it('2차 보안 설정 회원이면 새 번호로 인증번호를 보내고 다른 번호의 인증번호를 무효로 한다', async () => {
+      findUniqueUser.mockResolvedValue(userOf());
+      sendSmsCode.mockResolvedValue(sent);
+
+      await expect(
+        service.sendContactPhoneCode(6, '01045678901'),
+      ).resolves.toEqual({ maskedPhoneNumber: '010-****-8901', ...sent });
+      expect(sendSmsCode).toHaveBeenCalledWith(
+        VerificationPurpose.CONTACT_PHONE_CHANGE,
+        '01045678901',
+        '6:01045678901',
+      );
+      expect(invalidateOthers).toHaveBeenCalledWith(
+        VerificationChannel.SMS,
+        VerificationPurpose.CONTACT_PHONE_CHANGE,
+        '6:',
+        '6:01045678901',
+      );
+    });
+
+    it.each([TwoFactorStatus.NOT_SET, TwoFactorStatus.DISABLED])(
+      '2차 보안이 %s이면 403',
+      async (twoFactorStatus) => {
+        findUniqueUser.mockResolvedValue(userOf({ twoFactorStatus }));
+
+        await expect(
+          service.sendContactPhoneCode(6, '01045678901'),
+        ).rejects.toMatchObject({
+          response: { code: 'USER_CONTACT_TWO_FACTOR_REQUIRED' },
+        });
+        expect(sendSmsCode).not.toHaveBeenCalled();
+      },
+    );
+
+    it('현재 연락처와 같은 번호면 409', async () => {
+      findUniqueUser.mockResolvedValue(userOf());
+
+      await expect(
+        service.sendContactPhoneCode(6, '01012345678'),
+      ).rejects.toMatchObject({ response: { code: 'USER_SAME_PHONE_NUMBER' } });
+    });
+
+    it('인증번호가 맞으면 연락처만 바꾸고 바뀐 내 정보를 내려준다', async () => {
+      findUniqueUser
+        .mockResolvedValueOnce(userOf())
+        .mockResolvedValueOnce(userOf({ phoneNumber: '01045678901' }));
+
+      const result = await service.changeContactPhone(
+        6,
+        '01045678901',
+        '135790',
+      );
+
+      expect(confirmSmsCode).toHaveBeenCalledWith(
+        VerificationPurpose.CONTACT_PHONE_CHANGE,
+        '6:01045678901',
+        '135790',
+      );
+      expect(consumeVerified).toHaveBeenCalledWith(
+        tx,
+        VerificationChannel.SMS,
+        VerificationPurpose.CONTACT_PHONE_CHANGE,
+        '6:01045678901',
+      );
+      expect(tx.user.update).toHaveBeenCalledWith({
+        where: { id: 6 },
+        data: { phoneNumber: '01045678901' },
+      });
+      expect(result).toMatchObject({
+        phoneNumber: '01045678901',
+        twoFactorStatus: TwoFactorStatus.ENABLED,
+      });
+    });
+
+    it('인증번호가 틀리면 연락처를 바꾸지 않는다', async () => {
+      findUniqueUser.mockResolvedValue(userOf());
+      confirmSmsCode.mockRejectedValueOnce(
+        new Error('VERIFICATION_CODE_MISMATCH'),
+      );
+
+      await expect(
+        service.changeContactPhone(6, '01045678901', '000000'),
+      ).rejects.toThrow('VERIFICATION_CODE_MISMATCH');
+      expect(tx.user.update).not.toHaveBeenCalled();
     });
   });
 });
