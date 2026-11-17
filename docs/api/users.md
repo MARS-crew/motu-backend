@@ -65,3 +65,80 @@
 | API | `GET /api/users/me` |
 | 로그인 | 필요 |
 | 응답 | `userId`, `loginId`, `nickname`, `email`, `phoneNumber`(null 가능), `role`, `userStatus` |
+
+---
+
+## 관리자 회원 관리
+
+모두 **관리자** 토큰이 필요합니다. 화면은 `[2차 개발]모투화면설계서.pptx`의 ADM-MBR-01·02입니다. 일반 회원(`role: USER`)만 다루고, 관리자 계정은 나오지 않습니다(상세·처리는 404).
+
+회원 상태: `ACTIVE` 정상, `LOCKED` 잠금(로그인 5회 실패 또는 관리자 처리), `BLOCKED` 정지
+
+### 회원 목록 (ADM-MBR-01)
+
+`GET /api/admin/users`
+
+| 쿼리 | 설명 |
+|------|------|
+| `loginId` | 아이디 일부 |
+| `nickname` | 닉네임 일부 |
+| `status` | 회원 상태 |
+| `page`, `size` | 페이지(1부터), 한 페이지 건수(기본 10, 최대 50) |
+
+응답 `items[]`: `userId`, `loginId`, `nickname`, `email`(가림), `createDate`(가입일시), `userStatus`, `lastLoginDate`(최근 접속, 없으면 null). 가입일 최신순이며 `page`, `size`, `totalCount`를 같이 내려줍니다.
+
+### 회원 상세 (ADM-MBR-02)
+
+`GET /api/admin/users/:userId`
+
+목록 항목에 더해 아래 값을 내려줍니다.
+
+| 영역 | 필드 |
+|------|------|
+| 인증·계정 `security` | `emailVerified`(가입 시 인증하므로 항상 true), `twoFactorStatus`, `twoFactorPhoneNumber`(가림, 없으면 null), `twoFactorVerifiedDate`(최근 2차 인증), `loginFailCount`(연속 로그인 실패 횟수) |
+| 자산·활동 `asset` | `availableCash`(사용 가능 포인트), `lockedCash`(예약 포인트), `holdingCount`(보유 상품 수), `openOrderCount`(미체결 주문 수) |
+
+- 최근 접속일시는 목록 항목의 `lastLoginDate`입니다.
+- 최근 처리 이력은 [관리자 활동 이력](admin-activity-logs.md) `GET /api/admin/activity-logs?targetType=USER&targetId={userId}&size=1`로 가져옵니다.
+- 포인트 지급·회수는 [관리자 계좌 관리](accounts.md#관리자-계좌-관리)의 `PATCH /api/admin/accounts/:userId/cash`를 씁니다. 회수 가능 금액은 `availableCash`까지입니다.
+- 잠금 사유는 `loginFailCount`가 5회 이상이면 "로그인 5회 누적 실패"로 표시합니다. 관리자가 잠근 경우는 활동 이력의 사유를 봅니다.
+
+### 회원 상태 변경 (ADM-MBR-02-01)
+
+`PATCH /api/admin/users/:userId/status`
+
+| 요청 | 설명 |
+|------|------|
+| `status` | 변경할 상태 (`ACTIVE` / `LOCKED` / `BLOCKED`) |
+| `reason` | 변경 사유, 1~200자, 필수 |
+
+응답: `userId`, `statusBefore`, `statusAfter`
+
+- 잠금·정지로 바꾸면 그 회원의 로그인 세션(Refresh 토큰)을 모두 만료합니다. 이미 받은 Access 토큰도 다음 요청부터 `AUTH_ACCOUNT_LOCKED` / `AUTH_ACCOUNT_BLOCKED`로 막힙니다.
+- 잠금에서 정상으로 바꾸면 로그인 실패 횟수도 0으로 초기화합니다.
+- 변경 전·후 상태와 사유는 관리자 활동 이력(`USER_STATUS_CHANGE`)에 남습니다.
+- 이상 거래 상세(ADM-MON-02)에서 진입한 경우 처리 후 그 화면으로 돌아가는 것은 프론트에서 처리합니다.
+
+### 계정 잠금 해제 (ADM-MBR-02-02)
+
+`POST /api/admin/users/:userId/unlock`
+
+| 요청 | 설명 |
+|------|------|
+| `reason` | 해제 사유, 1~200자, 필수 |
+
+응답: `userId`, `statusBefore`(`LOCKED`), `statusAfter`(`ACTIVE`)
+
+- 잠금 계정만 해제할 수 있습니다. 정상으로 바꾸고 로그인 실패 횟수를 0으로 초기화합니다.
+- 변경 전·후 상태·실패 횟수와 사유는 관리자 활동 이력(`USER_UNLOCK`)에 남습니다.
+
+### 에러
+
+| 에러 | 상황 | 화면 처리 |
+|------|------|------|
+| 400 `USER_STATUS_UNCHANGED` | 현재 상태와 같은 상태로 변경 | "변경하려는 상태와 현재 상태가 같습니다." |
+| 400 `BAD_REQUEST` | 사유 누락·200자 초과, 상태 값 오류 | 사유 누락이면 "사유 입력은 필수입니다." |
+| 404 `USER_NOT_FOUND` | 없는 회원, 관리자 계정 | |
+| 409 `USER_NOT_LOCKED` | 잠금 상태가 아닌 계정의 잠금 해제 | 상세를 다시 불러옵니다. |
+| 409 `USER_STATUS_CONFLICT` | 처리하는 사이 상태가 바뀜 (로그인 실패로 잠김, 다른 관리자 처리) | 상세를 다시 불러온 뒤 다시 처리합니다. |
+| 403 `AUTH_FORBIDDEN` | 관리자가 아님 | |
