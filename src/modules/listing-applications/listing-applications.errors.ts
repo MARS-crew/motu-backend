@@ -2,6 +2,11 @@ import { HttpStatus } from '@nestjs/common';
 import type { ErrorDefinition } from '../../common/exceptions/business.exception.js';
 
 export const ListingApplicationErrors = {
+  INVALID_SUBMITTED_PERIOD: {
+    code: 'LISTING_INVALID_SUBMITTED_PERIOD',
+    message: '접수 기간의 시작은 종료보다 앞서야 합니다.',
+    status: HttpStatus.BAD_REQUEST,
+  },
   INVALID_STEP: {
     code: 'LISTING_INVALID_STEP',
     message: '저장 단계는 1부터 4까지 입력해 주세요.',

@@ -22,6 +22,22 @@ export const UserErrors = {
     message: '존재하지 않는 사용자입니다.',
     status: HttpStatus.NOT_FOUND,
   },
+  STATUS_UNCHANGED: {
+    code: 'USER_STATUS_UNCHANGED',
+    message: '변경하려는 상태와 현재 상태가 같습니다.',
+    status: HttpStatus.BAD_REQUEST,
+  },
+  NOT_LOCKED: {
+    code: 'USER_NOT_LOCKED',
+    message: '잠금 상태인 계정만 잠금을 해제할 수 있습니다.',
+    status: HttpStatus.CONFLICT,
+  },
+  /** 처리하는 사이 다른 관리자가 상태를 바꾼 경우 */
+  STATUS_CONFLICT: {
+    code: 'USER_STATUS_CONFLICT',
+    message: '회원 상태가 바뀌었습니다. 다시 확인해 주세요.',
+    status: HttpStatus.CONFLICT,
+  },
   CONTACT_TWO_FACTOR_REQUIRED: {
     code: 'USER_CONTACT_TWO_FACTOR_REQUIRED',
     message: '2차 보안 설정 후 이용해 주세요.',
