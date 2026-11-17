@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -25,6 +24,7 @@ import type { Request } from 'express';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { Roles } from '../../common/auth/roles.decorator.js';
+import { AdminReasonReqDto } from '../../common/dto/admin-reason-req.dto.js';
 import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { clientInfo } from '../../common/utils/client-info.js';
 import { Role } from '../../generated/prisma/client.js';
@@ -91,17 +91,57 @@ export class NoticesAdminController {
     });
   }
 
-  @Delete(':noticeId')
+  @Post(':noticeId/publish')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '공지 게시 또는 다시 게시' })
+  @ApiOkResponse({ type: AdminNoticeResDto })
+  @ApiConflictResponse({ description: 'NOTICE_PIN_LIMIT_EXCEEDED' })
+  publish(
+    @Param('noticeId', ParseIdPipe) id: number,
+    @Body() dto: UpdateAdminNoticeReqDto,
+    @CurrentUser() admin: AuthUser,
+    @Req() request: Request,
+  ) {
+    return this.notices.update(
+      id,
+      dto,
+      {
+        adminId: admin.userId,
+        client: clientInfo(request),
+      },
+      true,
+    );
+  }
+
+  @Post(':noticeId/hide')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '공지사항 비공개' })
+  @ApiOkResponse({ type: AdminNoticeResDto })
+  @ApiNotFoundResponse({ description: 'NOTICE_ADMIN_NOT_FOUND' })
+  hide(
+    @Param('noticeId', ParseIdPipe) id: number,
+    @Body() dto: AdminReasonReqDto,
+    @CurrentUser() admin: AuthUser,
+    @Req() request: Request,
+  ) {
+    return this.notices.hide(id, dto.reason, {
+      adminId: admin.userId,
+      client: clientInfo(request),
+    });
+  }
+
+  @Post(':noticeId/delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '공지사항 삭제' })
   @ApiNoContentResponse()
   @ApiNotFoundResponse({ description: 'NOTICE_ADMIN_NOT_FOUND' })
   async remove(
     @Param('noticeId', ParseIdPipe) id: number,
+    @Body() dto: AdminReasonReqDto,
     @CurrentUser() admin: AuthUser,
     @Req() request: Request,
   ): Promise<void> {
-    await this.notices.remove(id, {
+    await this.notices.remove(id, dto.reason, {
       adminId: admin.userId,
       client: clientInfo(request),
     });
