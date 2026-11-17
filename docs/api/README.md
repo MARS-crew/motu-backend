@@ -12,7 +12,7 @@
 | [2차 보안](two-factor.md) | SMS 2차 보안 설정·해제·상태, 중요 기능 재인증, 주문 최초 활성화, SMS 발송 | `modules/two-factor`, `common/sms` |
 | [회원가입·회원](users.md) | 아이디·닉네임 중복 확인, 가입 이메일 인증, 회원가입, 내 정보 | `modules/users` |
 | [계좌·포인트](accounts.md) | 내 계좌, 포인트 이력, 추가 지급, 리셋, 관리자 계좌 관리 | `modules/accounts` |
-| [상품](stocks.md) | 카테고리, 상품 목록, 신규 상장, 상품 상세, 최근 본 종목 | `modules/sectors`, `modules/stocks` |
+| [상품](stocks.md) | 카테고리, 상품 목록, 신규 상장, 상품 상세, 최근 본 종목, 관리자 상품 목록·상세 | `modules/sectors`, `modules/stocks` |
 | [검색](search.md) | 상품 검색, 최근 검색어 | `modules/stocks`, `modules/search-histories` |
 | [관심상품](wishlists.md) | 관심상품 등록·해제, 관심 상품 목록 | `modules/stocks` |
 | [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |

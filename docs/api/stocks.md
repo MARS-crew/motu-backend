@@ -19,7 +19,8 @@
 | `isWishlisted` | 관심상품 여부 (비회원은 false) |
 
 - 시세 값은 [당일 거래 요약](charts.md#당일-거래-요약)과 같은 값입니다. 하루 기준은 한국 시간 00시이고, 오늘 체결이 없으면 거래량·거래대금은 0입니다.
-- 거래 대기·중지·종료 상품도 목록에 나옵니다. (기획 문의 중) 삭제된 상품만 빠집니다.
+- 거래 대기·중지·종료 상품도 목록에 나옵니다. (기획 문의 중) 삭제된 상품과 관리자가 **비공개**로 둔 상품은 빠집니다.
+- 비공개 상품은 상품 목록·검색·신규 상장·최근 본 종목·관심상품 목록에서 빠지고 관심상품으로 등록할 수도 없습니다(404 `STOCK_NOT_FOUND`). 상품 상세·주문·보유 내역은 그대로 볼 수 있습니다.
 
 ## 카테고리
 
@@ -105,4 +106,52 @@
 | 응답 | `items[]`(상품 목록 항목), 최근 본 순서, 최대 3개 |
 
 - 로그인한 상태로 [상품 상세](#상품-상세)를 조회할 때 기록됩니다. 같은 상품을 다시 보면 맨 위로 올라갑니다.
-- 최근 본 상품이 삭제되면 그 자리가 비어 3개보다 적게 나올 수 있습니다.
+- 최근 본 상품이 삭제되거나 비공개가 되면 그 자리가 비어 3개보다 적게 나올 수 있습니다.
+
+---
+
+## 관리자 상품 관리
+
+모두 **관리자** 토큰이 필요합니다. 화면은 `[2차 개발]모투화면설계서.pptx`의 ADM-PRD-01·02입니다. 비공개 상품도 나옵니다.
+
+### 상장 상품 목록 (ADM-PRD-01)
+
+`GET /api/admin/stocks`
+
+| 쿼리 | 설명 |
+|------|------|
+| `keyword` | 상품명·상품 코드 부분 일치, 또는 상품 ID(`18`, `018`, `PRD-018`). 30자 이내 |
+| `tradeStatus` | 상품 상태: `PENDING` 거래 대기, `ACTIVE` 거래 가능, `PAUSED` 거래 중지, `CLOSED` 거래 종료 |
+| `sectorCode` | 카테고리 코드 ([카테고리](#카테고리) 목록의 코드) |
+| `visibility` | 노출 상태: `PUBLIC` 공개, `PRIVATE` 비공개 |
+| `page`, `size` | 페이지(1부터), 한 페이지 건수(기본 20, 최대 100) |
+
+응답 `items[]`: `stockId`, `stockCode`, `name`, `sectorCode`, `sectorName`, `tradeStatus`, `isPublic`, `listingDate`(거래 시작일시), `currentPrice`. 최근 등록순이며 `page`, `size`, `totalCount`를 같이 내려줍니다.
+
+- 화면의 상품 ID는 `stockId`에 `PRD-` 접두어를 붙여 표시합니다. (예: `PRD-018`)
+- 거래 대기 상품은 체결가가 없어 `currentPrice`가 null입니다. 화면에는 `-`로 표시합니다.
+- 상장 승인 전 신청 상태는 상장 신청 목록(ADM-LST-01)에서 조회합니다.
+- 카테고리는 설계서의 5개 목록 대신 `GET /api/sectors`로 받은 목록을 씁니다. (카테고리 기준 확인 중)
+
+### 상장 상품 상세 (ADM-PRD-02)
+
+`GET /api/admin/stocks/:stockId`
+
+목록 항목에 더해 아래 값을 내려줍니다.
+
+| 탭 | 필드 |
+|------|------|
+| 기본 정보 | `summary`(한 줄 소개), `description`(상품 소개), `operatorName`, `officialUrl`, `logoImageUrl`, `mainImageUrl`, `isPublic` |
+| 거래 정보 | `currentPrice`, `listedShares`(총 발행량), `listingDate`(거래 시작일시), `openOrderCount`(미체결 주문 건수), `tradeStatus` |
+| 서비스 지표 (ADM-PRD-02-02) | `metrics { mau, transactionVolume, baseDate }`. 값이 없으면 null이고 화면에는 '미등록'으로 표시합니다. |
+| 변경 이력 (ADM-PRD-02-01) | [관리자 활동 이력](admin-activity-logs.md) `GET /api/admin/activity-logs?targetType=STOCK&targetId={stockId}` |
+
+- `metrics.baseDate`(지표 기준일)는 상장 신청에서 받은 지표 집계 기간의 종료일입니다.
+- 상품 상태에 따라 [거래 중지·재개] 또는 [상품 종료] 버튼을 보여 줍니다. (정보 수정·거래 상태 변경 API는 다음 작업에서 추가)
+
+| 에러 | 상황 |
+|------|------|
+| 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 |
+| 400 `BAD_REQUEST` | 쿼리 값 오류 (상태·노출 상태 값, 페이지 범위 등) |
+| 403 `AUTH_FORBIDDEN` | 관리자가 아님 |
+

@@ -19,3 +19,16 @@ export enum StockSort {
 
 /** 회원마다 남기는 최근 본 종목 수 */
 export const MAX_VIEW_HISTORIES = 3;
+
+/** 관리자 상품 목록의 노출 상태 필터 */
+export enum StockVisibility {
+  /** 사용자 화면에 공개 */
+  PUBLIC = 'PUBLIC',
+  /** 사용자 화면에서 숨김 */
+  PRIVATE = 'PRIVATE',
+}
+
+export const ADMIN_STOCK_PAGE_SIZE = 20;
+export const ADMIN_STOCK_MAX_PAGE_SIZE = 100;
+/** 관리자 상품 검색어 최대 길이 */
+export const ADMIN_STOCK_KEYWORD_MAX_LENGTH = 30;

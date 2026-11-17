@@ -200,10 +200,10 @@ export class StocksService {
     };
   }
 
-  /** 최근 본 종목을 최근 본 순서로 최대 3개 내려준다. 삭제된 상품은 뺀다. */
+  /** 최근 본 종목을 최근 본 순서로 최대 3개 내려준다. 삭제·비공개 상품은 뺀다. */
   async getRecentlyViewed(userId: number): Promise<GetRecentlyViewedResDto> {
     const histories = await this.prisma.viewHistory.findMany({
-      where: { userId, stock: { isDeleted: false } },
+      where: { userId, stock: { isDeleted: false, isPublic: true } },
       include: { stock: { include: { sector: true } } },
       orderBy: { modifiedDate: 'desc' },
       take: MAX_VIEW_HISTORIES,
@@ -216,10 +216,10 @@ export class StocksService {
     };
   }
 
-  /** 관심상품으로 등록한다. 이미 등록되어 있어도 성공으로 처리한다. */
+  /** 관심상품으로 등록한다. 이미 등록되어 있어도 성공으로 처리한다. 비공개 상품은 등록할 수 없다. */
   async addWishlist(userId: number, stockId: number): Promise<void> {
     const stock = await this.prisma.stock.findFirst({
-      where: { id: stockId, isDeleted: false },
+      where: { id: stockId, isDeleted: false, isPublic: true },
       select: { id: true },
     });
     if (!stock) {
@@ -238,7 +238,7 @@ export class StocksService {
     await this.prisma.wishlist.deleteMany({ where: { userId, stockId } });
   }
 
-  /** 관심 상품 목록. 최근에 추가한 순서이며 삭제된 상품은 뺀다. */
+  /** 관심 상품 목록. 최근에 추가한 순서이며 삭제·비공개 상품은 뺀다. */
   async getWishlists(
     userId: number,
     query: { cursor?: string; size: number },
@@ -250,7 +250,7 @@ export class StocksService {
     const wishlists = await this.prisma.wishlist.findMany({
       where: {
         userId,
-        stock: { isDeleted: false },
+        stock: { isDeleted: false, isPublic: true },
         ...(after && {
           OR: [
             { createDate: { lt: after.createDate } },
@@ -364,7 +364,7 @@ export class StocksService {
       where: {
         AND: [
           query.where,
-          { isDeleted: false },
+          { isDeleted: false, isPublic: true },
           after
             ? {
                 OR: [
@@ -408,7 +408,7 @@ export class StocksService {
   }> {
     const { key, desc } = MARKET_SORT_KEYS[query.sort]!;
     const stocks = await this.prisma.stock.findMany({
-      where: { AND: [query.where, { isDeleted: false }] },
+      where: { AND: [query.where, { isDeleted: false, isPublic: true }] },
       include: { sector: true },
     });
     const summaries = await this.chartsService.getDailySummaries(stocks);
