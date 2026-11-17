@@ -38,6 +38,16 @@ export const UserErrors = {
     message: '회원 상태가 바뀌었습니다. 다시 확인해 주세요.',
     status: HttpStatus.CONFLICT,
   },
+  CONTACT_TWO_FACTOR_REQUIRED: {
+    code: 'USER_CONTACT_TWO_FACTOR_REQUIRED',
+    message: '2차 보안 설정 후 이용해 주세요.',
+    status: HttpStatus.FORBIDDEN,
+  },
+  SAME_PHONE_NUMBER: {
+    code: 'USER_SAME_PHONE_NUMBER',
+    message: '현재 연락처와 같은 번호입니다.',
+    status: HttpStatus.CONFLICT,
+  },
   /** 동시 가입으로 UNIQUE 제약에 걸렸지만 어떤 값이 중복인지 알 수 없는 경우 */
   DUPLICATED: {
     code: 'USER_DUPLICATED',
