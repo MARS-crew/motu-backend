@@ -1,22 +1,62 @@
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { OrderStatus, TradeStatus } from '../../generated/prisma/client.js';
+import {
+  AdminActivityAction,
+  AdminActivityTarget,
+  OrderStatus,
+  TradeStatus,
+} from '../../generated/prisma/client.js';
+import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
 import { ChartsService } from '../charts/charts.service.js';
+import {
+  StockTradingService,
+  TradeStatusHooks,
+} from '../matching/stock-trading.service.js';
+import { UpdateAdminStockReqDto } from './dto/req/update-admin-stock-req.dto.js';
 import { GetAdminStocksReqDto } from './dto/req/get-admin-stocks-req.dto.js';
 import { StocksAdminService } from './stocks-admin.service.js';
 import { StockVisibility } from './stocks.constants.js';
 
 describe('StocksAdminService', () => {
-  const stock = { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() };
+  const stock = {
+    findMany: vi.fn(),
+    findFirst: vi.fn(),
+    count: vi.fn(),
+    update: vi.fn(),
+  };
   const order = { count: vi.fn() };
+  const sector = { findUnique: vi.fn() };
+  const tx = { stock };
   const prisma = {
     stock,
     order,
-    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    sector,
+    $transaction: vi.fn((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
   } as unknown as PrismaService;
   const chartsService = { getDailySummaries: vi.fn() };
+  const adminActivityLogs = { record: vi.fn() };
+  /** 매칭 대신 훅을 그대로 실행한다. 현재 상품은 stock.findFirst의 값이다. */
+  const runHooks =
+    (canceledCount: number) =>
+    async (_stockId: number, hooks: TradeStatusHooks) => {
+      const current = await stock.findFirst();
+      hooks.check?.(current);
+      await hooks.afterChange?.(tx as never, { stock: current, canceledCount });
+      return { canceledCount };
+    };
+  const stockTrading = {
+    pauseStock: vi.fn(runHooks(24)),
+    closeStock: vi.fn(runHooks(12)),
+    resumeStock: vi.fn(runHooks(0)),
+  };
   const service = new StocksAdminService(
     prisma,
     chartsService as unknown as ChartsService,
+    stockTrading as unknown as StockTradingService,
+    adminActivityLogs as unknown as AdminActivityLogsService,
   );
 
   const stockOf = (overrides: Record<string, unknown> = {}) => ({
@@ -201,6 +241,246 @@ describe('StocksAdminService', () => {
 
       await expect(service.getStock(999)).rejects.toMatchObject({
         response: { code: 'STOCK_NOT_FOUND' },
+      });
+    });
+  });
+
+  describe('updateStock', () => {
+    const action = { adminId: 1, client: { ipAddress: '192.168.10.24' } };
+    const dtoOf = (overrides: Partial<UpdateAdminStockReqDto> = {}) =>
+      Object.assign(new UpdateAdminStockReqDto(), {
+        name: 'SaaS Index',
+        sectorCode: 1,
+        isPublic: true,
+        reason: '8월 확정 지표 반영',
+        ...overrides,
+      });
+
+    beforeEach(() => {
+      stock.findFirst.mockResolvedValue(stockOf({ statusNotice: null }));
+      order.count.mockResolvedValue(0);
+      sector.findUnique.mockResolvedValue({ code: 3 });
+    });
+
+    it('바뀐 항목만 활동 이력에 남기고 상세를 다시 내려준다', async () => {
+      await service.updateStock(
+        18,
+        dtoOf({ isPublic: false, mau: 150_000, metricsBaseDate: '2026-09-30' }),
+        action,
+      );
+
+      expect(stock.update).toHaveBeenCalledWith({
+        where: { id: 18 },
+        data: expect.objectContaining({
+          isPublic: false,
+          mau: 150_000n,
+          transactionVolume: 85_000_000n,
+          metricsEndDate: new Date('2026-09-30'),
+          description: '모의투자 상품',
+        }),
+      });
+      expect(adminActivityLogs.record).toHaveBeenCalledWith(
+        {
+          adminId: 1,
+          targetType: AdminActivityTarget.STOCK,
+          targetId: 18,
+          targetLabel: 'SaaS Index',
+          action: AdminActivityAction.STOCK_UPDATE,
+          summary: '노출 상태·MAU·지표 기준일 수정',
+          before: {
+            isPublic: true,
+            mau: 120_000,
+            metricsBaseDate: '2026-08-31',
+          },
+          after: {
+            isPublic: false,
+            mau: 150_000,
+            metricsBaseDate: '2026-09-30',
+          },
+          reason: '8월 확정 지표 반영',
+          client: { ipAddress: '192.168.10.24' },
+        },
+        tx,
+      );
+      expect(sector.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('null을 보내면 선택 항목을 지운다', async () => {
+      await service.updateStock(
+        18,
+        dtoOf({
+          description: null,
+          mau: null,
+          transactionVolume: null,
+          metricsBaseDate: null,
+        }),
+        action,
+      );
+
+      expect(stock.update.mock.calls[0][0].data).toMatchObject({
+        description: null,
+        mau: null,
+        transactionVolume: null,
+        metricsEndDate: null,
+      });
+    });
+
+    it('카테고리를 바꾸면 있는 카테고리인지 확인한다', async () => {
+      sector.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateStock(18, dtoOf({ sectorCode: 99 }), action),
+      ).rejects.toMatchObject({ response: { code: 'STOCK_SECTOR_NOT_FOUND' } });
+      expect(stock.update).not.toHaveBeenCalled();
+    });
+
+    it('지표가 남는데 기준일을 지우면 400', async () => {
+      await expect(
+        service.updateStock(18, dtoOf({ metricsBaseDate: null }), action),
+      ).rejects.toMatchObject({
+        response: { code: 'STOCK_METRICS_DATE_REQUIRED' },
+      });
+    });
+
+    it('바뀐 것이 없으면 400', async () => {
+      await expect(
+        service.updateStock(18, dtoOf(), action),
+      ).rejects.toMatchObject({ response: { code: 'STOCK_NOT_CHANGED' } });
+      expect(adminActivityLogs.record).not.toHaveBeenCalled();
+    });
+
+    it('없는 상품이면 404', async () => {
+      stock.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.updateStock(999, dtoOf(), action),
+      ).rejects.toMatchObject({ response: { code: 'STOCK_NOT_FOUND' } });
+    });
+  });
+
+  describe('거래 중지·재개·종료', () => {
+    const action = { adminId: 1 };
+
+    it('거래 가능 상품을 중지하고 안내문과 취소 주문 수를 이력에 남긴다', async () => {
+      stock.findFirst.mockResolvedValue(stockOf({ statusNotice: null }));
+
+      await expect(
+        service.pauseStock(
+          18,
+          { reason: '가격 데이터 점검', notice: '점검으로 일시 중지합니다.' },
+          action,
+        ),
+      ).resolves.toEqual({
+        stockId: 18,
+        statusBefore: TradeStatus.ACTIVE,
+        statusAfter: TradeStatus.PAUSED,
+        canceledOrderCount: 24,
+      });
+      expect(stock.update).toHaveBeenCalledWith({
+        where: { id: 18 },
+        data: { statusNotice: '점검으로 일시 중지합니다.' },
+      });
+      expect(adminActivityLogs.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AdminActivityAction.STOCK_PAUSE,
+          summary: '거래 가능 → 거래 중지',
+          before: { tradeStatus: TradeStatus.ACTIVE, statusNotice: null },
+          after: {
+            tradeStatus: TradeStatus.PAUSED,
+            statusNotice: '점검으로 일시 중지합니다.',
+            canceledOrderCount: 24,
+          },
+          reason: '가격 데이터 점검',
+        }),
+        tx,
+      );
+    });
+
+    it.each([TradeStatus.PENDING, TradeStatus.PAUSED, TradeStatus.CLOSED])(
+      '%s 상품은 중지할 수 없다',
+      async (tradeStatus) => {
+        stock.findFirst.mockResolvedValue(stockOf({ tradeStatus }));
+
+        await expect(
+          service.pauseStock(18, { reason: '점검' }, action),
+        ).rejects.toMatchObject({
+          response: {
+            code: 'STOCK_INVALID_TRADE_STATUS',
+            details: { tradeStatus },
+          },
+        });
+        expect(adminActivityLogs.record).not.toHaveBeenCalled();
+      },
+    );
+
+    it('중지 상품을 재개하면 안내문을 지운다', async () => {
+      stock.findFirst.mockResolvedValue(
+        stockOf({ tradeStatus: TradeStatus.PAUSED, statusNotice: '점검 중' }),
+      );
+
+      await expect(
+        service.resumeStock(18, '점검 완료', action),
+      ).resolves.toEqual({
+        stockId: 18,
+        statusBefore: TradeStatus.PAUSED,
+        statusAfter: TradeStatus.ACTIVE,
+        canceledOrderCount: 0,
+      });
+      expect(stock.update).toHaveBeenCalledWith({
+        where: { id: 18 },
+        data: { statusNotice: null },
+      });
+      expect(adminActivityLogs.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AdminActivityAction.STOCK_RESUME,
+          summary: '거래 중지 → 거래 가능',
+        }),
+        tx,
+      );
+    });
+
+    it('거래 가능 상품은 재개할 수 없다', async () => {
+      stock.findFirst.mockResolvedValue(stockOf());
+
+      await expect(
+        service.resumeStock(18, '점검 완료', action),
+      ).rejects.toMatchObject({
+        response: { code: 'STOCK_INVALID_TRADE_STATUS' },
+      });
+    });
+
+    it.each([TradeStatus.PENDING, TradeStatus.ACTIVE, TradeStatus.PAUSED])(
+      '%s 상품을 종료할 수 있다',
+      async (tradeStatus) => {
+        stock.findFirst.mockResolvedValue(stockOf({ tradeStatus }));
+
+        await expect(
+          service.closeStock(
+            18,
+            { reason: '서비스 운영 종료', notice: '2026.09.10부로 거래 종료' },
+            action,
+          ),
+        ).resolves.toMatchObject({
+          statusBefore: tradeStatus,
+          statusAfter: TradeStatus.CLOSED,
+          canceledOrderCount: 12,
+        });
+        expect(adminActivityLogs.record).toHaveBeenCalledWith(
+          expect.objectContaining({ action: AdminActivityAction.STOCK_CLOSE }),
+          tx,
+        );
+      },
+    );
+
+    it('이미 종료된 상품은 다시 종료할 수 없다', async () => {
+      stock.findFirst.mockResolvedValue(
+        stockOf({ tradeStatus: TradeStatus.CLOSED }),
+      );
+
+      await expect(
+        service.closeStock(18, { reason: '종료', notice: '종료' }, action),
+      ).rejects.toMatchObject({
+        response: { code: 'STOCK_INVALID_TRADE_STATUS' },
       });
     });
   });
