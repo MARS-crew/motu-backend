@@ -193,6 +193,7 @@ export class StocksService {
       },
       listingDate: stock.listingDate,
       tradeStatus: stock.tradeStatus,
+      statusNotice: stock.statusNotice,
       currentPrice,
       changeAmount,
       changeRate,
