@@ -26,5 +26,3 @@ export const MAX_LOGIN_FAIL_COUNT = 5;
 
 export const ADMIN_USER_PAGE_SIZE = 10;
 export const ADMIN_USER_MAX_PAGE_SIZE = 50;
-/** 관리자 처리 사유 최대 길이 */
-export const ADMIN_REASON_MAX_LENGTH = 200;
