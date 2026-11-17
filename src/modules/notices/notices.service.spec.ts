@@ -1,6 +1,6 @@
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { NoticeType } from '../../generated/prisma/client.js';
+import { NoticeStatus, NoticeType } from '../../generated/prisma/client.js';
 import { NoticesService } from './notices.service.js';
 
 const NOW = new Date('2026-10-23T03:00:00.000Z');
@@ -19,9 +19,17 @@ describe('NoticesService', () => {
 
   const postedWhere = {
     isDeleted: false,
+    status: NoticeStatus.POSTED,
     postStartDate: { lte: NOW },
     OR: [{ postEndDate: null }, { postEndDate: { gt: NOW } }],
+    AND: {
+      OR: [
+        { type: NoticeType.ALL },
+        { type: NoticeType.STOCK, stock: { isPublic: true, isDeleted: false } },
+      ],
+    },
   };
+  const stockInclude = { stock: { select: { name: true } } };
 
   const noticeOf = (id: number, overrides: Record<string, unknown> = {}) => ({
     id,
@@ -55,6 +63,7 @@ describe('NoticesService', () => {
 
       expect(notice.findMany).toHaveBeenCalledWith({
         where: postedWhere,
+        include: stockInclude,
         orderBy: [
           { isImportant: 'desc' },
           { postStartDate: 'desc' },
@@ -70,6 +79,7 @@ describe('NoticesService', () => {
             noticeId: 2,
             type: NoticeType.ALL,
             title: '공지2',
+            stockName: null,
             isImportant: true,
             postDate: new Date('2026-10-20T00:00:00.000Z'),
           },
@@ -90,6 +100,7 @@ describe('NoticesService', () => {
 
       expect(notice.findFirst).toHaveBeenCalledWith({
         where: postedWhere,
+        include: stockInclude,
         orderBy: [{ postStartDate: 'desc' }, { id: 'desc' }],
       });
       expect(result.notice).toEqual(expect.objectContaining({ noticeId: 5 }));
@@ -114,6 +125,7 @@ describe('NoticesService', () => {
 
       expect(notice.findFirst).toHaveBeenCalledWith({
         where: { AND: [{ id: 1 }, postedWhere] },
+        include: stockInclude,
       });
       expect(result).toEqual(
         expect.objectContaining({
