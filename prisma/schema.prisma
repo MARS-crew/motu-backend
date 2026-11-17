@@ -449,6 +449,7 @@ model Stock {
   trades        Trade[]
   charts        Chart[]
   priceAlerts   PriceAlert[]
+  notices       Notice[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -736,14 +737,24 @@ enum NoticeType {
 }
 
 /// 공지사항. 게시 기간 안에 있는 공지만 사용자에게 보여 준다. 게시일은 postStartDate다.
+enum NoticeStatus {
+  DRAFT
+  POSTED
+  HIDDEN
+
+  @@map("notice_status")
+}
+
 model Notice {
   id            Int        @id @default(autoincrement()) @map("notice_id")
   type          NoticeType @map("notice_type")
+  status        NoticeStatus @default(POSTED)
+  stockId       Int?       @map("stock_id")
   title         String     @db.VarChar(100)
   content       String
   /// 중요 공지. 목록 맨 위에 둔다.
   isImportant   Boolean    @default(false) @map("is_important")
-  postStartDate DateTime   @map("post_start_date") @db.Timestamptz(3)
+  postStartDate DateTime?  @map("post_start_date") @db.Timestamptz(3)
   /// 게시 종료 시각. null이면 계속 게시한다.
   postEndDate   DateTime?  @map("post_end_date") @db.Timestamptz(3)
   isDeleted     Boolean    @default(false) @map("is_deleted")
@@ -751,7 +762,10 @@ model Notice {
   createDate    DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate  DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
 
+  stock         Stock?     @relation(fields: [stockId], references: [id], onDelete: Restrict)
+
   @@index([postStartDate])
+  @@index([stockId])
   @@map("notices")
 }
 
