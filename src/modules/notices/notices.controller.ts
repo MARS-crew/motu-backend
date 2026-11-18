@@ -27,7 +27,11 @@ export class NoticesController {
   })
   @ApiOkResponse({ type: GetNoticesResDto })
   getNotices(@Query() query: GetNoticesReqDto): Promise<GetNoticesResDto> {
-    return this.noticesService.getNotices(query.page, query.size);
+    return this.noticesService.getNotices(
+      query.page,
+      query.size,
+      query.stockId,
+    );
   }
 
   @Public()

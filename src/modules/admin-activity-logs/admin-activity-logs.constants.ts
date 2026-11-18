@@ -33,6 +33,7 @@ export const ACTIONS_BY_TARGET: Record<
     AdminActivityAction.NOTICE_PUBLISH,
     AdminActivityAction.NOTICE_HIDE,
     AdminActivityAction.NOTICE_DELETE,
+    AdminActivityAction.NOTICE_UPDATE,
   ],
   [AdminActivityTarget.ANOMALY]: [AdminActivityAction.ANOMALY_ACTION],
 };

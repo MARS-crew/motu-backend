@@ -451,6 +451,7 @@ model Stock {
   trades        Trade[]
   charts        Chart[]
   priceAlerts   PriceAlert[]
+  notices       Notice[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -737,15 +738,32 @@ enum NoticeType {
   @@map("notice_type")
 }
 
-/// 공지사항. 게시 기간 안에 있는 공지만 사용자에게 보여 준다. 게시일은 postStartDate다.
+/// 공지 저장 상태. POSTED의 게시 예약·게시 중·종료는 게시 기간으로 구분한다.
+enum NoticeStatus {
+  /// 임시 저장. 게시 필수 입력값이 미완성이어도 저장할 수 있다.
+  DRAFT
+  /// 게시. postStartDate부터 postEndDate 전까지 사용자에게 노출한다.
+  POSTED
+  /// 비공개. 사용자에게 숨기며 다시 게시할 수 있다.
+  HIDDEN
+
+  @@map("notice_status")
+}
+
+/// 공지사항. POSTED 상태이고 게시 기간 안에 있는 공지를 사용자에게 보여 준다.
+/// 상품별 공지는 대상 상품도 공개 상태여야 한다. 사용자 게시일은 postStartDate다.
 model Notice {
   id            Int        @id @default(autoincrement()) @map("notice_id")
   type          NoticeType @map("notice_type")
+  status        NoticeStatus @default(POSTED)
+  /// 대상 상품 ID. 전체 서비스 공지와 대상 미선택 상품별 임시 저장은 null이다.
+  stockId       Int?       @map("stock_id")
   title         String     @db.VarChar(100)
   content       String
-  /// 중요 공지. 목록 맨 위에 둔다.
+  /// 중요 공지. 게시 중인 사용자 공지 목록에서 상단에 배치한다.
   isImportant   Boolean    @default(false) @map("is_important")
-  postStartDate DateTime   @map("post_start_date") @db.Timestamptz(3)
+  /// 게시 시작 시각. 임시 저장에서만 null을 허용한다.
+  postStartDate DateTime?  @map("post_start_date") @db.Timestamptz(3)
   /// 게시 종료 시각. null이면 계속 게시한다.
   postEndDate   DateTime?  @map("post_end_date") @db.Timestamptz(3)
   isDeleted     Boolean    @default(false) @map("is_deleted")
@@ -753,7 +771,10 @@ model Notice {
   createDate    DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate  DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
 
+  stock         Stock?     @relation(fields: [stockId], references: [id], onDelete: Restrict)
+
   @@index([postStartDate])
+  @@index([stockId])
   @@map("notices")
 }
 
@@ -923,6 +944,7 @@ enum AdminActivityAction {
   NOTICE_PUBLISH
   NOTICE_HIDE
   NOTICE_DELETE
+  NOTICE_UPDATE
   ANOMALY_ACTION
 
   @@map("admin_activity_action")
