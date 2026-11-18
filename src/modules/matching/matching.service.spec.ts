@@ -5,7 +5,12 @@ import {
   OrderStatus,
   OrderType,
 } from '../../generated/prisma/client.js';
-import { MatchingService, TradeExecutedEvent } from './matching.service.js';
+import {
+  MatchingService,
+  OrderAcceptedEvent,
+  OrderFailedEvent,
+  TradeExecutedEvent,
+} from './matching.service.js';
 
 describe('MatchingService', () => {
   const service = new MatchingService({} as PrismaService);
@@ -354,6 +359,62 @@ describe('MatchingService', () => {
           createDate,
         },
       ]);
+    });
+  });
+
+  describe('publishOrderAccepted', () => {
+    it('커밋된 회원 주문으로 주문 접수 이벤트를 발행한다', () => {
+      const matching = new MatchingService({} as PrismaService);
+      const received: OrderAcceptedEvent[] = [];
+      matching.orderAccepted$.subscribe((event) => received.push(event));
+      const createDate = new Date('2026-10-24T01:00:00.000Z');
+
+      matching.publishOrderAccepted(
+        {
+          id: 20n,
+          stockId: 7,
+          accountId: 1,
+          side: OrderSide.BUY,
+          price: 4_900n,
+          qty: 3n,
+          createDate,
+        } as Order,
+        1024,
+      );
+
+      expect(received).toEqual([
+        {
+          orderId: 20n,
+          stockId: 7,
+          accountId: 1,
+          userId: 1024,
+          side: OrderSide.BUY,
+          price: 4_900n,
+          qty: 3n,
+          createDate,
+        },
+      ]);
+    });
+  });
+
+  describe('publishOrderFailed', () => {
+    it('받은 실패를 그대로 발행한다', () => {
+      const matching = new MatchingService({} as PrismaService);
+      const received: OrderFailedEvent[] = [];
+      matching.orderFailed$.subscribe((event) => received.push(event));
+      const event: OrderFailedEvent = {
+        stockId: 7,
+        userId: 1024,
+        side: OrderSide.SELL,
+        price: 4_900n,
+        qty: 3n,
+        error: new Error('timeout'),
+        failedDate: new Date('2026-10-24T01:00:00.000Z'),
+      };
+
+      matching.publishOrderFailed(event);
+
+      expect(received).toEqual([event]);
     });
   });
 
