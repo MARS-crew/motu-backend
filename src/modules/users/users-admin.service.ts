@@ -6,6 +6,7 @@ import { maskEmail, maskPhoneNumber } from '../../common/utils/masking.js';
 import {
   AdminActivityAction,
   AdminActivityTarget,
+  AnomalyAction,
   OrderStatus,
   Prisma,
   Role,
@@ -13,6 +14,7 @@ import {
   UserStatus,
 } from '../../generated/prisma/client.js';
 import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
+import { AnomaliesService } from '../anomalies/anomalies.service.js';
 import { GetAdminUsersReqDto } from './dto/req/get-admin-users-req.dto.js';
 import { ChangeUserStatusResDto } from './dto/res/change-user-status-res.dto.js';
 import { GetAdminUserResDto } from './dto/res/get-admin-user-res.dto.js';
@@ -41,6 +43,7 @@ export class UsersAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly adminActivityLogs: AdminActivityLogsService,
+    private readonly anomalies: AnomaliesService,
   ) {}
 
   /** 회원 목록. 가입일 최신순이다. */
@@ -114,11 +117,21 @@ export class UsersAdminService {
     userId: number,
     status: UserStatus,
     action: AdminAction,
+    anomalyId?: number,
   ): Promise<ChangeUserStatusResDto> {
     const user = await this.findUser(userId);
     if (user.userStatus === status) {
       throw new BusinessException(UserErrors.STATUS_UNCHANGED);
     }
+    // 이상 거래 상세에서 넘어온 회원 정지면 그 이상 거래가 이 회원의 것인지 먼저 확인한다.
+    const anomaly =
+      anomalyId === undefined
+        ? undefined
+        : await this.anomalies.assertActionable(anomalyId, {
+            action: AnomalyAction.USER_BLOCK,
+            userId,
+            userStatus: status,
+          });
     const resetFailCount =
       user.userStatus === UserStatus.LOCKED && status === UserStatus.ACTIVE;
 
@@ -148,6 +161,15 @@ export class UsersAdminService {
         },
         tx,
       );
+      if (anomaly) {
+        await this.anomalies.resolve(
+          tx,
+          anomaly,
+          AnomalyAction.USER_BLOCK,
+          action.reason,
+          action,
+        );
+      }
     });
 
     return { userId, statusBefore: user.userStatus, statusAfter: status };
