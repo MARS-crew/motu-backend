@@ -1,4 +1,4 @@
-# 상장 신청 저장·조회
+# 상장 신청 저장·조회·관리자 심사
 
 본인 보완 요청 조회·기한 검사와 증빙 재제출은 [보완 요청·재제출](listing-revisions.md)을 참고한다. 재제출 시 기존 신청번호를 유지하고 검토 중으로 전환하며, 제출한 증빙 묶음은 변경을 차단한다.
 
@@ -6,7 +6,7 @@
 
 관련 이슈: #33. MOTU-30-02-01, MOTU-32-02-01~03.
 
-단계별 저장·조회 추가: [#36](https://github.com/MARS-crew/motu-backend/issues/36). MOTU-36-02-01, MOTU-38-01-01~02. 이번 범위는 4단계 입력 저장과 본인 상세·상태 조회다. 최종 제출, 신청번호 발급, 제출에 따른 상태 전환, SMS/2차 보안 연동은 후속 작업이다.
+단계별 저장·조회 추가: [#36](https://github.com/MARS-crew/motu-backend/issues/36). MOTU-36-02-01, MOTU-38-01-01~02. 해당 이슈에서 4단계 입력 저장과 본인 상세·상태 조회를 추가했다. 관리자 심사 처리는 이슈 #89에서 추가하며, 최초 최종 제출·신청번호 발급·DRAFT → SUBMITTED 전환·SMS/2차 보안 연동은 후속 작업이다.
 
 ## 화면·요구사항 근거
 
@@ -104,9 +104,9 @@
 
 상태 응답의 `statusLabel`은 DRAFT(임시 저장), SUBMITTED(접수), UNDER_REVIEW(검토 중), REVISION_REQUESTED(보완 요청), APPROVED(승인), REJECTED(반려), EXPIRED(만료)다. `isEditable`은 유효한 DRAFT에서만 true다. 접수 이후 상태에는 임시저장의 만료 정책을 적용하지 않아 `expiresAt`을 null로 반환한다. 만료된 임시저장의 상세는 410, 상태 조회는 200/EXPIRED다.
 
-`applicationNumber`, `submittedAt`, `reviewComment`, `revisionDeadline`은 DB에 기록된 값만 반환하고 미기록 값은 null이다. 접수일·검토 의견·보완 기한용 nullable 컬럼만 추가했으며, 이 값을 생성/변경하는 제출·관리자 API는 이번에 추가하지 않는다. 현재 실제 사용자 흐름에서는 저장 후 계속 DRAFT다. 접수 이후 상태 조회의 자동 검증에는 **로컬 전용 테스트 데이터**를 사용한다.
+`applicationNumber`, `submittedAt`, `reviewComment`, `revisionDeadline`은 DB에 기록된 값만 반환하고 미기록 값은 null이다. 접수일은 후속 최종 제출 API가 기록하며, 심사 의견·보완 기한은 아래 관리자 심사 API가 변경한다. 현재 사용자 작성 흐름에서는 저장 후 DRAFT를 유지한다. 접수 이후 상태 조회의 자동 검증에는 **로컬 전용 테스트 데이터**를 사용한다.
 
-첨부는 현재 작성 묶음의 저장 완료 자료를 조회한다. 제출 당시 첨부의 불변 스냅샷 및 제출 후 파일 변경 차단은 후속 제출 기능에서 구현해야 한다.
+첨부는 현재 작성 묶음의 저장 완료 자료를 조회한다. 최초 제출 당시 스냅샷은 후속 제출 기능에서 구현한다. 관리자 보완 요청 시 요청 당시 자료를 동결·보존하며, 재제출·승인 시 해당 자료를 동결한다.
 
 ### Swagger 확인 순서
 
@@ -187,11 +187,109 @@ logoCollectionId / mainImageCollectionId / evidenceCollectionId는 기존 [파�
 | 404 `LISTING_APPLICATION_NOT_FOUND` | 신청서가 없거나 심사 대상이 아님 |
 | 404 `FILE_NOT_FOUND` | 신청서에 연결되지 않았거나 다운로드 가능한 저장 완료 파일이 아님 |
 
-조회·다운로드는 읽기 전용이다. 최초 접수 건은 후속 심사 처리의 명시적인 검토 시작에서 `SUBMITTED`에서 `UNDER_REVIEW`로 전환하며, 검토 시작 전 대기 건수는 `SUBMITTED`를 기준으로 집계한다. 보완 자료가 재제출되면 기존 재제출 API에서 `UNDER_REVIEW`로 전환한다. 심사 결과와 관리자 활동 이력은 후속 심사 처리에서 기록한다(관련 PR #69).
+조회·다운로드는 읽기 전용이다. 최초 접수 건은 명시적인 검토 시작 API에서 `SUBMITTED`에서 `UNDER_REVIEW`로 전환하며, 검토 시작 전 대기 건수는 `SUBMITTED`를 기준으로 집계한다. 보완 자료가 재제출되면 기존 재제출 API에서 `UNDER_REVIEW`로 전환한다. 심사 결과와 관리자 활동 이력은 아래 심사 처리 API에서 같은 트랜잭션으로 기록한다(공통 이력 서비스는 PR #69).
 
 로컬 검증은 `npm run build` 후 `node scripts/verify-admin-listing-applications.mjs`로 실행한다. 일회용 로컬 DB와 임시 파일 저장소에서 권한, 검색·카테고리·기간·페이징, 상세 조회 시 상태 유지, 보완 이력 및 파일 다운로드를 확인한다.
 
 Swagger에서는 관리자 로그인·Authorize → **Admin - Listing Applications**의 목록에서 `id` 확인 → 해당 `id`의 상세 조회 → 파일 항목의 `id`로 다운로드 순서로 검증한다. seed 신청서에 첨부가 없으면 목록·상세를 확인할 수 있으며, 파일이 연결된 예시는 위 통합 검증에서 생성한다.
+
+## 관리자 상장 심사 처리 (MOTU-21-1-2, 이슈 #89)
+
+화면설계서 `[2차 개발]모투화면설계서.pptx`의 **ADM-LST-03** 기준이다. 관리자 Bearer 토큰이 필요하다. 사용자는 심사 API를 호출할 수 없다. 상세 조회나 모달을 여는 행위로 상태를 변경하지 않는다. 프론트는 처리 확인 모달에서 확정했을 때 아래 POST 요청을 보낸다. 취소하면 요청하지 않는다.
+
+| 메서드 | 경로 | 입력·상태 전환 |
+|---|---|---|
+| POST | `/api/admin/listing-applications/{id}/start-review` | 본문 없음. `SUBMITTED → UNDER_REVIEW` |
+| POST | `/api/admin/listing-applications/{id}/revision-requests` | `requestItems`, `requestContent`, `deadline`. `UNDER_REVIEW → REVISION_REQUESTED` |
+| POST | `/api/admin/listing-applications/{id}/revision-requests/{revisionId}/extend-deadline` | `deadline`, `reason`. 미재제출 보완 요청의 기한 연장 |
+| POST | `/api/admin/listing-applications/{id}/reject` | `reason`. `UNDER_REVIEW → REJECTED` |
+| POST | `/api/admin/listing-applications/{id}/approve` | 아래 승인 입력값. `UNDER_REVIEW → APPROVED`, 거래 대기 상품 생성 |
+
+성공은 모두 HTTP 200이다. `data`에 `applicationId`, `applicationNumber`, `status`, `stockId`(승인 후 상품 ID, 그 전 null), `revisionId`(보완 생성·연장에서만 값), `revisionDeadline`을 반환한다. 처리 후 상세·상태 조회를 다시 실행한다. 이미 처리했거나 현재 상태에서 허용하지 않는 요청은 **409**이며 이력을 추가하지 않는다. 통신 오류로 재시도해 409를 받았다면 상세 조회로 실제 결과를 확인한다.
+
+### 보완 요청과 재제출
+
+```json
+{
+  "requestItems": ["증빙자료", "서비스 지표 근거"],
+  "requestContent": "최신 지표를 확인할 수 있는 증빙자료로 보완해 주세요.",
+  "deadline": "2026-12-07T23:59:59+09:00"
+}
+```
+
+- `requestItems`: 공백 제거 후 중복 없는 항목명 1~10개, 항목당 1~100자. `requestContent`: 1~2000자. `deadline`: 시간대 포함 미래 일시. 날짜 예시는 테스트 당일 이후로 바꾼다.
+- 요청 회차에 항목·내용·최초 기한·신청 입력값·저장 완료 첨부 스냅샷을 남긴다. 당시 자료는 동결해 이후 삭제·교체로 이력을 잃지 않게 한다. 로고·대표 이미지는 사용자에게 공개되는 상품 이미지로 승인 시 연결하며, 증빙자료는 공개하지 않는다.
+- 기존 사용자 API `GET /api/listing-applications/{id}/revision-requests`에서 항목·내용·현재 기한·기한 변경 이력(`deadlineHistory`)을 읽는다.
+- 사용자는 **새 EVIDENCE 묶음**에 파일·링크 합산 1~10개와 설명 10~500자를 저장하고 `POST /api/listing-applications/{id}/revision-requests/{revisionId}/resubmit`에 `{"evidenceCollectionId":"작성 묶음 UUID"}`를 보낸다. 기존 신청번호·접수일을 유지하고 `UNDER_REVIEW`로 복귀한다. 이 API의 동일 요청 재전송은 기존 성공 결과를 반환한다.
+- 기한이 지나면 재제출은 410이고 `REVISION_REQUESTED`를 유지한다. 관리자는 해당 미재제출 회차에 현재 시각과 기존 기한보다 늦은 `deadline`, `reason`(1~200자)을 보내 연장한다. 최초 기한·이전 기한·관리자·시각·사유를 보존한다. 재제출 완료 회차는 연장할 수 없다.
+- 추가 보완은 검토 중 상태에서 새 요청을 생성해 별도 회차로 남긴다. 관리자 상세의 `revisions[].previousEvidence`는 요청 당시 자료이고 `evidence`는 재제출 자료다. 양쪽 파일 모두 해당 항목의 관리자 `downloadPath`로 내려받는다.
+
+### 반려
+
+```json
+{ "reason": "제출 자료로 서비스 운영 사실을 확인하기 어렵습니다." }
+```
+
+사유는 공백 제거 후 1~200자다. 반려 사유·신청번호·기존 증빙과 보완 이력은 유지하고 상품을 만들지 않는다. 사용자는 새 신청서를 작성할 수 있다. 신규 신청번호 발급은 후속 최종 제출 기능에서 처리한다.
+
+### 승인 입력값과 상품 생성 규칙
+
+```json
+{
+  "finalPrice": "10000",
+  "totalIssuedQuantity": "100000",
+  "listingDate": "2026-12-01",
+  "tradingStartAt": "2026-12-01T09:00:00+09:00",
+  "reason": "기본정보와 증빙자료 검토 완료",
+  "priceAdjustmentReason": "수익 지표를 반영해 희망 상장가 조정"
+}
+```
+
+| 승인 화면 입력 | API 필드 | 검증·저장 |
+|---|---|---|
+| 최종 상장가 | `finalPrice` | 양의 정수 문자열. 상품 `basePrice` |
+| 총 발행량 | `totalIssuedQuantity` | 양의 정수 문자열. 상품 `listedShares` |
+| 상장일 | `listingDate` | KST 달력 날짜 `YYYY-MM-DD`, 오늘 이후. 상품 `approvedListingDate`(DATE) |
+| 거래 시작일시 | `tradingStartAt` | 시간대 포함 미래 ISO 일시. KST 기준 상장일 이전 불가. 상품의 기존 `listingDate`(TIMESTAMPTZ) |
+| 처리 사유 | `reason` | 공백 제거 후 1~200자. 최근 심사 의견·승인 스냅샷·활동 이력 |
+| 가격 조정 사유 | `priceAdjustmentReason` | 희망가와 최종가가 다르면 필수, 공백 제거 후 1~200자 |
+
+- 기존 사용자·관리자 상품 API의 `listingDate`는 **거래 시작일시**라는 기존 의미를 유지한다. 별도의 확정 상장일은 `approvedListingDate`에 저장하고 관리자 상품 상세에도 제공한다. 신청서 상세·상태의 `approval.listingDate`, `approval.tradingStartAt`으로 승인 당시 두 값을 구분해서 읽을 수 있다.
+- 기존 주문·상품 API의 숫자 표현에 맞춰 가격·수량은 각각 `Number.MAX_SAFE_INTEGER` 이하, 가격×총 발행량은 PostgreSQL BIGINT 범위 이하다. 최종가는 호가 단위의 배수이며 발행량은 최소 주문 수량 이상이어야 한다.
+- 호가 단위와 최소 주문 수량은 기존 신청 입력값(`tickSize`, `minOrderQuantity`)을 사용한다. 기존 정책대로 선택 입력이므로 없으면 각각 `1`을 사용한다. 최소 주문 가격은 호가 단위다.
+- 상품명·소개·카테고리·운영사·공식 URL·서비스 지표는 신청 입력값을 복사한다. 지표는 기존 정책대로 선택이며 비어 있으면 null이다. 신청 기본정보·필수 대표 이미지·저장 완료 증빙·설명과 신청자 거래 계좌를 검증한 뒤 승인한다. 지나간 희망 거래일 대신 관리자가 확정한 거래 시작일시를 검증한다.
+- 상품 코드는 `LST-{신청서 ID}`로 생성한다. 승인 시 기존 신청번호는 바꾸지 않는다. 원래 희망 입력값은 `data`에 유지하고 확정값은 `approval`에 별도 보존한다. 신청서와 상품은 고유한 `stockId`로 일대일 연결된다.
+- 승인 즉시 `PENDING` 상품을 생성하고 공개한다. 이미지 묶음은 동결하고 공개 상품의 로고·대표 이미지 전용 경로(`/api/stocks/listing-images/{신청서 ID}/main`, `/logo`)를 저장한다. 증빙자료·비공개/삭제 상품 이미지는 이 경로로 제공하지 않는다.
+- 서버 시작 시와 **5초마다** 승인 상품의 거래 시작 예약을 확인한다. 지정 시각 이후 기존 `StockTradingService.openListing`을 호출해 신청자에게 발행 주식 전량을 부여하고 상장가 전량 매도 주문을 만든 뒤 `ACTIVE`로 전환한다. 승인 시점에는 보유·주문을 만들지 않는다. 서버 중단 중 지난 예약도 재시작 시 처리한다. DB 오류 등으로 실패하면 다음 주기에 재시도하며 상품은 거래 대기로 남는다. 새 환경 변수나 Railway Cron 설정은 필요하지 않다.
+
+### 활동 이력·중복 처리
+
+신청 행을 `FOR UPDATE`로 잠가 사용자 재제출과 관리자 처리를 직렬화한다. 승인 시 상품 생성·신청 상태·승인 스냅샷·첨부 동결·활동 이력을 같은 트랜잭션으로 저장한다. 어느 하나 실패하면 모두 롤백한다. 동시 승인에는 하나만 성공하고 나머지는 409다. 거래 시작도 상품 행 잠금으로 발행 주식·최초 주문을 중복 생성하지 않는다.
+
+`targetType=LISTING_APPLICATION&targetId={신청서 ID}`로 공통 활동 이력을 조회한다. 수행 작업은 `LISTING_REVIEW_START`(검토 시작), `LISTING_REVISION_REQUEST`(보완 요청), `LISTING_REVISION_DEADLINE_UPDATE`(보완 기한 연장), `LISTING_REJECT`(반려), `LISTING_APPROVE`(승인)이다. 활동 이력 화면의 상장 신청 수행 작업 선택지에 새 작업 두 개를 추가해 연결한다.
+
+| 응답 | 의미 |
+|---|---|
+| 400 `BAD_REQUEST` | 필드 누락·형식·길이 오류 |
+| 400 `LISTING_REVIEW_INVALID_APPROVAL` | 가격·발행량·상장일·거래 시작일·가격 조정 사유 오류 |
+| 400 `LISTING_REVIEW_INVALID_DEADLINE` | 과거 기한 또는 연장 기한이 기존 기한 이하 |
+| 400 `LISTING_REVIEW_INCOMPLETE_APPLICATION` | 상품 생성에 필요한 신청 정보·첨부 불충족 |
+| 409 `LISTING_REVIEW_INVALID_STATE` | 중복 처리·최종 상태 덮어쓰기·다른 회차 연장 등 |
+| 409 `LISTING_REVIEW_ISSUER_ACCOUNT_REQUIRED` | 신청자의 거래 계좌 없음 |
+
+마이그레이션 `20261118090000_add_listing_review`는 기존 데이터 삭제 없이 승인 정보·상품 연결·확정 상장일·보완 항목과 활동 이력 작업을 추가한다. 로컬 DB에 `npm run db:deploy` → `npm run db:generate` → `npm run start:dev` 순서로 적용한다. 운영 적용은 dev 병합 후 팀의 기존 배포 절차를 따른다.
+
+`npm run build` 후 **`node scripts/verify-admin-listing-review.mjs`**로 전체 흐름을 자동 검증한다. localhost PostgreSQL에 별도의 일회용 DB를 만들고 모든 마이그레이션을 적용한다. 실제 파일 업로드·권한·기한 경과/연장·반복 보완·재제출·반려·동시 승인·활동 이력 롤백·상품 이미지·예약 거래 시작·동시 발행을 확인하고 DB와 파일을 정리한다. 기존 DB나 운영 데이터는 변경하지 않는다.
+
+수동 Swagger 테스트용 접수 신청서는 아래 스크립트로 준비한다. 먼저 `motuuser`로 파일 API에서 MAIN_IMAGE(저장된 이미지 1개)와 EVIDENCE(저장된 파일·링크 1~10개, 설명 10~500자) 묶음을 준비한다. 두 UUID는 파일 ID가 아닌 작성 묶음 ID다.
+
+```powershell
+node scripts/prepare-admin-listing-review-demo.mjs --main-image "대표이미지-묶음-UUID" --evidence "증빙-묶음-UUID"
+```
+
+localhost 비운영 DB만 허용하며 본인 묶음의 용도·저장 상태·이미지·설명과 거래 계좌를 검사한 뒤 A(승인), B(보완), C(반려) 접수 신청서를 생성한다. 출력된 `applications.*.applicationId`를 사용한다. 보완 요청·기한 연장 본문은 출력의 `revisionBody`, `extensionBody` 안쪽 객체를 복사한다. 재실행하면 새 신청서 3개를 추가하며 기존 신청서는 수정하지 않는다. 다른 로컬 계정은 `--login-id`로 지정한다. 관리자 처리·사용자 재제출은 Swagger에서 직접 진행한다.
+
+최초 최종 제출(`DRAFT → SUBMITTED`)·정식 신청번호 발급·SMS 2차 보안 연동은 이번 관리자 심사 범위에 포함되지 않는다. 기존 접수 신청서 또는 검증 스크립트의 테스트 신청서에서 시작한다.
 
 ## 오류
 
