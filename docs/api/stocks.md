@@ -192,7 +192,7 @@
 
 | 기능 | API | 요청 | 할 수 있는 상태 |
 |------|------|------|------|
-| 거래 중지 | `POST /api/admin/stocks/:stockId/pause` | `reason`(필수), `notice`(사용자 안내문, 선택 200자) | 거래 가능 |
+| 거래 중지 | `POST /api/admin/stocks/:stockId/pause` | `reason`(필수), `notice`(사용자 안내문, 선택 200자), `anomalyId`(선택, 이상 거래에서 넘어온 경우) | 거래 가능 |
 | 거래 재개 | `POST /api/admin/stocks/:stockId/resume` | `reason`(필수) | 거래 중지 |
 | 상품 종료 | `POST /api/admin/stocks/:stockId/close` | `reason`(필수), `notice`(사용자 안내문, **필수** 1~200자) | 거래 대기·가능·중지 |
 
@@ -203,11 +203,12 @@
 - 상품 종료는 되돌릴 수 없습니다. 이미 체결해 보유한 수량은 그대로 남고 자동 매도·환급은 없습니다. 켜진 지정가 알림도 끕니다.
 - 안내문은 사용자 상품 상세의 `statusNotice`로 나갑니다. 재개하면 지웁니다.
 - 처리 전·후 상태, 안내문, 취소한 주문 수, 사유를 관리자 활동 이력(`STOCK_PAUSE`, `STOCK_RESUME`, `STOCK_CLOSE`)에 남깁니다.
-- 이상 거래 상세(ADM-MON-02)에서 "상품 거래 중지"로 넘어온 경우도 같은 거래 중지 API를 씁니다. 처리 후 이상 거래 상세로 돌아가는 것은 프론트에서 처리합니다.
+- 이상 거래 상세(ADM-MON-02)에서 "상품 거래 중지"로 넘어온 경우도 같은 거래 중지 API를 쓰고 `anomalyId`를 함께 보냅니다. 거래 중지와 같은 트랜잭션에서 그 이상 거래를 처리완료합니다. ([거래 모니터링](anomalies.md#조치-adm-mon-02-46번)) 처리 후 이상 거래 상세로 돌아가는 것은 프론트에서 처리합니다.
 
 | 에러 | 상황 | 화면 처리 |
 |------|------|------|
 | 409 `STOCK_INVALID_TRADE_STATUS` + `details { tradeStatus }` | 지금 상태에서 할 수 없는 처리 (예: 이미 중지된 상품 중지, 종료된 상품 재개) | 상세를 다시 불러옵니다. |
 | 400 `BAD_REQUEST` | 사유 누락, 종료 안내문 누락, 길이 초과 | 입력칸 아래 안내 |
 | 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 | |
+| 400 `ANOMALY_TARGET_MISMATCH` / 409 `ANOMALY_ALREADY_RESOLVED` | `anomalyId`가 이 상품의 이상 거래가 아님 / 이미 처리완료 (주문 취소 전에 막음) | 이상 거래 상세를 다시 불러옵니다. |
 
