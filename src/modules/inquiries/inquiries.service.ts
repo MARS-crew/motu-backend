@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -23,6 +22,7 @@ import {
   INQUIRY_TITLE_MAX_LENGTH,
   INQUIRY_CONTENT_MAX_LENGTH,
   inquiryTokenSecret,
+  inquiryCode,
 } from './inquiries.constants.js';
 import { InquiryErrors as Errors } from './inquiries.errors.js';
 
@@ -121,21 +121,13 @@ export class InquiriesService {
           if (!user) throw new BusinessException(Errors.UNAUTHORIZED);
           if (!isRestricted(user.userStatus))
             throw new BusinessException(Errors.ACCOUNT_NOT_RESTRICTED);
-          const date = new Intl.DateTimeFormat('en-CA', {
-            timeZone: 'Asia/Seoul',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-          })
-            .format(new Date())
-            .replaceAll('-', '');
           return tx.inquiry.create({
             data: {
               userId,
               replyEmail: user.email,
               title,
               content,
-              inquiryCode: `INQ-${date}-${randomBytes(6).toString('hex').toUpperCase()}`,
+              inquiryCode: inquiryCode(),
               inquiryType:
                 user.userStatus === UserStatus.LOCKED
                   ? InquiryType.LOGIN_FAILED_LOCKED
