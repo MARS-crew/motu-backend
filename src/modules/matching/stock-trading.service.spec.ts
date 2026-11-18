@@ -18,6 +18,7 @@ const ISSUER_ACCOUNT_ID = 3;
 
 describe('StockTradingService', () => {
   const tx = {
+    $queryRaw: vi.fn().mockResolvedValue([]),
     stock: { findFirst: vi.fn(), update: vi.fn() },
     account: { findUnique: vi.fn(), update: vi.fn() },
     holding: { create: vi.fn(), update: vi.fn() },
