@@ -4,14 +4,17 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -33,7 +36,7 @@ import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
 import { SendContactPhoneVerificationResDto } from './dto/res/send-contact-phone-verification-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
 import { UsersService } from './users.service.js';
-
+import { ChangeNicknameReqDto } from './dto/req/change-nickname-req.dto.js';
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
@@ -85,7 +88,19 @@ export class UsersController {
       dto.code,
     );
   }
-
+  @Patch('me/nickname')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '내 닉네임 변경' })
+  @ApiOkResponse({ type: GetMyInfoResDto })
+  @ApiBadRequestResponse({ description: 'BAD_REQUEST' })
+  @ApiConflictResponse({ description: 'NICKNAME_DUPLICATED' })
+  @ApiNotFoundResponse({ description: 'USER_NOT_FOUND' })
+  changeNickname(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ChangeNicknameReqDto,
+  ): Promise<GetMyInfoResDto> {
+    return this.usersService.changeNickname(user.userId, dto.nickname);
+  }
   @Public()
   @Get('login-id/availability')
   @ApiOperation({ summary: '아이디 중복 확인' })
