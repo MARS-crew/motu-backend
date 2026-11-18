@@ -38,6 +38,14 @@ describe('FilesService 저장 보장', () => {
   const files = [
     { originalname: 'proof.png', mimetype: 'image/png', buffer: png },
   ] as Express.Multer.File[];
+  it('이미 동결된 묶음은 승인·재요청에서도 최초 동결 시각을 보존한다', async () => {
+    const frozenAt = new Date('2026-11-18T00:00:00Z');
+    tx.$queryRaw.mockResolvedValue([
+      { id: 'group', purpose: 'EVIDENCE', frozenAt },
+    ]);
+    await service.freezeSavedCollection(1, 'group', tx as never);
+    expect(tx.attachmentCollection.update).not.toHaveBeenCalled();
+  });
   it('파일 미선택은 파일 전용 코드로 반환하고 저장하지 않는다', async () => {
     await expect(service.upload(1, 'group', [])).rejects.toMatchObject({
       error: { code: 'FILE_REQUIRED', message: '파일을 선택해 주세요.' },
