@@ -1,3 +1,6 @@
+import { AdminActivityLogsModule } from '../admin-activity-logs/admin-activity-logs.module.js';
+import { InquiriesAdminController } from './inquiries-admin.controller.js';
+import { InquiriesAdminService } from './inquiries-admin.service.js';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -10,6 +13,7 @@ import { InquirySessionRateLimitGuard } from './inquiry-session-rate-limit.guard
 
 @Module({
   imports: [
+    AdminActivityLogsModule,
     UsersModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
@@ -18,7 +22,12 @@ import { InquirySessionRateLimitGuard } from './inquiry-session-rate-limit.guard
       }),
     }),
   ],
-  controllers: [InquiriesController],
-  providers: [InquiriesService, InquiryAuthGuard, InquirySessionRateLimitGuard],
+  controllers: [InquiriesController, InquiriesAdminController],
+  providers: [
+    InquiriesService,
+    InquiriesAdminService,
+    InquiryAuthGuard,
+    InquirySessionRateLimitGuard,
+  ],
 })
 export class InquiriesModule {}

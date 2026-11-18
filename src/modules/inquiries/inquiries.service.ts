@@ -112,8 +112,10 @@ export class InquiriesService {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return await this.prisma.$transaction(async (tx) => {
-          const users = await tx.$queryRaw<{ userStatus: UserStatus }[]>`
-            SELECT user_status AS "userStatus" FROM users WHERE user_id=${userId} FOR UPDATE
+          const users = await tx.$queryRaw<
+            { userStatus: UserStatus; email: string }[]
+          >`
+            SELECT user_status AS "userStatus", email FROM users WHERE user_id=${userId} FOR UPDATE
           `;
           const user = users[0];
           if (!user) throw new BusinessException(Errors.UNAUTHORIZED);
@@ -130,6 +132,7 @@ export class InquiriesService {
           return tx.inquiry.create({
             data: {
               userId,
+              replyEmail: user.email,
               title,
               content,
               inquiryCode: `INQ-${date}-${randomBytes(6).toString('hex').toUpperCase()}`,
