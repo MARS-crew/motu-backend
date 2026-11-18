@@ -4,6 +4,7 @@ import {
   OrderSide,
   OrderStatus,
   TradeStatus,
+  UserStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
 import { StockErrors } from '../stocks/stocks.errors.js';
@@ -23,6 +24,7 @@ describe('StockTradingService', () => {
     holding: { create: vi.fn(), update: vi.fn() },
     order: { create: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
     priceAlert: { updateMany: vi.fn() },
+    user: { findUniqueOrThrow: vi.fn() },
   };
   const transaction = vi.fn((fn: (client: typeof tx) => Promise<unknown>) =>
     fn(tx),
@@ -55,6 +57,9 @@ describe('StockTradingService', () => {
 
   describe('openListing', () => {
     beforeEach(() => {
+      tx.user.findUniqueOrThrow.mockResolvedValue({
+        userStatus: UserStatus.ACTIVE,
+      });
       tx.stock.findFirst.mockResolvedValue({
         id: STOCK_ID,
         tradeStatus: TradeStatus.PENDING,

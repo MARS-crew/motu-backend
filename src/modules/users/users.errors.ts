@@ -54,4 +54,9 @@ export const UserErrors = {
     message: '이미 가입된 정보입니다.',
     status: HttpStatus.CONFLICT,
   },
+  WITHDRAWN_STATUS_IMMUTABLE: {
+    code: 'USER_WITHDRAWN_STATUS_IMMUTABLE',
+    message: '탈퇴한 회원의 상태는 변경할 수 없습니다.',
+    status: HttpStatus.CONFLICT,
+  },
 } as const satisfies Record<string, ErrorDefinition>;

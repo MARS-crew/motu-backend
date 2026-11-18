@@ -340,12 +340,15 @@ export class AuthService {
     this.assertLoginAllowed(user);
   }
 
-  private assertLoginAllowed(user: User): void {
+  private assertLoginAllowed(user: Pick<User, 'userStatus'>): void {
     if (user.userStatus === UserStatus.LOCKED) {
       throw new BusinessException(AuthErrors.ACCOUNT_LOCKED);
     }
     if (user.userStatus === UserStatus.BLOCKED) {
       throw new BusinessException(AuthErrors.ACCOUNT_BLOCKED);
+    }
+    if (user.userStatus !== UserStatus.ACTIVE) {
+      throw new BusinessException(AuthErrors.UNAUTHORIZED);
     }
   }
 
@@ -359,12 +362,26 @@ export class AuthService {
       infer: true,
     });
 
-    await this.prisma.refreshToken.create({
-      data: {
-        userId: user.userId,
-        tokenHash: this.hashToken(refreshToken),
-        expiresAt: new Date(Date.now() + refreshDays * DAY_MS),
-      },
+    await this.prisma.$transaction(async (tx) => {
+      // 탈퇴 처리와 세션 발급이 같은 회원 행을 기준으로 순서대로 실행된다.
+      const [current] = await tx.$queryRaw<Pick<User, 'userStatus'>[]>`
+        SELECT user_status::text AS "userStatus"
+        FROM users
+        WHERE user_id = ${user.userId}
+        FOR NO KEY UPDATE
+      `;
+      if (!current) {
+        throw new BusinessException(AuthErrors.UNAUTHORIZED);
+      }
+      this.assertLoginAllowed(current);
+
+      await tx.refreshToken.create({
+        data: {
+          userId: user.userId,
+          tokenHash: this.hashToken(refreshToken),
+          expiresAt: new Date(Date.now() + refreshDays * DAY_MS),
+        },
+      });
     });
 
     return {

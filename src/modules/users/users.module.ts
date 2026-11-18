@@ -6,11 +6,18 @@ import { UsersAdminController } from './users-admin.controller.js';
 import { UsersAdminService } from './users-admin.service.js';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
+import { OrdersModule } from '../orders/orders.module.js';
+import { UsersWithdrawalService } from './users-withdrawal.service.js';
 
 @Module({
-  imports: [AccountsModule, VerificationsModule, AdminActivityLogsModule],
+  imports: [
+    AccountsModule,
+    VerificationsModule,
+    AdminActivityLogsModule,
+    OrdersModule,
+  ],
   controllers: [UsersController, UsersAdminController],
-  providers: [UsersService, UsersAdminService],
+  providers: [UsersService, UsersAdminService, UsersWithdrawalService],
   exports: [UsersService],
 })
 export class UsersModule {}

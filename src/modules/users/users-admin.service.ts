@@ -26,6 +26,7 @@ const STATUS_LABELS: Record<UserStatus, string> = {
   [UserStatus.ACTIVE]: '정상',
   [UserStatus.LOCKED]: '잠금',
   [UserStatus.BLOCKED]: '정지',
+  [UserStatus.WITHDRAWN]: '탈퇴',
 };
 
 /** 관리자 처리를 남길 때 함께 받는 값 */
@@ -116,6 +117,12 @@ export class UsersAdminService {
     action: AdminAction,
   ): Promise<ChangeUserStatusResDto> {
     const user = await this.findUser(userId);
+    if (
+      user.userStatus === UserStatus.WITHDRAWN ||
+      status === UserStatus.WITHDRAWN
+    ) {
+      throw new BusinessException(UserErrors.WITHDRAWN_STATUS_IMMUTABLE);
+    }
     if (user.userStatus === status) {
       throw new BusinessException(UserErrors.STATUS_UNCHANGED);
     }

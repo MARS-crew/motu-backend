@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -12,9 +13,12 @@ import {
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
@@ -33,11 +37,17 @@ import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
 import { SendContactPhoneVerificationResDto } from './dto/res/send-contact-phone-verification-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
 import { UsersService } from './users.service.js';
+import { Roles } from '../../common/auth/roles.decorator.js';
+import { Role } from '../../generated/prisma/client.js';
+import { UsersWithdrawalService } from './users-withdrawal.service.js';
 
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly withdrawalService: UsersWithdrawalService,
+  ) {}
 
   @Get('me')
   @ApiBearerAuth()
@@ -45,6 +55,30 @@ export class UsersController {
   @ApiOkResponse({ type: GetMyInfoResDto })
   getMyInfo(@CurrentUser() user: AuthUser): Promise<GetMyInfoResDto> {
     return this.usersService.getMyInfo(user.userId);
+  }
+  @Delete('me')
+  @Roles(Role.USER)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '회원 탈퇴',
+    description:
+      '내 미체결 주문을 취소하고 포인트를 소멸시킨 뒤 회원 탈퇴를 처리한다.',
+  })
+  @ApiNoContentResponse()
+  @ApiUnauthorizedResponse({
+    description: 'AUTH_UNAUTHORIZED / AUTH_TOKEN_EXPIRED',
+  })
+  @ApiForbiddenResponse({
+    description: 'AUTH_FORBIDDEN / AUTH_ACCOUNT_LOCKED / AUTH_ACCOUNT_BLOCKED',
+  })
+  @ApiNotFoundResponse({ description: 'ACCOUNT_NOT_FOUND' })
+  @ApiConflictResponse({
+    description:
+      'USER_STATUS_CONFLICT / ACCOUNT_CONCURRENT_UPDATE / ACCOUNT_WITHDRAWAL_LOCKED_CASH',
+  })
+  withdraw(@CurrentUser() user: AuthUser): Promise<void> {
+    return this.withdrawalService.withdraw(user.userId);
   }
 
   @Post('me/phone-verifications')

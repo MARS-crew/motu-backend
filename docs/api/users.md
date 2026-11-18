@@ -104,6 +104,29 @@
 
 회원 상태: `ACTIVE` 정상, `LOCKED` 잠금(로그인 5회 실패 또는 관리자 처리), `BLOCKED` 정지
 
+## 회원 탈퇴
+
+| 항목 | 내용 |
+|------|------|
+| API | `DELETE /api/users/me` |
+| 로그인 | 필요. 정상 상태의 일반 회원 본인 |
+| 성공 | `204 No Content` |
+
+- 접수·부분 체결 주문의 미체결분을 취소하고 포인트·수량 예약을 해제합니다.
+- 보유 포인트를 0으로 만들고 차감액을 `WITHDRAWAL` 이력에 기록합니다.
+- 계정을 `WITHDRAWN`으로 기록하고 발급된 Refresh 토큰과 비밀번호 재설정 토큰을 무효화합니다.
+- 위 처리는 하나의 트랜잭션에서 반영합니다. 성공 응답을 받으면 프론트에서 토큰을 지우고 로그인 화면으로 이동합니다.
+
+| 에러 | 상황 |
+|------|------|
+| 401 `AUTH_UNAUTHORIZED` / `AUTH_TOKEN_EXPIRED` | 토큰이 없거나 만료됐거나 탈퇴한 계정 |
+| 403 `AUTH_FORBIDDEN` / `AUTH_ACCOUNT_LOCKED` / `AUTH_ACCOUNT_BLOCKED` | 일반 회원이 아니거나 잠김·정지 상태 |
+| 404 `ACCOUNT_NOT_FOUND` | 계좌가 존재하지 않음 |
+| 409 `USER_STATUS_CONFLICT` / `ACCOUNT_CONCURRENT_UPDATE` | 처리 중 회원·계좌·주문 상태가 바뀜 |
+| 409 `ACCOUNT_WITHDRAWAL_LOCKED_CASH` | 주문 취소 후에도 예약 포인트가 남음 |
+
+---
+
 ### 회원 목록 (ADM-MBR-01)
 
 `GET /api/admin/users`

@@ -5,6 +5,7 @@ import type { AuthenticatedRequest } from '../../common/auth/auth-user.type.js';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { EnvironmentVariables } from '../../config/env.validation.js';
 import { UsersService } from '../users/users.service.js';
+import { UserStatus } from '../../generated/prisma/client.js';
 import { InquiryErrors as Errors } from './inquiries.errors.js';
 import {
   INQUIRY_TOKEN_AUDIENCE,
@@ -65,8 +66,13 @@ export class InquiryAuthGuard implements CanActivate {
     )
       throw new BusinessException(Errors.UNAUTHORIZED);
     const user = await this.users.findById(payload.sub);
-    if (!user || (!limited && isRestricted(user.userStatus)))
+    if (
+      !user ||
+      user.userStatus === UserStatus.WITHDRAWN ||
+      (!limited && isRestricted(user.userStatus))
+    ) {
       throw new BusinessException(Errors.UNAUTHORIZED);
+    }
     request.user = { userId: user.id, role: user.role };
     return true;
   }

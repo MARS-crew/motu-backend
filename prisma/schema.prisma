@@ -17,7 +17,7 @@ enum UserStatus {
   ACTIVE
   LOCKED
   BLOCKED
-
+  WITHDRAWN
   @@map("user_status")
 }
 
@@ -150,7 +150,8 @@ enum CashLedgerType {
   RESET
   /// 관리자 포인트 조정
   ADJUST
-
+  /// 회원 탈퇴로 포인트 소멸
+  WITHDRAWAL
   @@map("cash_ledger_type")
 }
 

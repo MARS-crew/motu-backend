@@ -10,6 +10,7 @@ import {
   PointResetCondition,
   PointResetResult,
   Prisma,
+  UserStatus,
 } from '../../generated/prisma/client.js';
 import {
   INITIAL_CASH,
@@ -39,6 +40,15 @@ interface CheckedResetCondition {
   reason: string;
 }
 
+interface CashChange {
+  type: CashLedgerType;
+  cashAfter: bigint;
+  now: Date;
+  data?: Prisma.AccountUpdateManyMutationInput;
+  /** 포인트를 바꾼 뒤 같은 트랜잭션에서 실행한다. */
+  afterUpdate?: (tx: Prisma.TransactionClient) => Promise<unknown>;
+}
+
 @Injectable()
 export class AccountsService {
   constructor(
@@ -65,6 +75,33 @@ export class AccountsService {
           },
         },
       },
+    });
+  }
+  async getAccountId(userId: number): Promise<number> {
+    const { id } = await this.findAccount(userId);
+    return id;
+  }
+  /** 미체결 주문을 취소한 트랜잭션에서 잔여 포인트를 소멸시킨다. */
+  async expirePointsForWithdrawal(
+    tx: Prisma.TransactionClient,
+    accountId: number,
+    now: Date,
+  ): Promise<void> {
+    const account = await tx.account.findUnique({
+      where: { id: accountId },
+      select: { id: true, cash: true, lockedCash: true, version: true },
+    });
+    if (!account) {
+      throw new BusinessException(AccountErrors.NOT_FOUND);
+    }
+    if (account.lockedCash !== 0n) {
+      throw new BusinessException(AccountErrors.WITHDRAWAL_LOCKED_CASH);
+    }
+
+    await this.applyCashChange(tx, account, {
+      type: CashLedgerType.WITHDRAWAL,
+      cashAfter: 0n,
+      now,
     });
   }
 
@@ -325,44 +362,52 @@ export class AccountsService {
     return account;
   }
 
+  private async updateCash(
+    account: Account,
+    change: CashChange,
+  ): Promise<void> {
+    await this.prisma.$transaction((tx) =>
+      this.applyCashChange(tx, account, change),
+    );
+  }
+
   /**
    * 보유 포인트를 바꾸고 이력을 남긴다. 읽은 뒤 다른 요청이 계좌를 바꿨으면 반영하지 않는다.
    */
-  private async updateCash(
-    account: Account,
-    change: {
-      type: CashLedgerType;
-      cashAfter: bigint;
-      now: Date;
-      data?: Prisma.AccountUpdateManyMutationInput;
-      /** 포인트를 바꾼 뒤 같은 트랜잭션에서 실행한다. */
-      afterUpdate?: (tx: Prisma.TransactionClient) => Promise<unknown>;
-    },
+  private async applyCashChange(
+    tx: Prisma.TransactionClient,
+    account: Pick<Account, 'id' | 'cash' | 'version'>,
+    change: CashChange,
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.account.updateMany({
-        where: { id: account.id, version: account.version },
-        data: {
-          ...change.data,
-          cash: change.cashAfter,
-          version: { increment: 1 },
-        },
-      });
-      if (count === 0) {
-        throw new BusinessException(AccountErrors.CONCURRENT_UPDATE);
-      }
+    const { count } = await tx.account.updateMany({
+      where: {
+        id: account.id,
+        version: account.version,
+        user: { userStatus: { not: UserStatus.WITHDRAWN } },
+      },
+      data: {
+        ...change.data,
+        cash: change.cashAfter,
+        version: { increment: 1 },
+      },
+    });
+    if (count === 0) {
+      throw new BusinessException(AccountErrors.CONCURRENT_UPDATE);
+    }
 
+    const amount = change.cashAfter - account.cash;
+    if (amount !== 0n || change.type !== CashLedgerType.WITHDRAWAL) {
       await tx.cashLedger.create({
         data: {
           accountId: account.id,
           type: change.type,
-          amount: change.cashAfter - account.cash,
+          amount,
           balanceAfter: change.cashAfter,
           createDate: change.now,
         },
       });
-      await change.afterUpdate?.(tx);
-    });
+    }
+    await change.afterUpdate?.(tx);
   }
 
   private recordResetAttempt(

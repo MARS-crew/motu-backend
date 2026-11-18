@@ -5,6 +5,8 @@ import {
   CashLedgerType,
   PointResetCondition,
   PointResetResult,
+  type Prisma,
+  UserStatus,
 } from '../../generated/prisma/client.js';
 import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
 import { PointCooldownType } from './accounts.constants.js';
@@ -75,7 +77,11 @@ describe('AccountsService', () => {
         result.grantedAt.getTime() + DAY,
       );
       expect(account.updateMany).toHaveBeenCalledWith({
-        where: { id: 10, version: 3n },
+        where: {
+          id: 10,
+          version: 3n,
+          user: { userStatus: { not: UserStatus.WITHDRAWN } },
+        },
         data: {
           lastPointGrantAt: result.grantedAt,
           cash: 2_445_678n,
@@ -114,6 +120,75 @@ describe('AccountsService', () => {
       await expect(service.grantPoint(1)).rejects.toMatchObject({
         response: { code: 'ACCOUNT_CONCURRENT_UPDATE' },
       });
+      expect(cashLedger.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('expirePointsForWithdrawal', () => {
+    const now = new Date('2026-11-18T03:00:00.000Z');
+    const withdrawalTx = tx as unknown as Prisma.TransactionClient;
+
+    it('호출자가 전달한 트랜잭션에서 잔액을 소멸시키고 원장에 기록한다', async () => {
+      account.findUnique.mockResolvedValueOnce(accountOf());
+
+      await service.expirePointsForWithdrawal(withdrawalTx, 10, now);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(account.updateMany).toHaveBeenCalledExactlyOnceWith({
+        where: {
+          id: 10,
+          version: 3n,
+          user: { userStatus: { not: UserStatus.WITHDRAWN } },
+        },
+        data: { cash: 0n, version: { increment: 1 } },
+      });
+      expect(cashLedger.create).toHaveBeenCalledExactlyOnceWith({
+        data: {
+          accountId: 10,
+          type: CashLedgerType.WITHDRAWAL,
+          amount: -2_345_678n,
+          balanceAfter: 0n,
+          createDate: now,
+        },
+      });
+    });
+
+    it('소멸할 포인트가 0이어도 계좌 버전을 갱신한다', async () => {
+      account.findUnique.mockResolvedValueOnce(accountOf({ cash: 0n }));
+
+      await service.expirePointsForWithdrawal(withdrawalTx, 10, now);
+
+      expect(account.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { cash: 0n, version: { increment: 1 } },
+        }),
+      );
+      expect(cashLedger.create).not.toHaveBeenCalled();
+    });
+
+    it('예약 포인트가 남아 있으면 잔액과 이력을 바꾸지 않는다', async () => {
+      account.findUnique.mockResolvedValueOnce(accountOf({ lockedCash: 100n }));
+
+      await expect(
+        service.expirePointsForWithdrawal(withdrawalTx, 10, now),
+      ).rejects.toMatchObject({
+        response: { code: 'ACCOUNT_WITHDRAWAL_LOCKED_CASH' },
+      });
+
+      expect(account.updateMany).not.toHaveBeenCalled();
+      expect(cashLedger.create).not.toHaveBeenCalled();
+    });
+
+    it('계좌 갱신이 충돌하면 소멸 이력을 기록하지 않는다', async () => {
+      account.findUnique.mockResolvedValueOnce(accountOf());
+      account.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.expirePointsForWithdrawal(withdrawalTx, 10, now),
+      ).rejects.toMatchObject({
+        response: { code: 'ACCOUNT_CONCURRENT_UPDATE' },
+      });
+
       expect(cashLedger.create).not.toHaveBeenCalled();
     });
   });
