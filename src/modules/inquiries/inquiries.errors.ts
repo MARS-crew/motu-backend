@@ -2,6 +2,11 @@ import { HttpStatus } from '@nestjs/common';
 import type { ErrorDefinition } from '../../common/exceptions/business.exception.js';
 
 export const InquiryErrors = {
+  SUBMISSION_RATE_LIMITED: {
+    code: 'INQUIRY_SUBMISSION_RATE_LIMITED',
+    message: '문의 접수 요청이 많습니다. 잠시 후 다시 시도해 주세요.',
+    status: HttpStatus.TOO_MANY_REQUESTS,
+  },
   INVALID_TITLE: {
     code: 'INQUIRY_INVALID_TITLE',
     message: '문의 제목은 1자 이상 100자 이하로 입력해 주세요.',
