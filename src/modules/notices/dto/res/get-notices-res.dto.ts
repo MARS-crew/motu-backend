@@ -15,6 +15,13 @@ export class NoticeItemResDto {
   @ApiProperty({ example: '약관 개정 안내' })
   title: string;
 
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: '대상 상품명. 전체 공지일 때 null',
+  })
+  stockName: string | null;
+
   @ApiProperty({ description: '중요 공지 여부 (중요 배지)', example: true })
   isImportant: boolean;
 

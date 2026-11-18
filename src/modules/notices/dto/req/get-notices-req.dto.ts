@@ -6,6 +6,17 @@ import { INVALID_REQUEST_MESSAGE } from '../../../../common/constants/validation
 
 export class GetNoticesReqDto {
   @ApiPropertyOptional({
+    type: Number,
+    description: '대상 상품 ID. 생략하면 전체 공지',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: INVALID_REQUEST_MESSAGE })
+  @Min(1, { message: INVALID_REQUEST_MESSAGE })
+  @Max(2147483647, { message: INVALID_REQUEST_MESSAGE })
+  stockId?: number;
+
+  @ApiPropertyOptional({
     description: '페이지 (1부터)',
     example: 1,
     default: 1,

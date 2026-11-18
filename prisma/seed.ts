@@ -285,6 +285,7 @@ const seedNotices = [
   {
     type: NoticeType.STOCK,
     title: 'PLI 거래 일시 정지 안내',
+    targetStockCode: 'MOTU0005',
     daysAgo: 1,
     content:
       '운영사 요청으로 PLI의 거래가 일시 정지되었습니다. 거래 재개 일정은 다시 안내드리겠습니다.',
@@ -292,6 +293,7 @@ const seedNotices = [
   {
     type: NoticeType.STOCK,
     title: 'CloudNote 거래 종료 안내',
+    targetStockCode: 'MOTU0010',
     daysAgo: 5,
     content:
       'CloudNote의 거래가 종료되었습니다. 보유 수량은 그대로 유지됩니다.',
@@ -393,11 +395,22 @@ async function createNotices(): Promise<void> {
     return;
   }
   const now = Date.now();
+  const targetCodes = seedNotices.flatMap(({ targetStockCode }) =>
+    targetStockCode ? [targetStockCode] : [],
+  );
+  const stocks = await prisma.stock.findMany({
+    where: { stockCode: { in: targetCodes }, isDeleted: false },
+    select: { id: true, stockCode: true },
+  });
+  const stockIds = new Map(stocks.map(({ stockCode, id }) => [stockCode, id]));
   await prisma.notice.createMany({
-    data: seedNotices.map(({ daysAgo, postDays, ...notice }) => {
+    data: seedNotices.map(({ daysAgo, postDays, targetStockCode, ...notice }) => {
       const postStartDate = new Date(now - daysAgo * DAY);
+      const stockId = targetStockCode ? (stockIds.get(targetStockCode) ?? null) : null;
       return {
         ...notice,
+        stockId,
+        status: targetStockCode && stockId === null ? 'DRAFT' : 'POSTED',
         postStartDate,
         postEndDate: postDays
           ? new Date(postStartDate.getTime() + postDays * DAY)
