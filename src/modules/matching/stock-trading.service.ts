@@ -51,12 +51,7 @@ export class StockTradingService {
   ): Promise<{ orderId: bigint }> {
     return this.matching.runExclusive(stockId, async () => {
       const order = await this.prisma.$transaction(async (tx) => {
-        const stock = await tx.stock.findFirst({
-          where: { id: stockId, isDeleted: false },
-        });
-        if (!stock) {
-          throw new BusinessException(StockErrors.NOT_FOUND);
-        }
+        const stock = await this.findStock(tx, stockId);
         if (stock.tradeStatus !== TradeStatus.PENDING) {
           throw new BusinessException(MatchingErrors.LISTING_NOT_PENDING);
         }
@@ -176,6 +171,8 @@ export class StockTradingService {
     tx: Prisma.TransactionClient,
     stockId: number,
   ): Promise<Stock> {
+    // 예약 시작·중지·종료가 다른 서버에서 겹쳐도 상태와 발행·주문 취소를 직렬화한다.
+    await tx.$queryRaw`SELECT stock_id FROM stocks WHERE stock_id = ${stockId} FOR UPDATE`;
     const stock = await tx.stock.findFirst({
       where: { id: stockId, isDeleted: false },
     });
