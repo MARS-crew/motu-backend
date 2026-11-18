@@ -313,8 +313,7 @@ export class AnomaliesService {
   }
 
   private toDetail(anomaly: AnomalyDetail): GetAnomalyResDto {
-    return {
-      ...this.toItem(anomaly),
+    return Object.assign(this.toItem(anomaly), {
       stockCode: anomaly.stock?.stockCode ?? null,
       nickname: anomaly.user.nickname,
       orderId: anomaly.orderId === null ? null : Number(anomaly.orderId),
@@ -327,6 +326,6 @@ export class AnomaliesService {
           ? { adminId: anomaly.handledById, loginId: anomaly.handledBy.loginId }
           : null,
       handledDate: anomaly.handledDate,
-    };
+    });
   }
 }
