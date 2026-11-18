@@ -118,6 +118,8 @@ export class StocksAdminService {
     ]);
 
     return Object.assign(this.toItem(stock, summaries), {
+      approvedListingDate:
+        stock.approvedListingDate?.toISOString().slice(0, 10) ?? null,
       summary: stock.summary,
       description: stock.description,
       operatorName: stock.operatorName,
