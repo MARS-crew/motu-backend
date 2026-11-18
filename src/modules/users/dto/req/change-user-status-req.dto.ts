@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum } from 'class-validator';
 import { UserStatus } from '../../../../generated/prisma/client.js';
-import { AdminReasonReqDto } from './admin-reason-req.dto.js';
+import { AdminReasonReqDto } from '../../../../common/dto/admin-reason-req.dto.js';
 
 export class ChangeUserStatusReqDto extends AdminReasonReqDto {
   @ApiProperty({

@@ -61,6 +61,15 @@ export class GetAdminStockResDto extends AdminStockItemResDto {
   @ApiProperty({ description: '미체결 주문 건수', example: 24 })
   openOrderCount: number;
 
+  @ApiProperty({
+    description:
+      '사용자 안내문. 거래 중지·종료할 때 입력한 값이고, 없으면 null',
+    example: '가격 데이터 점검으로 거래를 일시 중지합니다.',
+    nullable: true,
+    type: String,
+  })
+  statusNotice: string | null;
+
   @ApiProperty({ type: AdminStockMetricsResDto, description: '서비스 지표 탭' })
   metrics: AdminStockMetricsResDto;
 }

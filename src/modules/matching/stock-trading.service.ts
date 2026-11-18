@@ -5,6 +5,8 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   OrderSide,
   OrderStatus,
+  Prisma,
+  Stock,
   TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
@@ -15,8 +17,21 @@ import { MatchingService } from './matching.service.js';
 import { SettlementService } from './settlement.js';
 
 /**
- * 상품의 거래 시작(상장)과 거래 종료. 상장 승인·거래 상태 관리 쪽에서 호출한다.
- * 거래 중지(PAUSED)와 재개는 tradeStatus만 바꾸면 된다. 걸린 주문은 그대로 두고 새 주문만 막힌다.
+ * 거래 상태를 바꾸는 트랜잭션 안에서 호출하는 함수. 바꾸기 전 상품을 받는다.
+ * - check: 상태를 바꾸기 전에 호출한다. 현재 상태로 할 수 없는 처리면 예외를 던진다.
+ * - afterChange: 상태를 바꾼 뒤 호출한다. 관리자 활동 이력처럼 같이 커밋할 작업을 넣는다.
+ */
+export interface TradeStatusHooks {
+  check?: (stock: Stock) => void;
+  afterChange?: (
+    tx: Prisma.TransactionClient,
+    change: { stock: Stock; canceledCount: number },
+  ) => Promise<unknown>;
+}
+
+/**
+ * 상품의 거래 시작(상장), 거래 중지·재개, 거래 종료. 상장 승인·관리자 상품 관리에서 호출한다.
+ * 거래 중지와 종료는 미체결 주문을 모두 취소하고 예약을 푼다. 재개하면 새 주문부터 다시 받는다.
  */
 @Injectable()
 export class StockTradingService {
@@ -86,87 +101,147 @@ export class StockTradingService {
   }
 
   /**
+   * 상품의 거래를 중지한다. 미체결 주문을 모두 취소하고 예약(매수 포인트, 매도 수량)을 푼다.
+   * 지정가 알림은 재개 후에 다시 쓸 수 있도록 그대로 둔다.
+   */
+  pauseStock(
+    stockId: number,
+    hooks: TradeStatusHooks = {},
+  ): Promise<{ canceledCount: number }> {
+    return this.stopTrading(stockId, TradeStatus.PAUSED, hooks);
+  }
+
+  /**
    * 상품의 거래를 종료한다. 미체결 주문을 모두 취소하고 예약(매수 포인트, 매도 수량)을 푼다. 켜진 지정가 알림도 끈다.
    * 이미 종료된 상품이면 취소할 주문이 없으므로 그대로 끝난다.
    */
-  async closeStock(stockId: number): Promise<{ canceledCount: number }> {
-    return this.matching.runExclusive(stockId, async () => {
-      const canceledCount = await this.prisma.$transaction(async (tx) => {
-        const stock = await tx.stock.findFirst({
-          where: { id: stockId, isDeleted: false },
-        });
-        if (!stock) {
-          throw new BusinessException(StockErrors.NOT_FOUND);
-        }
+  closeStock(
+    stockId: number,
+    hooks: TradeStatusHooks = {},
+  ): Promise<{ canceledCount: number }> {
+    return this.stopTrading(stockId, TradeStatus.CLOSED, hooks);
+  }
 
-        const openOrders = await tx.order.findMany({
-          where: {
-            stockId,
-            status: { in: [OrderStatus.ACCEPTED, OrderStatus.PARTIAL] },
-          },
-        });
-
-        if (openOrders.length > 0) {
-          const buys = openOrders.filter(({ side }) => side === OrderSide.BUY);
-          const sells = openOrders.filter(
-            ({ side }) => side === OrderSide.SELL,
-          );
-
-          // 체결 정산과 같은 순서(account_id 오름차순)로 계좌를 잠근다.
-          if (buys.length > 0) {
-            await this.settlement.lockAccounts(
-              tx,
-              buys.map(({ accountId }) => accountId),
-            );
-          }
-          for (const [accountId, lockedAmount] of sumBy(
-            buys,
-            ({ lockedAmount }) => lockedAmount,
-          )) {
-            // 포인트 지급·리셋의 버전 검사에 걸리도록 version도 올린다.
-            await tx.account.update({
-              where: { id: accountId },
-              data: {
-                lockedCash: { decrement: lockedAmount },
-                version: { increment: 1 },
-              },
-            });
-          }
-          for (const [accountId, remainingQty] of sumBy(
-            sells,
-            ({ qty, filledQty }) => qty - filledQty,
-          )) {
-            await tx.holding.update({
-              where: { accountId_stockId: { accountId, stockId } },
-              data: { lockedQty: { decrement: remainingQty } },
-            });
-          }
-
-          await tx.order.updateMany({
-            where: { id: { in: openOrders.map(({ id }) => id) } },
-            data: {
-              status: OrderStatus.CANCELED,
-              lockedAmount: 0n,
-              canceledDate: new Date(),
-            },
-          });
-        }
-
+  /** 중지한 상품의 거래를 다시 연다. 중지할 때 주문을 모두 취소했으므로 호가창은 비어 있다. */
+  async resumeStock(
+    stockId: number,
+    hooks: TradeStatusHooks = {},
+  ): Promise<void> {
+    await this.matching.runExclusive(stockId, () =>
+      this.prisma.$transaction(async (tx) => {
+        const stock = await this.findStock(tx, stockId);
+        hooks.check?.(stock);
         await tx.stock.update({
           where: { id: stockId },
-          data: { tradeStatus: TradeStatus.CLOSED },
+          data: { tradeStatus: TradeStatus.ACTIVE },
         });
-        // 더는 체결되지 않으므로 켜진 지정가 알림도 끈다.
-        await tx.priceAlert.updateMany({
-          where: { stockId, isActive: true },
-          data: { isActive: false },
+        await hooks.afterChange?.(tx, { stock, canceledCount: 0 });
+      }, TRADING_TX_OPTIONS),
+    );
+  }
+
+  /** 거래를 중지하거나 종료한다. 미체결 주문을 취소하고, 커밋한 뒤 호가창을 비운다. */
+  private async stopTrading(
+    stockId: number,
+    status: typeof TradeStatus.PAUSED | typeof TradeStatus.CLOSED,
+    hooks: TradeStatusHooks,
+  ): Promise<{ canceledCount: number }> {
+    return this.matching.runExclusive(stockId, async () => {
+      const canceledCount = await this.prisma.$transaction(async (tx) => {
+        const stock = await this.findStock(tx, stockId);
+        hooks.check?.(stock);
+
+        const canceled = await this.cancelOpenOrders(tx, stockId);
+        await tx.stock.update({
+          where: { id: stockId },
+          data: { tradeStatus: status },
         });
-        return openOrders.length;
+        if (status === TradeStatus.CLOSED) {
+          // 더는 체결되지 않으므로 켜진 지정가 알림도 끈다.
+          await tx.priceAlert.updateMany({
+            where: { stockId, isActive: true },
+            data: { isActive: false },
+          });
+        }
+        await hooks.afterChange?.(tx, { stock, canceledCount: canceled });
+        return canceled;
       }, TRADING_TX_OPTIONS);
 
       this.matching.clearBook(stockId);
       return { canceledCount };
     });
+  }
+
+  private async findStock(
+    tx: Prisma.TransactionClient,
+    stockId: number,
+  ): Promise<Stock> {
+    const stock = await tx.stock.findFirst({
+      where: { id: stockId, isDeleted: false },
+    });
+    if (!stock) {
+      throw new BusinessException(StockErrors.NOT_FOUND);
+    }
+    return stock;
+  }
+
+  /** 미체결 주문을 모두 취소하고 예약(매수 포인트, 매도 수량)을 푼다. 취소한 주문 수를 돌려준다. */
+  private async cancelOpenOrders(
+    tx: Prisma.TransactionClient,
+    stockId: number,
+  ): Promise<number> {
+    const openOrders = await tx.order.findMany({
+      where: {
+        stockId,
+        status: { in: [OrderStatus.ACCEPTED, OrderStatus.PARTIAL] },
+      },
+    });
+    if (openOrders.length === 0) {
+      return 0;
+    }
+
+    const buys = openOrders.filter(({ side }) => side === OrderSide.BUY);
+    const sells = openOrders.filter(({ side }) => side === OrderSide.SELL);
+
+    // 체결 정산과 같은 순서(account_id 오름차순)로 계좌를 잠근다.
+    if (buys.length > 0) {
+      await this.settlement.lockAccounts(
+        tx,
+        buys.map(({ accountId }) => accountId),
+      );
+    }
+    for (const [accountId, lockedAmount] of sumBy(
+      buys,
+      ({ lockedAmount }) => lockedAmount,
+    )) {
+      // 포인트 지급·리셋의 버전 검사에 걸리도록 version도 올린다.
+      await tx.account.update({
+        where: { id: accountId },
+        data: {
+          lockedCash: { decrement: lockedAmount },
+          version: { increment: 1 },
+        },
+      });
+    }
+    for (const [accountId, remainingQty] of sumBy(
+      sells,
+      ({ qty, filledQty }) => qty - filledQty,
+    )) {
+      await tx.holding.update({
+        where: { accountId_stockId: { accountId, stockId } },
+        data: { lockedQty: { decrement: remainingQty } },
+      });
+    }
+
+    await tx.order.updateMany({
+      where: { id: { in: openOrders.map(({ id }) => id) } },
+      data: {
+        status: OrderStatus.CANCELED,
+        lockedAmount: 0n,
+        canceledDate: new Date(),
+      },
+    });
+    return openOrders.length;
   }
 }
 

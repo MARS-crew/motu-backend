@@ -102,6 +102,15 @@ export class GetStockResDto {
   tradeStatus: TradeStatus;
 
   @ApiProperty({
+    description:
+      '거래 중지·종료 안내문. 상품 상세의 거래 중지·종료 안내에 표시한다. 없으면 null',
+    example: '2026.09.10 00:00부로 거래가 종료됩니다.',
+    nullable: true,
+    type: String,
+  })
+  statusNotice: string | null;
+
+  @ApiProperty({
     description: '현재가 (P). 체결이 없으면 기준가',
     example: 6_750,
   })
