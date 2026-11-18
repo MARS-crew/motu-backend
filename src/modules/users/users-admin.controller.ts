@@ -82,11 +82,16 @@ export class UsersAdminController {
     @Body() dto: ChangeUserStatusReqDto,
     @Req() request: Request,
   ): Promise<ChangeUserStatusResDto> {
-    return this.usersAdminService.changeStatus(userId, dto.status, {
-      adminId: admin.userId,
-      reason: dto.reason,
-      client: clientInfo(request),
-    });
+    return this.usersAdminService.changeStatus(
+      userId,
+      dto.status,
+      {
+        adminId: admin.userId,
+        reason: dto.reason,
+        client: clientInfo(request),
+      },
+      dto.anomalyId,
+    );
   }
 
   @Post(':userId/unlock')

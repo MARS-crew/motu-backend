@@ -2,10 +2,12 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   AdminActivityAction,
   AdminActivityTarget,
+  AnomalyAction,
   OrderStatus,
   TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
+import { AnomaliesService } from '../anomalies/anomalies.service.js';
 import { ChartsService } from '../charts/charts.service.js';
 import {
   StockTradingService,
@@ -38,6 +40,7 @@ describe('StocksAdminService', () => {
   } as unknown as PrismaService;
   const chartsService = { getDailySummaries: vi.fn() };
   const adminActivityLogs = { record: vi.fn() };
+  const anomalies = { assertActionable: vi.fn(), resolve: vi.fn() };
   /** 매칭 대신 훅을 그대로 실행한다. 현재 상품은 stock.findFirst의 값이다. */
   const runHooks =
     (canceledCount: number) =>
@@ -57,6 +60,7 @@ describe('StocksAdminService', () => {
     chartsService as unknown as ChartsService,
     stockTrading as unknown as StockTradingService,
     adminActivityLogs as unknown as AdminActivityLogsService,
+    anomalies as unknown as AnomaliesService,
   );
 
   const stockOf = (overrides: Record<string, unknown> = {}) => ({
@@ -394,6 +398,54 @@ describe('StocksAdminService', () => {
         }),
         tx,
       );
+    });
+
+    it('이상 거래에서 넘어오면 그 상품의 것인지 확인하고 같은 트랜잭션에서 처리완료한다', async () => {
+      const anomaly = { id: 7, stockId: 18 };
+      anomalies.assertActionable.mockResolvedValue(anomaly);
+      stock.findFirst.mockResolvedValue(stockOf({ statusNotice: null }));
+
+      await service.pauseStock(
+        18,
+        { reason: '가격 급등 원인 확인', anomalyId: 7 },
+        action,
+      );
+
+      expect(anomalies.assertActionable).toHaveBeenCalledWith(7, {
+        action: AnomalyAction.STOCK_PAUSE,
+        stockId: 18,
+      });
+      expect(anomalies.resolve).toHaveBeenCalledWith(
+        tx,
+        anomaly,
+        AnomalyAction.STOCK_PAUSE,
+        '가격 급등 원인 확인',
+        action,
+      );
+    });
+
+    it('이상 거래가 이 상품의 것이 아니면 주문을 취소하기 전에 막는다', async () => {
+      anomalies.assertActionable.mockRejectedValue(
+        Object.assign(new Error(), {
+          response: { code: 'ANOMALY_TARGET_MISMATCH' },
+        }),
+      );
+
+      await expect(
+        service.pauseStock(18, { reason: '점검', anomalyId: 7 }, action),
+      ).rejects.toMatchObject({
+        response: { code: 'ANOMALY_TARGET_MISMATCH' },
+      });
+      expect(stockTrading.pauseStock).not.toHaveBeenCalled();
+    });
+
+    it('이상 거래 없이 중지하면 이상 거래를 건드리지 않는다', async () => {
+      stock.findFirst.mockResolvedValue(stockOf());
+
+      await service.pauseStock(18, { reason: '점검' }, action);
+
+      expect(anomalies.assertActionable).not.toHaveBeenCalled();
+      expect(anomalies.resolve).not.toHaveBeenCalled();
     });
 
     it.each([TradeStatus.PENDING, TradeStatus.PAUSED, TradeStatus.CLOSED])(
