@@ -54,7 +54,9 @@ export class ApproveListingReqDto extends AdminReasonReqDto {
   tradingStartAt: string;
 
   @ApiPropertyOptional({
-    description: '희망 상장가와 최종 상장가가 다를 때 필수',
+    description:
+      '기존 클라이언트 호환용 선택값. 새 화면은 reason 하나만 보내면 된다. 가격 조정 시 생략하면 reason을 조정 사유로 저장한다.',
+    deprecated: true,
     maxLength: 200,
   })
   @ValidateIf((_object, value) => value !== undefined)
