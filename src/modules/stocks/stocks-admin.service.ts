@@ -5,6 +5,7 @@ import type { ClientInfo } from '../../common/utils/client-info.js';
 import {
   AdminActivityAction,
   AdminActivityTarget,
+  AnomalyAction,
   OrderStatus,
   Prisma,
   Sector,
@@ -12,6 +13,7 @@ import {
   TradeStatus,
 } from '../../generated/prisma/client.js';
 import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
+import { AnomaliesService } from '../anomalies/anomalies.service.js';
 import { ChartsService } from '../charts/charts.service.js';
 import {
   StockTradingService,
@@ -72,6 +74,7 @@ export class StocksAdminService {
     private readonly chartsService: ChartsService,
     private readonly stockTrading: StockTradingService,
     private readonly adminActivityLogs: AdminActivityLogsService,
+    private readonly anomalies: AnomaliesService,
   ) {}
 
   /** 상장 상품 목록. 최근 등록순이다. */
@@ -238,13 +241,24 @@ export class StocksAdminService {
     return this.getStock(stockId);
   }
 
-  /** 거래 가능 상품의 거래를 중지한다. 미체결 주문은 취소되고 예약이 풀린다. */
+  /**
+   * 거래 가능 상품의 거래를 중지한다. 미체결 주문은 취소되고 예약이 풀린다.
+   * 이상 거래 상세에서 넘어오면(anomalyId) 같은 트랜잭션에서 그 이상 거래를 처리완료한다.
+   */
   async pauseStock(
     stockId: number,
     dto: PauseStockReqDto,
     action: StockAdminAction,
   ): Promise<ChangeTradeStatusResDto> {
     const notice = dto.notice ?? null;
+    // 미체결 주문을 취소하기 전에 이상 거래가 이 상품의 것인지 확인한다.
+    const anomaly =
+      dto.anomalyId === undefined
+        ? undefined
+        : await this.anomalies.assertActionable(dto.anomalyId, {
+            action: AnomalyAction.STOCK_PAUSE,
+            stockId,
+          });
     return this.changeTradeStatus(stockId, TradeStatus.PAUSED, {
       allowedFrom: [TradeStatus.ACTIVE],
       activity: AdminActivityAction.STOCK_PAUSE,
@@ -252,6 +266,16 @@ export class StocksAdminService {
       reason: dto.reason,
       action,
       run: (hooks) => this.stockTrading.pauseStock(stockId, hooks),
+      afterRecord: anomaly
+        ? (tx) =>
+            this.anomalies.resolve(
+              tx,
+              anomaly,
+              AnomalyAction.STOCK_PAUSE,
+              dto.reason,
+              action,
+            )
+        : undefined,
     });
   }
 
@@ -307,6 +331,8 @@ export class StocksAdminService {
       reason: string;
       action: StockAdminAction;
       run: (hooks: TradeStatusHooks) => Promise<{ canceledCount: number }>;
+      /** 활동 이력을 남긴 뒤 같은 트랜잭션에서 더 할 일 (이상 거래 처리완료) */
+      afterRecord?: (tx: Prisma.TransactionClient) => Promise<void>;
     },
   ): Promise<ChangeTradeStatusResDto> {
     let statusBefore: TradeStatus | undefined;
@@ -348,6 +374,7 @@ export class StocksAdminService {
           },
           tx,
         );
+        await change.afterRecord?.(tx);
       },
     });
 

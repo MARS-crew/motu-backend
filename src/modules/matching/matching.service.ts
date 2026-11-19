@@ -25,6 +25,29 @@ export interface TradeExecutedEvent {
   createDate: Date;
 }
 
+/** 회원 주문이 DB에 접수된 뒤 발행하는 이벤트. 이상 거래 탐지가 구독한다. */
+export interface OrderAcceptedEvent {
+  orderId: bigint;
+  stockId: number;
+  accountId: number;
+  userId: number;
+  side: OrderSide;
+  price: bigint;
+  qty: bigint;
+  createDate: Date;
+}
+
+/** 회원 주문 처리 중 예상하지 못한 에러로 접수에 실패하면 발행하는 이벤트. 업무 규칙 거부는 포함하지 않는다. */
+export interface OrderFailedEvent {
+  stockId: number;
+  userId: number;
+  side: OrderSide;
+  price: bigint;
+  qty: bigint;
+  error: unknown;
+  failedDate: Date;
+}
+
 /** 호가창에 올라가는 주문 상태 */
 const OPEN_STATUSES: OrderStatus[] = [
   OrderStatus.ACCEPTED,
@@ -47,6 +70,16 @@ export class MatchingService implements OnModuleInit {
 
   /** 호가창이 바뀐 종목 ID. 커밋된 주문·체결·취소를 호가창에 반영한 뒤 발행한다. */
   readonly bookChanged$: Observable<number> = this.bookChanged.asObservable();
+  private readonly orderAccepted = new Subject<OrderAcceptedEvent>();
+
+  /** 회원 주문 접수 이벤트. 주문과 체결이 커밋된 뒤에만 발행한다. */
+  readonly orderAccepted$: Observable<OrderAcceptedEvent> =
+    this.orderAccepted.asObservable();
+  private readonly orderFailed = new Subject<OrderFailedEvent>();
+
+  /** 회원 주문 처리 실패 이벤트. 트랜잭션이 롤백된 뒤에 발행한다. */
+  readonly orderFailed$: Observable<OrderFailedEvent> =
+    this.orderFailed.asObservable();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -195,5 +228,24 @@ export class MatchingService implements OnModuleInit {
         createDate: trade.createDate,
       });
     }
+  }
+
+  /** DB 커밋에 성공한 회원 주문을 알린다. */
+  publishOrderAccepted(order: Order, userId: number): void {
+    this.orderAccepted.next({
+      orderId: order.id,
+      stockId: order.stockId,
+      accountId: order.accountId,
+      userId,
+      side: order.side,
+      price: order.price,
+      qty: order.qty,
+      createDate: order.createDate,
+    });
+  }
+
+  /** 회원 주문 처리 실패를 알린다. */
+  publishOrderFailed(event: OrderFailedEvent): void {
+    this.orderFailed.next(event);
   }
 }

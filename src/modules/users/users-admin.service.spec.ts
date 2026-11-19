@@ -2,12 +2,14 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   AdminActivityAction,
   AdminActivityTarget,
+  AnomalyAction,
   OrderStatus,
   Role,
   TwoFactorStatus,
   UserStatus,
 } from '../../generated/prisma/client.js';
 import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
+import { AnomaliesService } from '../anomalies/anomalies.service.js';
 import { GetAdminUsersReqDto } from './dto/req/get-admin-users-req.dto.js';
 import { UsersAdminService } from './users-admin.service.js';
 
@@ -36,9 +38,11 @@ describe('UsersAdminService', () => {
     ),
   } as unknown as PrismaService;
   const adminActivityLogs = { record: vi.fn() };
+  const anomalies = { assertActionable: vi.fn(), resolve: vi.fn() };
   const service = new UsersAdminService(
     prisma,
     adminActivityLogs as unknown as AdminActivityLogsService,
+    anomalies as unknown as AnomaliesService,
   );
 
   const userOf = (overrides: Record<string, unknown> = {}) => ({
@@ -255,6 +259,41 @@ describe('UsersAdminService', () => {
         where: { id: 6, userStatus: UserStatus.BLOCKED },
         data: { userStatus: UserStatus.ACTIVE },
       });
+    });
+
+    it('이상 거래에서 넘어온 정지면 그 회원의 것인지 확인하고 같은 트랜잭션에서 처리완료한다', async () => {
+      const anomaly = { id: 7, userId: 6 };
+      anomalies.assertActionable.mockResolvedValue(anomaly);
+      user.findFirst.mockResolvedValue(userOf());
+
+      await service.changeStatus(6, UserStatus.BLOCKED, action, 7);
+
+      expect(anomalies.assertActionable).toHaveBeenCalledWith(7, {
+        action: AnomalyAction.USER_BLOCK,
+        userId: 6,
+        userStatus: UserStatus.BLOCKED,
+      });
+      expect(anomalies.resolve).toHaveBeenCalledWith(
+        tx,
+        anomaly,
+        AnomalyAction.USER_BLOCK,
+        '운영정책 위반에 따른 이용 정지 처리',
+        action,
+      );
+    });
+
+    it('이상 거래 확인에 실패하면 상태를 바꾸지 않는다', async () => {
+      anomalies.assertActionable.mockRejectedValue(
+        Object.assign(new Error(), {
+          response: { code: 'ANOMALY_INVALID_ACTION' },
+        }),
+      );
+      user.findFirst.mockResolvedValue(userOf());
+
+      await expect(
+        service.changeStatus(6, UserStatus.LOCKED, action, 7),
+      ).rejects.toMatchObject({ response: { code: 'ANOMALY_INVALID_ACTION' } });
+      expect(user.updateMany).not.toHaveBeenCalled();
     });
 
     it('현재 상태와 같으면 400', async () => {

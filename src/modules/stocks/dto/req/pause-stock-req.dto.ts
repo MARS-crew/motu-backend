@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { AdminReasonReqDto } from '../../../../common/dto/admin-reason-req.dto.js';
 import { INVALID_REQUEST_MESSAGE } from '../../../../common/constants/validation.constants.js';
 
@@ -17,4 +17,14 @@ export class PauseStockReqDto extends AdminReasonReqDto {
   @IsString({ message: INVALID_REQUEST_MESSAGE })
   @MaxLength(200, { message: '사용자 안내문은 200자 이내로 입력해 주세요.' })
   notice?: string;
+
+  @ApiPropertyOptional({
+    description:
+      '이상 거래 상세(ADM-MON-02)에서 넘어온 경우 이상 거래 ID. 보내면 거래 중지와 함께 그 이상 거래를 처리완료한다.',
+    example: 7,
+  })
+  @IsOptional()
+  @IsInt({ message: INVALID_REQUEST_MESSAGE })
+  @Min(1, { message: INVALID_REQUEST_MESSAGE })
+  anomalyId?: number;
 }
