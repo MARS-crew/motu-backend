@@ -53,6 +53,18 @@ export class AdminListingRevisionResDto {
 }
 
 export class AdminListingApplicationResDto extends AdminListingApplicationItemResDto {
+  @ApiProperty({
+    type: Date,
+    nullable: true,
+    description: '발행 보류 시각. 상품은 PENDING 유지',
+  })
+  listingBlockedAt: Date | null;
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: '관리자 확인이 필요한 발행 보류 사유',
+  })
+  listingBlockedReason: string | null;
   @ApiProperty({ type: Number, nullable: true }) stockId: number | null;
   @ApiProperty({ type: ListingApprovalResDto, nullable: true })
   approval: ListingApprovalResDto | null;
