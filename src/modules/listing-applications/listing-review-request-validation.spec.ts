@@ -26,6 +26,11 @@ const transform = (
 ) => pipe.transform(value, { type: 'body', metatype });
 
 describe('관리자 심사 요청 검증', () => {
+  it('가격 조정도 처리 사유 하나만 입력할 수 있다', async () => {
+    await expect(
+      transform({ ...approval, finalPrice: '11000' }, ApproveListingReqDto),
+    ).resolves.toMatchObject({ reason: '검토 완료', finalPrice: '11000' });
+  });
   it.each([
     { finalPrice: 10000 },
     { finalPrice: '0' },
