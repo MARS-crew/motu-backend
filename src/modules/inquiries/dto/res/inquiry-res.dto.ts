@@ -21,11 +21,3 @@ export class GetInquiriesResDto {
   @ApiProperty() size: number;
   @ApiProperty() totalCount: number;
 }
-
-export class InquiryAccessTokenResDto {
-  @ApiProperty({
-    description: '문의 전용 토큰. 일반 로그인 토큰과 별도로 보관한다.',
-  })
-  inquiryAccessToken: string;
-  @ApiProperty({ example: 900 }) expiresIn: number;
-}
