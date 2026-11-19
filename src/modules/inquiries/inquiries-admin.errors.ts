@@ -6,16 +6,6 @@ export const InquiryAdminErrors = {
     message: '관리할 문의를 찾을 수 없습니다.',
     status: HttpStatus.NOT_FOUND,
   },
-  ASSIGNED: {
-    code: 'INQUIRY_ADMIN_ALREADY_ASSIGNED',
-    message: '다른 관리자가 처리 중인 문의입니다.',
-    status: HttpStatus.CONFLICT,
-  },
-  OWNER: {
-    code: 'INQUIRY_ADMIN_ASSIGNEE_ONLY',
-    message: '담당 관리자만 문의를 처리할 수 있습니다.',
-    status: HttpStatus.FORBIDDEN,
-  },
   STATE: {
     code: 'INQUIRY_ADMIN_INVALID_STATUS',
     message: '현재 문의 상태에서는 처리할 수 없습니다.',
