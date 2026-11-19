@@ -24,6 +24,8 @@ import { ListingApplicationErrors } from './listing-applications.errors.js';
 import { ListingReviewErrors as Errors } from './listing-review.errors.js';
 import { ListingStepValidationService } from './listing-step-validation.service.js';
 import { validateListingStepFields } from './listing-steps.validation.js';
+import { lockListingIssuer } from '../matching/listing-issuer.js';
+import { MatchingErrors } from '../matching/matching.errors.js';
 
 export interface ListingReviewActor {
   adminId: number;
@@ -197,13 +199,10 @@ export class ListingReviewService {
       async (tx) => {
         const app = await this.lock(tx, id, Status.UNDER_REVIEW);
         const { price, quantity, date, startsAt } = this.approval(dto, app);
-        if (
-          !(await tx.account.findUnique({
-            where: { userId: app.userId },
-            select: { id: true },
-          }))
-        )
-          throw new BusinessException(Errors.ACCOUNT);
+        const issuer = await lockListingIssuer(tx, app.userId);
+        if (!issuer) throw new BusinessException(Errors.ACCOUNT);
+        if (issuer.withdrawn)
+          throw new BusinessException(MatchingErrors.ISSUER_WITHDRAWN);
         const data = plainToInstance(ListingDraftDataReqDto, app.draftData);
         if (!data || (await validate(data)).length)
           throw new BusinessException(Errors.DATA);
