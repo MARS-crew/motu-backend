@@ -257,8 +257,7 @@ Swagger에서는 관리자 로그인·Authorize → **Admin - Listing Applicatio
   "totalIssuedQuantity": "100000",
   "listingDate": "2026-12-01",
   "tradingStartAt": "2026-12-01T09:00:00+09:00",
-  "reason": "기본정보와 증빙자료 검토 완료",
-  "priceAdjustmentReason": "수익 지표를 반영해 희망 상장가 조정"
+  "reason": "기본정보·증빙자료 검토 및 수익 지표를 반영한 상장가 확정"
 }
 ```
 
@@ -268,22 +267,33 @@ Swagger에서는 관리자 로그인·Authorize → **Admin - Listing Applicatio
 | 총 발행량 | `totalIssuedQuantity` | 양의 정수 문자열. 상품 `listedShares` |
 | 상장일 | `listingDate` | KST 달력 날짜 `YYYY-MM-DD`, 오늘 이후. 상품 `approvedListingDate`(DATE) |
 | 거래 시작일시 | `tradingStartAt` | 시간대 포함 미래 ISO 일시. KST 기준 상장일 이전 불가. 상품의 기존 `listingDate`(TIMESTAMPTZ) |
-| 처리 사유 | `reason` | 공백 제거 후 1~200자. 최근 심사 의견·승인 스냅샷·활동 이력 |
-| 가격 조정 사유 | `priceAdjustmentReason` | 희망가와 최종가가 다르면 필수, 공백 제거 후 1~200자 |
+| 처리 사유 / 상장가 조정 사유 | `reason` | 입력란 하나. 공백 제거 후 1~200자. 희망가 변경 시 이 사유를 조정 사유에도 보존 |
+| 기존 호환용 조정 사유 | `priceAdjustmentReason` | 선택·deprecated. 기존 클라이언트의 1~200자 별도 사유는 보존하지만 새 화면은 보내지 않아도 됨 |
 
 - 기존 사용자·관리자 상품 API의 `listingDate`는 **거래 시작일시**라는 기존 의미를 유지한다. 별도의 확정 상장일은 `approvedListingDate`에 저장하고 관리자 상품 상세에도 제공한다. 신청서 상세·상태의 `approval.listingDate`, `approval.tradingStartAt`으로 승인 당시 두 값을 구분해서 읽을 수 있다.
 - 기존 주문·상품 API의 숫자 표현에 맞춰 가격·수량은 각각 `Number.MAX_SAFE_INTEGER` 이하, 가격×총 발행량은 PostgreSQL BIGINT 범위 이하다. 최종가는 호가 단위의 배수이며 발행량은 최소 주문 수량 이상이어야 한다.
 - 호가 단위와 최소 주문 수량은 기존 신청 입력값(`tickSize`, `minOrderQuantity`)을 사용한다. 기존 정책대로 선택 입력이므로 없으면 각각 `1`을 사용한다. 최소 주문 가격은 호가 단위다.
 - 상품명·소개·카테고리·운영사·공식 URL·서비스 지표는 신청 입력값을 복사한다. 지표는 기존 정책대로 선택이며 비어 있으면 null이다. 신청 기본정보·필수 대표 이미지·저장 완료 증빙·설명과 신청자 거래 계좌를 검증한 뒤 승인한다. 지나간 희망 거래일 대신 관리자가 확정한 거래 시작일시를 검증한다.
-- 상품 코드는 `LST-{신청서 ID}`로 생성한다. 승인 시 기존 신청번호는 바꾸지 않는다. 원래 희망 입력값은 `data`에 유지하고 확정값은 `approval`에 별도 보존한다. 신청서와 상품은 고유한 `stockId`로 일대일 연결된다.
+- 상품 코드는 기존 seed와 같은 `MOTU0001` 형식으로 생성한다. 숫자는 최소 4자리이며 9999 이후에는 자릿수가 늘어난다. 같은 트랜잭션의 advisory lock으로 생성 요청을 직렬화하고 soft-delete를 포함한 기존 MOTU 숫자 코드의 최댓값 다음 번호를 사용해 seed 이후 생성·여러 신청 동시 승인도 중복을 피한다. 과거 저장된 코드는 덮어쓰지 않는다. 화면 표시 ID인 `PRD-018`과 `stockCode`는 별개다. 승인 시 기존 신청번호는 바꾸지 않는다. 원래 희망 입력값은 `data`에 유지하고 확정값은 `approval`에 별도 보존한다. 신청서와 상품은 고유한 `stockId`로 일대일 연결된다.
 - 승인 즉시 `PENDING` 상품을 생성하고 공개한다. 이미지 묶음은 동결하고 공개 상품의 로고·대표 이미지 전용 경로(`/api/stocks/listing-images/{신청서 ID}/main`, `/logo`)를 저장한다. 증빙자료·비공개/삭제 상품 이미지는 이 경로로 제공하지 않는다.
 - 서버 시작 시와 **5초마다** 승인 상품의 거래 시작 예약을 확인한다. 지정 시각 이후 기존 `StockTradingService.openListing`을 호출해 신청자에게 발행 주식 전량을 부여하고 상장가 전량 매도 주문을 만든 뒤 `ACTIVE`로 전환한다. 승인 시점에는 보유·주문을 만들지 않는다. 서버 중단 중 지난 예약도 재시작 시 처리한다. DB 오류 등으로 실패하면 다음 주기에 재시도하며 상품은 거래 대기로 남는다. 새 환경 변수나 Railway Cron 설정은 필요하지 않다.
 
 ### 활동 이력·중복 처리
 
+활동 이력 `summary`는 기존 한글 상태명 맵을 공유한다. 예: `접수 → 검토 중`, `검토 중 → 승인`, `검토 중 → 보완 요청`. before/after의 상태 코드는 API 호환성을 위해 enum 그대로 보존한다. 상품 상태 잠금은 `FOR NO KEY UPDATE`로 시작·중지·종료를 직렬화하면서 FK의 `FOR KEY SHARE` 및 다른 경로의 INSERT를 불필요하게 막지 않는다. 탈퇴 경합을 제어하는 신청자 계좌 `FOR UPDATE` 잠금은 유지한다.
+
 신청 행을 `FOR UPDATE`로 잠가 사용자 재제출과 관리자 처리를 직렬화한다. 승인 시 상품 생성·신청 상태·승인 스냅샷·첨부 동결·활동 이력을 같은 트랜잭션으로 저장한다. 어느 하나 실패하면 모두 롤백한다. 동시 승인에는 하나만 성공하고 나머지는 409다. 거래 시작도 상품 행 잠금으로 발행 주식·최초 주문을 중복 생성하지 않는다.
 
 `targetType=LISTING_APPLICATION&targetId={신청서 ID}`로 공통 활동 이력을 조회한다. 수행 작업은 `LISTING_REVIEW_START`(검토 시작), `LISTING_REVISION_REQUEST`(보완 요청), `LISTING_REVISION_DEADLINE_UPDATE`(보완 기한 연장), `LISTING_REJECT`(반려), `LISTING_APPROVE`(승인)이다. 활동 이력 화면의 상장 신청 수행 작업 선택지에 새 작업 두 개를 추가해 연결한다.
+
+### 프론트 화면 연결 (ADM-LST-02·03)
+
+- 상세 GET은 읽기 전용이다. 접수 상태에서 **[심사 결과 처리] 클릭** 시 `start-review` 성공 후 처리 화면으로 이동한다. 이미 UNDER_REVIEW이면 호출하지 않는다. 경합 409 시 최신 상태를 재조회하며 다른 상태를 임의로 검토 중으로 바꾸지 않는다. 화면을 취소해도 이미 시작한 검토는 유지한다.
+- 승인 화면에는 **처리 사유 / 상장가 조정 사유 입력란 하나**를 두고 `reason`만 보낸다. 가격 변경 시 서버가 `approval.priceAdjustmentReason`에도 같은 사유를 저장한다. 기존 별도 필드는 호환용 선택값이다.
+- 보완 요청 선택 시 `requestItems`, `requestContent`와 **보완 기한(필수)** 입력을 표시한다. KST 입력을 시간대 포함 ISO로 보내며 서버 기본 기한은 없다. 과거 기한·잘못된 시간대는 차단한다.
+- 신청 상세에서 **REVISION_REQUESTED이며 최근 회차가 아직 재제출되지 않은 경우에만 [보완 기한 연장]**을 제공한다. 현재 기한과 새 기한(필수)·연장 사유(필수 1~200자)를 표시하고 확인 시 extend-deadline을 호출한다. 취소는 API를 호출하지 않는다. 만료 기한도 연장 가능하며 성공 후 상세를 새로 조회한다.
+- 관리자 활동 이력의 상장 신청 수행 작업에 검토 시작(LISTING_REVIEW_START), 보완 기한 연장(LISTING_REVISION_DEADLINE_UPDATE)을 연결한다. 보완 기한·연장 진입점은 기존 정책을 유지하는 것으로 기획 담당자가 확인했다.
+
 
 | 응답 | 의미 |
 |---|---|
