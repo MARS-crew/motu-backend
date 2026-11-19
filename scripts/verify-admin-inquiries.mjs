@@ -187,7 +187,21 @@ try {
       userId: blocked.id,
       replyEmail: blocked.email,
     });
-  const statuses = await create({ status: 'APPROVED' });
+  const statuses = await create({ status: 'COMPLETED' });
+  const completedList = await json(route + '?status=COMPLETED', at);
+  assert.equal(completedList.totalCount, 1);
+  assert.equal(completedList.items[0].id, statuses.id);
+  assert.equal(completedList.items[0].status, 'COMPLETED');
+  assert.equal(completedList.items[0].statusLabel, '처리 완료');
+  assert.equal((await json(route + '/' + statuses.id, at)).status, 'COMPLETED');
+  // 기존 사용자 문의 조회도 같은 완료 상태를 반환한다.
+  const ownCompleted = await json('/inquiries/' + statuses.id, it);
+  assert.equal(ownCompleted.status, 'COMPLETED');
+  const ownList = await json('/inquiries', it);
+  assert.equal(
+    ownList.items.find((item) => item.id === statuses.id).status,
+    'COMPLETED',
+  );
   for (const [suffix, method, body] of [
     ['', 'GET'],
     ['/' + fresh.id, 'GET'],
@@ -246,6 +260,7 @@ try {
     '?page=0',
     '?size=101',
     '?status=SENT',
+    '?status=APPROVED',
     '?inquiryType=OTHER',
   ])
     await json(route + query, at, { status: 400 });
@@ -269,7 +284,7 @@ try {
       body: { expectedVersion, replyText },
       ...options,
     });
-  // 조회 전용 관리자도 읽을 수 있지만 담당자 지정 경쟁은 한 명만 성공한다.
+  // 동시에 처리 시작해도 상태·최초 담당자·시각·시작 이력은 하나이며 두 관리자 모두 이어서 처리할 수 있다.
   const race = await create();
   const claims = await Promise.all([
     request(`${route}/${race.id}/start-processing`, at, 'POST'),
@@ -281,7 +296,7 @@ try {
       peerBase,
     ),
   ]);
-  assert.deepEqual(claims.map((r) => r.status).sort(), [200, 409]);
+  assert.deepEqual(claims.map((r) => r.status).sort(), [200, 200]);
   checks += 2;
   const claimed = await prisma.inquiry.findUnique({ where: { id: race.id } });
   assert.equal(
@@ -303,23 +318,110 @@ try {
     { method: 'POST' },
   );
   assert.equal(repeated.processingStartedAt, startTime);
-  assert.equal((await json(route + '/' + race.id, readToken)).canEdit, false);
+  assert.equal((await json(route + '/' + race.id, readToken)).canEdit, true);
   await json(`${route}/${race.id}/reply-draft`, readToken, {
     method: 'PATCH',
     body: { expectedVersion: 0, replyText: '담당자 외 수정' },
-    status: 403,
-    code: 'INQUIRY_ADMIN_ASSIGNEE_ONLY',
   });
-  await json(`${route}/${race.id}/send-reply`, readToken, {
+  // 기존 담당자를 정지해도 다른 활성 관리자가 이어서 완료한다.
+  const previousAdminId = claimed.assignedAdminId;
+  await prisma.user.update({
+    where: { id: previousAdminId },
+    data: { userStatus: 'BLOCKED' },
+  });
+  await json(`${route}/${race.id}/reply-draft`, ownerToken, {
+    method: 'PATCH',
+    body: { expectedVersion: 1, replyText: '정지 관리자 수정 시도' },
+    status: 403,
+  });
+  const handoffKey = { requestId: randomUUID(), expectedDraftVersion: 1 };
+  const handoff = await json(`${route}/${race.id}/send-reply`, readToken, {
     method: 'POST',
-    body: { requestId: randomUUID(), expectedDraftVersion: 1 },
-    status: 403,
+    body: handoffKey,
   });
+  assert.equal(handoff.status, 'COMPLETED');
+  assert.equal(
+    handoff.attempt.adminId,
+    previousAdminId === admin.id ? otherAdmin.id : admin.id,
+  );
+  const handoffCount = sends;
+  await prisma.user.update({
+    where: { id: previousAdminId },
+    data: { userStatus: 'ACTIVE' },
+  });
+  await json(`${route}/${race.id}/send-reply`, ownerToken, {
+    method: 'POST',
+    body: handoffKey,
+  });
+  assert.equal(
+    sends,
+    handoffCount,
+    '다른 관리자의 같은 키 재요청도 메일을 재발송하지 않는다.',
+  );
+  assert.equal(
+    await prisma.adminActivityLog.count({
+      where: {
+        targetType: 'INQUIRY',
+        targetId: BigInt(race.id),
+        action: 'INQUIRY_REPLY_DRAFT_SAVE',
+      },
+    }),
+    0,
+  );
   await post(statuses.id, 'start-processing', undefined, { status: 409 });
   const unassignedLegacy = await create({ status: 'IN_PROGRESS' });
   const recovered = await post(unassignedLegacy.id, 'start-processing');
   assert.equal(recovered.assignedAdminId, admin.id);
   assert.equal(recovered.status, 'IN_PROGRESS');
+
+  // 확인 팝업 전 내부 저장과 취소: 초안은 유지하지만 발송·활동 이력은 만들지 않는다.
+  const popup = await create();
+  await post(popup.id, 'start-processing');
+  const popupSends = sends;
+  const prepared = await json(`${route}/${popup.id}/reply-draft`, bt, {
+    method: 'PATCH',
+    body: {
+      expectedVersion: 0,
+      replyText: '  확인 팝업에서 취소해도 유지할 답변  ',
+    },
+  });
+  assert.equal(prepared.replyDraft, '확인 팝업에서 취소해도 유지할 답변');
+  const afterCancel = await json(`${route}/${popup.id}`, at);
+  assert.equal(afterCancel.replyDraft, prepared.replyDraft);
+  assert.equal(afterCancel.status, 'IN_PROGRESS');
+  assert.equal(afterCancel.replyAttempts.totalCount, 0);
+  assert.equal(sends, popupSends);
+  assert.equal(
+    await prisma.adminActivityLog.count({
+      where: {
+        targetType: 'INQUIRY',
+        targetId: BigInt(popup.id),
+        action: 'INQUIRY_REPLY_DRAFT_SAVE',
+      },
+    }),
+    0,
+  );
+  await json(`${route}/${popup.id}/reply-draft`, at, {
+    method: 'PATCH',
+    body: {
+      expectedVersion: prepared.replyVersion,
+      replyText: '다른 관리자가 변경한 최신 답변',
+    },
+  });
+  await json(`${route}/${popup.id}/send-reply`, bt, {
+    method: 'POST',
+    body: {
+      requestId: randomUUID(),
+      expectedDraftVersion: prepared.replyVersion,
+    },
+    status: 409,
+    code: 'INQUIRY_REPLY_VERSION_CONFLICT',
+  });
+  assert.equal(sends, popupSends);
+  assert.equal(
+    await prisma.inquiryReplyAttempt.count({ where: { inquiryId: popup.id } }),
+    0,
+  );
 
   await post(fresh.id, 'start-processing');
   const d = await patch(fresh.id, 0, '  첫 줄\n둘째 줄  ');
@@ -334,7 +436,7 @@ try {
     }),
     request(
       `${route}/${fresh.id}/reply-draft`,
-      at,
+      bt,
       'PATCH',
       { expectedVersion: 1, replyText: '동시 초안 B' },
       peerBase,
@@ -388,11 +490,14 @@ try {
     }),
   ]);
   try {
-    await post(fresh.id, 'send-reply', sendBody, {
+    await json(`${route}/${fresh.id}/send-reply`, bt, {
+      method: 'POST',
+      body: sendBody,
       status: 409,
       code: 'INQUIRY_REPLY_SENDING',
       origin: peerBase,
     });
+    assert.equal((await json(route + '/' + fresh.id, bt)).canEdit, false);
     await post(
       fresh.id,
       'send-reply',
@@ -409,7 +514,7 @@ try {
   assert.equal(sent.status, 200);
   checks++;
   const sentValue = (await sent.json()).data;
-  assert.equal(sentValue.status, 'APPROVED');
+  assert.equal(sentValue.status, 'COMPLETED');
   assert(sentValue.completedAt);
   assert.equal(sentValue.simulated, false);
   assert.equal(sentValue.attempt.providerMessageId, '<concurrent@brevo.test>');
@@ -512,7 +617,7 @@ try {
     confirmResend: true,
     retryReason: '공급자 발송 이력 확인 후 재발송 동의',
   });
-  assert.equal(confirmed.status, 'APPROVED');
+  assert.equal(confirmed.status, 'COMPLETED');
   assert.equal(
     (await json(route + '/' + uncertain.id, at)).replyAttempts.totalCount,
     2,
@@ -605,8 +710,29 @@ try {
     { ...auditKey, requestId: randomUUID() },
     { status: 409 },
   );
-  const finalized = await post(audit.id, 'send-reply', auditKey);
-  assert.equal(finalized.status, 'APPROVED');
+  await prisma.user.update({
+    where: { id: admin.id },
+    data: { userStatus: 'BLOCKED' },
+  });
+  const finalized = await json(`${route}/${audit.id}/send-reply`, bt, {
+    method: 'POST',
+    body: auditKey,
+  });
+  assert.equal(
+    finalized.attempt.adminId,
+    admin.id,
+    '최초 발송자 신원은 보존한다.',
+  );
+  assert.equal(
+    (await prisma.inquiry.findUniqueOrThrow({ where: { id: audit.id } }))
+      .assignedAdminId,
+    otherAdmin.id,
+  );
+  await prisma.user.update({
+    where: { id: admin.id },
+    data: { userStatus: 'ACTIVE' },
+  });
+  assert.equal(finalized.status, 'COMPLETED');
   assert.equal(sends, auditBefore + 1);
   await post(audit.id, 'send-reply', auditKey);
   assert.equal(sends, auditBefore + 1);
@@ -694,14 +820,14 @@ try {
       .activeReplyAttemptId,
     null,
   );
-  // 초안·담당자 변경도 이력 실패 시 함께 롤백한다.
+  // 상태·처리자 변경은 이력 실패 시 롤백하고, 내부 초안 저장은 운영 이력 장애와 독립적이다.
   logs.record = async () => {
     throw new Error('audit unavailable');
   };
   const startFail = await create();
   try {
     await post(startFail.id, 'start-processing', undefined, { status: 500 });
-    await patch(reserveFail.id, 1, '롤백해야 할 초안', { status: 500 });
+    await patch(reserveFail.id, 1, '발송 전 보존할 초안');
   } finally {
     logs.record = originalRecord;
   }
@@ -713,7 +839,7 @@ try {
   assert.equal(
     (await prisma.inquiry.findUnique({ where: { id: reserveFail.id } }))
       .replyVersion,
-    1,
+    2,
   );
   // 회신 주소는 접수 당시 값이며 관리자 요청이나 이후 회원 이메일 변경으로 바뀌지 않는다.
   const address = await create({ replyEmail: 'receipt@customer.test' });
@@ -729,6 +855,17 @@ try {
   });
   assert.equal(deliveries.at(-1).to, 'receipt@customer.test');
   assert(deliveries.at(-1).text.includes('\n\n문의번호:'));
+  assert(
+    deliveries.every(
+      (mail) =>
+        mail.text.endsWith(
+          '계정 잠금 해제 및 이용 제한 변경은 본인 확인 후 별도로 처리됩니다.',
+        ) &&
+        !mail.text.includes(
+          '답변 발송은 계정의 잠금·정지 상태를 변경하지 않습니다.',
+        ),
+    ),
+  );
   // 다른 관리자도 상세·이력은 읽을 수 있다. 이력은 페이지로 나눈다.
   const attempts = await json(
     `${route}/${failed.id}?attemptPage=1&attemptSize=1`,
@@ -741,7 +878,9 @@ try {
     at,
   );
   assert(
-    activities.items.some((item) => item.action === 'INQUIRY_REPLY_DRAFT_SAVE'),
+    !activities.items.some(
+      (item) => item.action === 'INQUIRY_REPLY_DRAFT_SAVE',
+    ),
   );
   assert(
     activities.items.some(
@@ -779,7 +918,15 @@ try {
       scenarios: [
         'permission',
         'search-pagination',
-        'assignee-race',
+        'completed-user-admin-contract',
+        'customer-account-guidance',
+        'shared-admin-start',
+        'blocked-assignee-continuation',
+        'cross-admin-idempotency',
+        'cross-admin-completion-recovery',
+        'draft-without-operational-audit',
+        'confirmation-cancel-no-send',
+        'stale-popup-version-no-send',
         'draft-version',
         'concurrent-send',
         'known-failure',
