@@ -730,6 +730,153 @@ try {
     changedApproval.priceAdjustmentReason,
   );
   assert.equal(approvalLog.reason, approval.reason);
+  // #88의 아직 미병합인 상태값을 이 일회용 DB에만 준비한다. 탈퇴 API 자체를 대체 검증하는 것은 아니다.
+  await prisma.$executeRawUnsafe(
+    "ALTER TYPE user_status ADD VALUE IF NOT EXISTS 'WITHDRAWN'",
+  );
+  const ownerAccount = await prisma.account.findUniqueOrThrow({
+    where: { userId: owner.id },
+  });
+  const setOwnerActive = () =>
+    prisma.$executeRaw`UPDATE users SET user_status='ACTIVE' WHERE user_id=${owner.id}`;
+  const expectAccountWait = async () => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const [row] =
+        await prisma.$queryRaw`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%FROM accounts%' AND pid<>pg_backend_pid()) AS waiting`;
+      if (row.waiting) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error('승인/발행의 공통 계좌 잠금 대기가 확인되지 않았습니다.');
+  };
+  const withdrawalFirst = async (run) => {
+    let unlock, ready;
+    const acquired = new Promise((resolve) => (ready = resolve));
+    const gate = new Promise((resolve) => (unlock = resolve));
+    const withdrawal = prisma.$transaction(
+      async (tx) => {
+        await app.get(SettlementService).lockAccounts(tx, [ownerAccount.id]);
+        await tx.$executeRaw`UPDATE users SET user_status='WITHDRAWN' WHERE user_id=${owner.id}`;
+        ready();
+        await gate;
+      },
+      { timeout: 15000 },
+    );
+    let pending;
+    try {
+      await acquired;
+      pending = run();
+      // rejection을 즉시 처리해 의도된 BusinessException이 unhandled가 되지 않게 한다.
+      pending.catch(() => {});
+      await expectAccountWait();
+    } finally {
+      unlock();
+      await withdrawal;
+    }
+    return pending;
+  };
+  const withdrawnApproval = await listing({ status: 'UNDER_REVIEW' });
+  const stockCount = await prisma.stock.count();
+  await withdrawalFirst(() =>
+    post(withdrawnApproval.id, 'approve', approval, {
+      status: 409,
+      code: 'LISTING_ISSUER_WITHDRAWN',
+    }),
+  );
+  assert.equal(await prisma.stock.count(), stockCount);
+  assert.equal(
+    (
+      await prisma.listingApplication.findUniqueOrThrow({
+        where: { id: withdrawnApproval.id },
+      })
+    ).status,
+    'UNDER_REVIEW',
+  );
+  assert.equal(
+    await prisma.adminActivityLog.count({
+      where: {
+        targetId: BigInt(withdrawnApproval.id),
+        action: 'LISTING_APPROVE',
+      },
+    }),
+    0,
+  );
+  await setOwnerActive();
+  // 승인이 먼저 커밋되면 같은 계좌 잠금을 사용하는 #88 연계 계약에서 PENDING을 확인할 수 있다.
+  const approvalFirstApp = await listing({ status: 'UNDER_REVIEW' });
+  const approvalFirstResult = await post(
+    approvalFirstApp.id,
+    'approve',
+    approval,
+  );
+  const withdrawalResult = await prisma.$transaction(async (tx) => {
+    await app.get(SettlementService).lockAccounts(tx, [ownerAccount.id]);
+    const pending = await tx.listingApplication.findFirst({
+      where: {
+        userId: owner.id,
+        status: 'APPROVED',
+        stock: { isDeleted: false, tradeStatus: 'PENDING' },
+      },
+    });
+    if (pending) return 'BLOCKED';
+    await tx.$executeRaw`UPDATE users SET user_status='WITHDRAWN' WHERE user_id=${owner.id}`;
+    return 'WITHDRAWN';
+  });
+  assert.equal(withdrawalResult, 'BLOCKED');
+  const [activeOwner] =
+    await prisma.$queryRaw`SELECT user_status::text AS status FROM users WHERE user_id=${owner.id}`;
+  assert.equal(activeOwner.status, 'ACTIVE');
+  await trading1.closeStock(approvalFirstResult.stockId);
+  // 이미 탈퇴가 진행된 예외 데이터에서도 발행 직전 잠금 이후 재검증한다.
+  const holdApp = await listing({ status: 'UNDER_REVIEW' });
+  const holdApproval = await post(holdApp.id, 'approve', approval);
+  await assert.rejects(
+    withdrawalFirst(() => trading1.openListing(holdApproval.stockId, owner.id)),
+    (error) => error.error?.code === 'LISTING_ISSUER_WITHDRAWN',
+  );
+  const held = await prisma.stock.findUniqueOrThrow({
+    where: { id: holdApproval.stockId },
+  });
+  assert.equal(held.tradeStatus, 'PENDING');
+  assert(held.listingBlockedAt);
+  assert.equal(held.listingBlockedReason, '신청자 탈퇴로 발행 보류');
+  assert.equal(await prisma.order.count({ where: { stockId: held.id } }), 0);
+  assert.equal(await prisma.holding.count({ where: { stockId: held.id } }), 0);
+  const heldView = await json(`${route}/${holdApp.id}`, admin.token);
+  assert.equal(heldView.listingBlockedReason, held.listingBlockedReason);
+  assert.equal(heldView.listingBlockedAt, held.listingBlockedAt.toISOString());
+  await assert.rejects(
+    trading1.openListing(held.id, owner.id),
+    (error) => error.error?.code === 'LISTING_ISSUER_WITHDRAWN',
+  );
+  assert.equal(
+    (
+      await prisma.stock.findUniqueOrThrow({ where: { id: held.id } })
+    ).listingBlockedAt.toISOString(),
+    held.listingBlockedAt.toISOString(),
+  );
+  await prisma.stock.update({
+    where: { id: held.id },
+    data: { listingDate: new Date(Date.now() - 1000) },
+  });
+  let heldCalls = 0;
+  const originalOpen = trading1.openListing.bind(trading1);
+  trading1.openListing = async (...args) => {
+    if (args[0] === held.id) heldCalls++;
+    return originalOpen(...args);
+  };
+  try {
+    await activation.activateDueListings();
+    await activation.activateDueListings();
+  } finally {
+    trading1.openListing = originalOpen;
+  }
+  assert.equal(
+    heldCalls,
+    0,
+    '보류 상품은 여러 예약 주기에서도 다시 발행하지 않는다.',
+  );
+  await setOwnerActive();
+
   const swagger = await (await fetch(base + '/docs-json')).json();
   for (const suffix of [
     'start-review',
@@ -761,6 +908,10 @@ try {
         'scheduled-activation',
         'concurrent-issuance',
         'activation-vs-close',
+        'withdrawal-first-approval-lock',
+        'approval-first-withdrawal-contract',
+        'withdrawal-first-issuance-lock',
+        'persisted-hold-admin-view-no-retry',
       ],
     }),
   );
