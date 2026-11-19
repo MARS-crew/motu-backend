@@ -26,6 +26,8 @@ import { ListingStepValidationService } from './listing-step-validation.service.
 import { validateListingStepFields } from './listing-steps.validation.js';
 import { lockListingIssuer } from '../matching/listing-issuer.js';
 import { MatchingErrors } from '../matching/matching.errors.js';
+import { LISTING_STATUS_LABELS } from './listing-applications.constants.js';
+import { StockCodesService } from '../stocks/stock-codes.service.js';
 
 export interface ListingReviewActor {
   adminId: number;
@@ -44,6 +46,7 @@ export class ListingReviewService {
     private readonly logs: AdminActivityLogsService,
     private readonly steps: ListingStepValidationService,
     private readonly files: FilesService,
+    private readonly stockCodes: StockCodesService,
   ) {}
 
   start(id: number, actor: ListingReviewActor) {
@@ -198,7 +201,17 @@ export class ListingReviewService {
     return this.prisma.$transaction(
       async (tx) => {
         const app = await this.lock(tx, id, Status.UNDER_REVIEW);
-        const { price, quantity, date, startsAt } = this.approval(dto, app);
+        const { price, quantity, date, startsAt, priceChanged } = this.approval(
+          dto,
+          app,
+        );
+        const approvalData = Object.assign(
+          {},
+          json(dto),
+          priceChanged
+            ? { priceAdjustmentReason: dto.priceAdjustmentReason ?? dto.reason }
+            : {},
+        );
         const issuer = await lockListingIssuer(tx, app.userId);
         if (!issuer) throw new BusinessException(Errors.ACCOUNT);
         if (issuer.withdrawn)
@@ -261,7 +274,7 @@ export class ListingReviewService {
         this.approval(dto, app);
         const stock = await tx.stock.create({
           data: {
-            stockCode: 'LST-' + app.id,
+            stockCode: await this.stockCodes.next(tx),
             sectorCode: data.sectorCode!,
             name: data.serviceName!,
             summary: data.summary!,
@@ -297,7 +310,7 @@ export class ListingReviewService {
           data: {
             status: Status.APPROVED,
             stockId: stock.id,
-            approvalData: json(dto),
+            approvalData: json(approvalData),
             reviewComment: dto.reason,
             revisionDeadline: null,
           },
@@ -309,7 +322,11 @@ export class ListingReviewService {
           Action.LISTING_APPROVE,
           actor,
           dto.reason,
-          { stockId: stock.id, stockCode: stock.stockCode, ...json(dto) },
+          {
+            stockId: stock.id,
+            stockCode: stock.stockCode,
+            ...json(approvalData),
+          },
         );
         return this.result(updated);
       },
@@ -339,10 +356,10 @@ export class ListingReviewService {
       !Number.isFinite(startsAt.getTime()) ||
       startsAt <= now ||
       kstDate(startsAt) < dto.listingDate ||
-      (priceChanged && !dto.priceAdjustmentReason?.trim())
+      !dto.reason?.trim()
     )
       throw new BusinessException(Errors.APPROVAL);
-    return { price, quantity, date, startsAt };
+    return { price, quantity, date, startsAt, priceChanged };
   }
 
   private deadline(value: string, previous?: Date) {
@@ -395,7 +412,7 @@ export class ListingReviewService {
         targetId: before.id,
         targetLabel: before.applicationNumber!,
         action,
-        summary: `${before.status} → ${after.status}`,
+        summary: `${LISTING_STATUS_LABELS[before.status]} → ${LISTING_STATUS_LABELS[after.status]}`,
         before: {
           status: before.status,
           revisionDeadline: before.revisionDeadline?.toISOString() ?? null,
