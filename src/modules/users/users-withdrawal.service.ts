@@ -13,7 +13,7 @@ export class UsersWithdrawalService {
   ) {}
 
   /** 주문 취소, 포인트 소멸, 탈퇴 상태 및 세션 폐기를 한 트랜잭션에서 처리한다. */
-  async withdraw(userId: number): Promise<void> {
+  async withdraw(userId: number, reason: string): Promise<void> {
     const accountId = await this.accountsService.getAccountId(userId);
 
     await this.ordersService.cancelOpenOrdersForWithdrawal(
@@ -31,7 +31,12 @@ export class UsersWithdrawalService {
             role: Role.USER,
             userStatus: UserStatus.ACTIVE,
           },
-          data: { userStatus: UserStatus.WITHDRAWN },
+          data: {
+            userStatus: UserStatus.WITHDRAWN,
+            reason,
+            deletedDate: now,
+            isDeleted: true,
+          },
         });
         if (count === 0) {
           throw new BusinessException(UserErrors.STATUS_CONFLICT);

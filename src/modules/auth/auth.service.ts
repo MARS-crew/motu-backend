@@ -188,17 +188,18 @@ export class AuthService {
   async sendFindLoginIdCode(
     email: string,
   ): Promise<SendLoginIdVerificationResDto> {
-    if (!(await this.usersService.findByEmail(email))) {
-      throw new BusinessException(AuthErrors.EMAIL_NOT_REGISTERED);
-    }
+    await this.findLoginIdUser(email);
+
     return this.verificationsService.sendEmailCode(
       VerificationPurpose.FIND_LOGIN_ID,
       email,
     );
   }
 
-  /** 인증번호가 맞으면 일부를 가린 아이디를 알려준다. 인증 결과는 한 번만 쓸 수 있다. */
+  /** 인증번호가 맞으면 마스킹한 아이디를 알려준다. 인증 결과는 한 번만 쓸 수 있다. */
   async findLoginId(email: string, code: string): Promise<FindLoginIdResDto> {
+    await this.findLoginIdUser(email);
+
     await this.verificationsService.confirmEmailCode(
       VerificationPurpose.FIND_LOGIN_ID,
       email,
@@ -211,11 +212,19 @@ export class AuthService {
       email,
     );
 
+    const user = await this.findLoginIdUser(email);
+    return { maskedLoginId: maskLoginId(user.loginId) };
+  }
+
+  /** 탈퇴 회원은 아이디 찾기에서 일치하는 계정이 없는 것으로 처리한다. */
+  private async findLoginIdUser(email: string): Promise<User> {
     const user = await this.usersService.findByEmail(email);
-    if (!user) {
+
+    if (!user || user.userStatus === UserStatus.WITHDRAWN) {
       throw new BusinessException(AuthErrors.EMAIL_NOT_REGISTERED);
     }
-    return { maskedLoginId: maskLoginId(user.loginId) };
+
+    return user;
   }
 
   /**

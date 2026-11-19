@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -9,6 +8,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -23,6 +23,8 @@ import {
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { Public } from '../../common/auth/public.decorator.js';
+import { Roles } from '../../common/auth/roles.decorator.js';
+import { Role } from '../../generated/prisma/client.js';
 import { CheckLoginIdReqDto } from './dto/req/check-login-id-req.dto.js';
 import { CheckNicknameReqDto } from './dto/req/check-nickname-req.dto.js';
 import { ConfirmContactPhoneVerificationReqDto } from './dto/req/confirm-contact-phone-verification-req.dto.js';
@@ -30,16 +32,15 @@ import { ConfirmEmailVerificationReqDto } from './dto/req/confirm-email-verifica
 import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { SendContactPhoneVerificationReqDto } from './dto/req/send-contact-phone-verification-req.dto.js';
 import { SendEmailVerificationReqDto } from './dto/req/send-email-verification-req.dto.js';
+import { WithdrawUserReqDto } from './dto/req/withdraw-user-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
 import { ConfirmEmailVerificationResDto } from './dto/res/confirm-email-verification-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
 import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
 import { SendContactPhoneVerificationResDto } from './dto/res/send-contact-phone-verification-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
-import { UsersService } from './users.service.js';
-import { Roles } from '../../common/auth/roles.decorator.js';
-import { Role } from '../../generated/prisma/client.js';
 import { UsersWithdrawalService } from './users-withdrawal.service.js';
+import { UsersService } from './users.service.js';
 
 @ApiTags('Users')
 @Controller('users')
@@ -56,16 +57,18 @@ export class UsersController {
   getMyInfo(@CurrentUser() user: AuthUser): Promise<GetMyInfoResDto> {
     return this.usersService.getMyInfo(user.userId);
   }
-  @Delete('me')
+
+  @Post('me/withdrawal')
   @Roles(Role.USER)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth()
   @ApiOperation({
     summary: '회원 탈퇴',
     description:
-      '내 미체결 주문을 취소하고 포인트를 소멸시킨 뒤 회원 탈퇴를 처리한다.',
+      '탈퇴 사유를 받아 미체결 주문을 취소하고 포인트를 소멸시킨 뒤 회원 탈퇴를 처리한다. 승인된 거래 대기 상품이 있으면 409를 반환한다.',
   })
   @ApiNoContentResponse()
+  @ApiBadRequestResponse({ description: 'BAD_REQUEST' })
   @ApiUnauthorizedResponse({
     description: 'AUTH_UNAUTHORIZED / AUTH_TOKEN_EXPIRED',
   })
@@ -75,10 +78,13 @@ export class UsersController {
   @ApiNotFoundResponse({ description: 'ACCOUNT_NOT_FOUND' })
   @ApiConflictResponse({
     description:
-      'USER_STATUS_CONFLICT / ACCOUNT_CONCURRENT_UPDATE / ACCOUNT_WITHDRAWAL_LOCKED_CASH',
+      'USER_WITHDRAWAL_PENDING_LISTING / USER_STATUS_CONFLICT / ACCOUNT_CONCURRENT_UPDATE / ACCOUNT_WITHDRAWAL_LOCKED_CASH',
   })
-  withdraw(@CurrentUser() user: AuthUser): Promise<void> {
-    return this.withdrawalService.withdraw(user.userId);
+  withdraw(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: WithdrawUserReqDto,
+  ): Promise<void> {
+    return this.withdrawalService.withdraw(user.userId, dto.reason);
   }
 
   @Post('me/phone-verifications')
