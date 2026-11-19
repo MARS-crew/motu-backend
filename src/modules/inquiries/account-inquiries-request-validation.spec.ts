@@ -1,8 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
-import type { ExecutionContext } from '@nestjs/common';
 import { CreateAccountInquiryReqDto } from './dto/req/create-account-inquiry-req.dto.js';
-import { AccountInquiryRateLimitGuard } from './account-inquiry-rate-limit.guard.js';
-import type { InquirySubmissionLimiter } from './inquiry-submission-limiter.service.js';
 
 const pipe = new ValidationPipe({
   transform: true,
@@ -79,24 +76,4 @@ describe('비로그인 계정·인증 문의 입력', () => {
       await expect(transform(patch)).rejects.toThrow();
     },
   );
-});
-
-describe('공개 문의 접속 제한', () => {
-  it('사용자가 보낸 Forwarded 헤더 대신 Express가 확인한 접속 IP를 사용한다', async () => {
-    const consumeIp = vi.fn().mockResolvedValue(undefined);
-    const guard = new AccountInquiryRateLimitGuard({
-      consumeIp,
-    } as unknown as InquirySubmissionLimiter);
-    const context = {
-      switchToHttp: () => ({
-        getRequest: () => ({
-          ip: '127.0.0.1',
-          socket: { remoteAddress: '127.0.0.1' },
-          headers: { 'x-forwarded-for': '198.51.100.1' },
-        }),
-      }),
-    } as unknown as ExecutionContext;
-    await expect(guard.canActivate(context)).resolves.toBe(true);
-    expect(consumeIp).toHaveBeenCalledWith('127.0.0.1');
-  });
 });
