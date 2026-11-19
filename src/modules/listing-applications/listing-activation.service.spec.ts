@@ -32,6 +32,7 @@ describe('승인 상품 거래 시작 예약', () => {
             isDeleted: false,
             tradeStatus: 'PENDING',
             listingDate: { lte: expect.any(Date) },
+            listingBlockedAt: null,
           },
         }),
       }),
