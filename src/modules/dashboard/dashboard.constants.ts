@@ -19,3 +19,36 @@ export const PENDING_INQUIRY_STATUSES: InquiryStatus[] = [
   InquiryStatus.SUBMITTED,
   InquiryStatus.IN_PROGRESS,
 ];
+
+/** 거래 추이 조회 기간 (화면의 기간 버튼) */
+export enum TradeTrendRange {
+  /** 최근 1시간 */
+  HOUR_1 = 'HOUR_1',
+  /** 최근 6시간 */
+  HOUR_6 = 'HOUR_6',
+  /** 오늘 00:00 ~ 24:00 */
+  DAY_1 = 'DAY_1',
+  /** 오늘 포함 최근 7일 */
+  WEEK_1 = 'WEEK_1',
+  /** 오늘 포함 최근 30일 */
+  MONTH_1 = 'MONTH_1',
+  /** 첫 체결일부터 오늘까지 */
+  ALL = 'ALL',
+  /** 직접 설정 (from ~ to) */
+  CUSTOM = 'CUSTOM',
+}
+
+/** 거래 추이 집계 단위 */
+export enum TradeTrendUnit {
+  MINUTE_5 = 'MINUTE_5',
+  MINUTE_30 = 'MINUTE_30',
+  HOUR = 'HOUR',
+  HOUR_3 = 'HOUR_3',
+  DAY = 'DAY',
+  MONTH = 'MONTH',
+}
+
+/** 직접 설정에서 시간별로 보여주는 최대 일수 */
+export const CUSTOM_HOURLY_MAX_DAYS = 1;
+/** 직접 설정에서 일별로 보여주는 최대 일수. 넘으면 월별이다. */
+export const CUSTOM_DAILY_MAX_DAYS = 31;
