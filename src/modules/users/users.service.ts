@@ -139,17 +139,27 @@ export class UsersService {
     userId: number,
     nickname: string,
   ): Promise<GetMyInfoResDto> {
+    const currentUser = await this.findById(userId);
+    if (!currentUser) {
+      throw new BusinessException(UserErrors.NOT_FOUND);
+    }
+
+    if (currentUser.nickname === nickname) {
+      return this.toMyInfo(currentUser);
+    }
+
+    await this.assertNotDuplicated('nickname', nickname);
+
     try {
-      const user = await this.prisma.user.update({
+      const updatedUser = await this.prisma.user.update({
         where: { id: userId },
         data: { nickname },
       });
-      return this.toMyInfo(user);
+      return this.toMyInfo(updatedUser);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        // 동시에 같은 닉네임을 저장하는 경우도 DB 고유 제약으로 처리한다.
         if (error.code === 'P2002') {
-          throw new BusinessException(UserErrors.NICKNAME_DUPLICATED);
+          throw new BusinessException(this.findDuplicatedError(error));
         }
         if (error.code === 'P2025') {
           throw new BusinessException(UserErrors.NOT_FOUND);

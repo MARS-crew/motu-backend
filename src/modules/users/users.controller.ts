@@ -22,6 +22,7 @@ import {
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { Public } from '../../common/auth/public.decorator.js';
+import { ChangeNicknameReqDto } from './dto/req/change-nickname-req.dto.js';
 import { CheckLoginIdReqDto } from './dto/req/check-login-id-req.dto.js';
 import { CheckNicknameReqDto } from './dto/req/check-nickname-req.dto.js';
 import { ConfirmContactPhoneVerificationReqDto } from './dto/req/confirm-contact-phone-verification-req.dto.js';
@@ -36,7 +37,7 @@ import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
 import { SendContactPhoneVerificationResDto } from './dto/res/send-contact-phone-verification-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
 import { UsersService } from './users.service.js';
-import { ChangeNicknameReqDto } from './dto/req/change-nickname-req.dto.js';
+
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
@@ -88,6 +89,7 @@ export class UsersController {
       dto.code,
     );
   }
+
   @Patch('me/nickname')
   @ApiBearerAuth()
   @ApiOperation({ summary: '내 닉네임 변경' })
@@ -101,6 +103,7 @@ export class UsersController {
   ): Promise<GetMyInfoResDto> {
     return this.usersService.changeNickname(user.userId, dto.nickname);
   }
+
   @Public()
   @Get('login-id/availability')
   @ApiOperation({ summary: '아이디 중복 확인' })
