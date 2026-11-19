@@ -24,6 +24,7 @@ export class AccountInquiriesService {
 
   async create(dto: CreateAccountInquiryReqDto) {
     // 회원 조회·연결·비밀번호 확인·계정 상태 변경을 수행하지 않는다.
+    await this.limiter.cleanupExpired();
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const receipt = await this.prisma.$transaction(async (tx) => {
