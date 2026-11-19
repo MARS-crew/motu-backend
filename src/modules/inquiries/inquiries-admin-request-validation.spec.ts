@@ -85,10 +85,19 @@ describe('관리자 문의 요청 검증', () => {
     { page: 0 },
     { size: 101 },
     { status: 'SENT' },
+    { status: 'APPROVED' },
     { inquiryType: 'OTHER' },
   ])('잘못된 검색 필터를 거부한다 (%j)', async (dto) => {
     await expect(
       pipe.transform(dto, { type: 'query', metatype: GetAdminInquiriesReqDto }),
     ).rejects.toThrow();
+  });
+  it('문의 처리 완료 필터는 COMPLETED를 사용한다', async () => {
+    await expect(
+      pipe.transform(
+        { status: 'COMPLETED' },
+        { type: 'query', metatype: GetAdminInquiriesReqDto },
+      ),
+    ).resolves.toMatchObject({ status: 'COMPLETED' });
   });
 });

@@ -25,7 +25,7 @@ export class GetAdminInquiriesReqDto {
   keyword?: string;
   @ApiPropertyOptional({
     enum: InquiryStatus,
-    description: 'APPROVED는 답변 처리 완료',
+    description: 'COMPLETED는 답변 처리 완료',
   })
   @IsOptional()
   @IsEnum(InquiryStatus, { message: M })

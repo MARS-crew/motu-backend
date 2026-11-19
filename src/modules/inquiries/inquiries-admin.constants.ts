@@ -7,7 +7,7 @@ export const INQUIRY_REPLY_STALE_MS = 120000;
 export const INQUIRY_STATUS_LABELS: Record<InquiryStatus, string> = {
   SUBMITTED: '접수',
   IN_PROGRESS: '처리 중',
-  APPROVED: '처리 완료',
+  COMPLETED: '처리 완료',
 };
 export function effectiveReplyStatus(
   attempt: { status: InquiryReplyStatus; createDate: Date },

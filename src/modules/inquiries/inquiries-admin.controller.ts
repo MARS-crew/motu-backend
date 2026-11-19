@@ -50,7 +50,7 @@ import { InquiriesAdminService } from './inquiries-admin.service.js';
 @Roles(Role.ADMIN)
 @ApiNotFoundResponse({ description: 'INQUIRY_ADMIN_NOT_FOUND' })
 @ApiForbiddenResponse({
-  description: '관리자 권한 필요 / INQUIRY_ADMIN_ASSIGNEE_ONLY',
+  description: '활성 관리자 권한 필요. 최초 담당자에 따른 제한은 없다.',
 })
 @ApiBadRequestResponse({
   description:
@@ -58,7 +58,7 @@ import { InquiriesAdminService } from './inquiries-admin.service.js';
 })
 @ApiConflictResponse({
   description:
-    'INQUIRY_ADMIN_ALREADY_ASSIGNED / INQUIRY_ADMIN_INVALID_STATUS / INQUIRY_REPLY_VERSION_CONFLICT / INQUIRY_REPLY_SENDING / INQUIRY_REPLY_REQUEST_CONFLICT / INQUIRY_REPLY_RETRY_CONFIRMATION_REQUIRED',
+    'INQUIRY_ADMIN_INVALID_STATUS / INQUIRY_REPLY_VERSION_CONFLICT / INQUIRY_REPLY_SENDING / INQUIRY_REPLY_REQUEST_CONFLICT / INQUIRY_REPLY_RETRY_CONFIRMATION_REQUIRED',
 })
 @Controller('admin/inquiries')
 export class InquiriesAdminController {
@@ -80,15 +80,14 @@ export class InquiriesAdminController {
   @ApiOperation({
     summary: '계정·인증 문의 상세와 발송 이력',
     description:
-      '상세 조회는 상태를 바꾸지 않는다. 다른 담당자의 문의도 조회할 수 있지만 수정·발송은 담당자만 가능하다. 처리 이력은 activityLogPath로 조회한다.',
+      '상세 조회는 상태를 바꾸지 않는다. 처리 중 문의는 다른 활성 관리자도 버전을 확인해 수정·발송할 수 있다. canEdit는 상태와 발송 진행 여부를 반영한다. 처리 이력은 activityLogPath로 조회한다.',
   })
   @ApiOkResponse({ type: AdminInquiryDetailResDto })
   detail(
     @Param('id', ParseIdPipe) id: number,
-    @CurrentUser() admin: AuthUser,
     @Query() query: GetAdminInquiryDetailReqDto,
   ) {
-    return this.inquiries.detail(id, admin.userId, query);
+    return this.inquiries.detail(id, query);
   }
 
   @Post(':id/start-processing')
@@ -97,7 +96,7 @@ export class InquiriesAdminController {
   @ApiOperation({
     summary: '문의 처리 시작 및 담당자 지정',
     description:
-      '접수 → 처리 중. 담당자는 현재 관리자다. 같은 담당자의 재요청은 기존 결과를 반환하고 다른 담당자는 409다. 회원 잠금·정지는 변경하지 않는다.',
+      '접수 → 처리 중. 최초 처리 시작 관리자와 시각을 기록한다. 처리 중 재요청은 다른 관리자도 기존 시작 결과를 반환한다. 담당자 기록은 수정·발송 권한을 독점하지 않는다. 회원 잠금·정지는 변경하지 않는다.',
   })
   @ApiOkResponse({ type: StartInquiryProcessingResDto })
   start(
@@ -116,19 +115,14 @@ export class InquiriesAdminController {
   @ApiOperation({
     summary: '문의 이메일 답변 초안 저장',
     description:
-      '담당자·처리 중 상태만. 상세의 replyVersion을 expectedVersion으로 보낸다. 발송 중·결과 불명확·완료 반영 대기 상태에서는 수정할 수 없다.',
+      '[이메일 답변 및 완료] 클릭 시 확인 팝업을 열기 전에 프론트가 내부 호출한다. 별도 저장 버튼은 필요 없다. 상세 replyVersion과 입력 내용을 보내고 성공 응답의 replyDraft·replyVersion으로 팝업을 구성한다. 활성 관리자 모두 처리 중 문의를 저장할 수 있으며 운영 활동 이력은 생성하지 않는다. 발송 중·결과 불명확·완료 반영 대기에서는 수정할 수 없다. 409 시 로컬 입력을 보존하고 최신 내용을 확인한다.',
   })
   @ApiOkResponse({ type: SaveInquiryReplyDraftResDto })
   saveDraft(
     @Param('id', ParseIdPipe) id: number,
     @Body() dto: SaveInquiryReplyDraftReqDto,
-    @CurrentUser() admin: AuthUser,
-    @Req() request: Request,
   ) {
-    return this.inquiries.saveDraft(id, dto, {
-      adminId: admin.userId,
-      client: clientInfo(request),
-    });
+    return this.inquiries.saveDraft(id, dto);
   }
 
   @Post(':id/send-reply')
@@ -137,7 +131,7 @@ export class InquiriesAdminController {
   @ApiOperation({
     summary: '문의 이메일 답변 발송 및 완료 처리',
     description:
-      '확인 팝업에서 저장 답변 버전을 확인한 후 새 requestId로 발송한다. 응답 유실은 동일 키로 재요청한다. 실제 Brevo 발송 접수 때 APPROVED(처리 완료), 콘솔 모의 발송은 SIMULATED·처리 중 유지. 타임아웃은 자동 재발송하지 않으며 외부 이력 확인 후 명시적 confirmResend·사유·새 키로만 재시도한다.',
+      'reply-draft 저장 성공 후 확인 팝업의 [발송]에서만 호출한다. 팝업 취소 시 입력을 유지하고 이 API는 호출하지 않는다. expectedDraftVersion은 저장 응답 버전이다. 다른 활성 관리자도 이어서 발송·동일 requestId의 결과 확인·완료 반영을 수행할 수 있다. 최초 발송자의 신원은 발송 시도에 보존한다. 응답 유실은 같은 키·버전으로 재요청한다. 실제 Brevo 접수 때 COMPLETED, 콘솔은 SIMULATED·처리 중 유지. 타임아웃은 자동 재발송하지 않는다.',
   })
   @ApiOkResponse({ type: InquiryReplyResultResDto })
   @ApiServiceUnavailableResponse({

@@ -23,7 +23,7 @@ export class AdminInquiryItemResDto {
   @ApiProperty() title: string;
   @ApiProperty({
     enum: InquiryStatus,
-    description: 'APPROVED는 처리 완료. 회원 상태와 무관',
+    description: 'COMPLETED는 처리 완료. 회원 상태와 무관',
   })
   status: InquiryStatus;
   @ApiProperty() statusLabel: string;
@@ -74,7 +74,11 @@ export class AdminInquiryDetailResDto extends AdminInquiryItemResDto {
   @ApiProperty({ type: String, nullable: true }) replyEmail: string | null;
   @ApiProperty({ type: String, nullable: true }) replyDraft: string | null;
   @ApiProperty() replyVersion: number;
-  @ApiProperty() canEdit: boolean;
+  @ApiProperty({
+    description:
+      '처리 중이며 발송 중·불명확 결과·완료 반영 대기가 아닐 때 true. 최초 담당자와 관계없이 활성 관리자 공통.',
+  })
+  canEdit: boolean;
   @ApiProperty({ type: InquiryReplyAttemptResDto, nullable: true })
   latestReplyAttempt: InquiryReplyAttemptResDto | null;
   @ApiProperty({ type: InquiryReplyAttemptsResDto })

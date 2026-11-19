@@ -14,7 +14,11 @@ import { INVALID_REQUEST_MESSAGE as M } from '../../../../common/constants/valid
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 export class SaveInquiryReplyDraftReqDto {
-  @ApiProperty({ description: '상세의 replyVersion. 최초 0', example: 0 })
+  @ApiProperty({
+    description:
+      '상세의 replyVersion. 최초 0. 확인 팝업 전 내부 저장에 사용하며 다른 관리자의 편집과 충돌하면 409.',
+    example: 0,
+  })
   @IsInt({ message: M })
   @Min(0, { message: M })
   @Max(2147483646, { message: M })
@@ -36,7 +40,8 @@ export class SendInquiryReplyReqDto {
   @IsUUID('4', { message: M })
   requestId: string;
   @ApiProperty({
-    description: '확인 팝업에서 검토한 저장 답변 버전',
+    description:
+      '확인 팝업 직전 reply-draft 응답의 replyVersion. 팝업에서 확인한 답변과 일치해야 함',
     example: 1,
   })
   @IsInt({ message: M })
