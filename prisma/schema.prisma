@@ -93,6 +93,8 @@ model User {
   inquiryRepliesSent      InquiryReplyAttempt[]        @relation("InquiryReplyActor")
   inquiryAccessAttempt    InquiryAccessAttempt?
   adminActivityLogs       AdminActivityLog[]
+  anomalies               Anomaly[]                    @relation("AnomalyUser")
+  anomaliesHandled        Anomaly[]                    @relation("AnomalyHandler")
 
   @@map("users")
 }
@@ -507,6 +509,7 @@ model Stock {
   charts        Chart[]
   priceAlerts   PriceAlert[]
   notices       Notice[]
+  anomalies     Anomaly[]
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -632,10 +635,11 @@ model Order {
   createDate    DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
   modifiedDate  DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  account    Account @relation(fields: [accountId], references: [id])
-  stock      Stock   @relation(fields: [stockId], references: [id])
-  buyTrades  Trade[] @relation("BuyOrderTrades")
-  sellTrades Trade[] @relation("SellOrderTrades")
+  account    Account   @relation(fields: [accountId], references: [id])
+  stock      Stock     @relation(fields: [stockId], references: [id])
+  buyTrades  Trade[]   @relation("BuyOrderTrades")
+  sellTrades Trade[]   @relation("SellOrderTrades")
+  anomalies  Anomaly[]
 
   @@unique([accountId, clientOrderId])
   // 서버 재시작 시 미체결 주문으로 호가창을 복구할 때 쓴다.
@@ -661,6 +665,7 @@ model Trade {
   buyOrder  Order        @relation("BuyOrderTrades", fields: [buyOrderId], references: [id])
   sellOrder Order        @relation("SellOrderTrades", fields: [sellOrderId], references: [id])
   ledgers   CashLedger[]
+  anomalies Anomaly[]
 
   // 최근 체결, 당일 거래 요약
   @@index([stockId, createDate])
@@ -808,25 +813,25 @@ enum NoticeStatus {
 /// 공지사항. POSTED 상태이고 게시 기간 안에 있는 공지를 사용자에게 보여 준다.
 /// 상품별 공지는 대상 상품도 공개 상태여야 한다. 사용자 게시일은 postStartDate다.
 model Notice {
-  id            Int        @id @default(autoincrement()) @map("notice_id")
-  type          NoticeType @map("notice_type")
+  id            Int          @id @default(autoincrement()) @map("notice_id")
+  type          NoticeType   @map("notice_type")
   status        NoticeStatus @default(POSTED)
   /// 대상 상품 ID. 전체 서비스 공지와 대상 미선택 상품별 임시 저장은 null이다.
-  stockId       Int?       @map("stock_id")
-  title         String     @db.VarChar(100)
+  stockId       Int?         @map("stock_id")
+  title         String       @db.VarChar(100)
   content       String
   /// 중요 공지. 게시 중인 사용자 공지 목록에서 상단에 배치한다.
-  isImportant   Boolean    @default(false) @map("is_important")
+  isImportant   Boolean      @default(false) @map("is_important")
   /// 게시 시작 시각. 임시 저장에서만 null을 허용한다.
-  postStartDate DateTime?  @map("post_start_date") @db.Timestamptz(3)
+  postStartDate DateTime?    @map("post_start_date") @db.Timestamptz(3)
   /// 게시 종료 시각. null이면 계속 게시한다.
-  postEndDate   DateTime?  @map("post_end_date") @db.Timestamptz(3)
-  isDeleted     Boolean    @default(false) @map("is_deleted")
-  deletedDate   DateTime?  @map("deleted_date") @db.Timestamptz(3)
-  createDate    DateTime   @default(now()) @map("create_date") @db.Timestamptz(3)
-  modifiedDate  DateTime   @updatedAt @map("modified_date") @db.Timestamptz(3)
+  postEndDate   DateTime?    @map("post_end_date") @db.Timestamptz(3)
+  isDeleted     Boolean      @default(false) @map("is_deleted")
+  deletedDate   DateTime?    @map("deleted_date") @db.Timestamptz(3)
+  createDate    DateTime     @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate  DateTime     @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  stock         Stock?     @relation(fields: [stockId], references: [id], onDelete: Restrict)
+  stock Stock? @relation(fields: [stockId], references: [id], onDelete: Restrict)
 
   @@index([postStartDate])
   @@index([stockId])
@@ -1045,4 +1050,89 @@ model AdminActivityLog {
   @@index([adminId, createDate])
   @@index([targetType, targetId, createDate])
   @@map("admin_activity_logs")
+}
+
+/// 이상 거래 탐지 유형 (ADM-MON-01)
+enum AnomalyType {
+  /// 대량 주문
+  LARGE_ORDER
+  /// 반복 주문
+  REPEATED_ORDER
+  /// 비정상 가격 체결
+  ABNORMAL_PRICE
+  /// 주문 처리 실패
+  ORDER_FAILURE
+  /// 잔액 불일치
+  BALANCE_MISMATCH
+
+  @@map("anomaly_type")
+}
+
+/// 이상 거래 처리 상태
+enum AnomalyStatus {
+  /// 미처리
+  PENDING
+  /// 확인중. [조치 내용 확인]으로 상품 거래 중지·회원 정지 화면에 넘어간 상태
+  REVIEWING
+  /// 처리완료
+  RESOLVED
+
+  @@map("anomaly_status")
+}
+
+/// 이상 거래 조치 유형 (ADM-MON-02)
+enum AnomalyAction {
+  /// 상품 거래 중지
+  STOCK_PAUSE
+  /// 회원 정지
+  USER_BLOCK
+  /// 이상 없음
+  NO_ISSUE
+
+  @@map("anomaly_action")
+}
+
+/// 이상 거래. 주문·체결을 커밋한 뒤 탐지해 남긴다. 조치 전 확인 자료라 상품·회원 상태를 자동으로 바꾸지 않는다.
+model Anomaly {
+  id           Int            @id @default(autoincrement()) @map("anomaly_id")
+  type         AnomalyType    @map("anomaly_type")
+  status       AnomalyStatus  @default(PENDING)
+  /// 관련 상품. 예약 포인트 불일치처럼 상품과 관계없으면 null
+  stockId      Int?           @map("stock_id")
+  /// 원인 회원
+  userId       Int            @map("user_id")
+  /// 관련 주문. 주문 처리 실패는 주문이 저장되지 않아 null
+  orderId      BigInt?        @map("order_id")
+  /// 관련 체결 (비정상 가격 체결)
+  tradeId      BigInt?        @map("trade_id")
+  /// 오류 코드. 예) PRICE_DEVIATION
+  errorCode    String         @map("error_code") @db.VarChar(50)
+  /// 목록의 오류 내용. 예) 가격 편차 초과
+  errorMessage String         @map("error_message") @db.VarChar(200)
+  /// 탐지 근거 { 항목: 값 }. 유형마다 항목이 다르다.
+  evidence     Json
+  detectedDate DateTime       @default(now()) @map("detected_date") @db.Timestamptz(3)
+  /// 확인중이면 넘어간 조치, 처리완료면 확정한 조치
+  action       AnomalyAction?
+  /// 조치 사유. 처리완료 때 저장한다.
+  actionReason String?        @map("action_reason") @db.VarChar(200)
+  /// 처리한 관리자 user_id
+  handledById  Int?           @map("handled_by")
+  handledDate  DateTime?      @map("handled_date") @db.Timestamptz(3)
+  createDate   DateTime       @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate DateTime       @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  stock     Stock? @relation(fields: [stockId], references: [id])
+  user      User   @relation("AnomalyUser", fields: [userId], references: [id])
+  order     Order? @relation(fields: [orderId], references: [id])
+  trade     Trade? @relation(fields: [tradeId], references: [id])
+  handledBy User?  @relation("AnomalyHandler", fields: [handledById], references: [id])
+
+  /// 같은 체결을 두 번 남기지 않는다. null은 겹쳐도 된다.
+  @@unique([type, tradeId])
+  @@index([detectedDate])
+  @@index([status, detectedDate])
+  // 반복 주문·잔액 불일치 중복 확인
+  @@index([userId, type, detectedDate])
+  @@map("anomalies")
 }
