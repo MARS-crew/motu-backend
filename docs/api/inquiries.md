@@ -4,16 +4,14 @@
 
 ## 범위와 기준
 
-- MOTU-44-01-01(잠금·정지 계정 문의 접수/문의번호 발급), MOTU-44-01-02(본인 문의 내역 조회). 이슈 #58.
-- 최신 dev·README의 인증/DTO/응답 규칙과 ERD의 Inquiry(작성자, 문의번호, 유형, 제목, 내용, 상태, 생성/수정일)를 따른다. 물리 테이블명은 기존 코드와 같이 `inquiries`를 사용한다.
-- [1차 화면설계서](https://docs.google.com/presentation/d/1432WUouwlx6Jp-_mh67lpIPurlO5ja5X/edit)의 USR-LST-01-M02, USR-LST-01-02에는 잠금·정지 제한 안내에서 문의 화면으로 이동하는 흐름이 있다. 제공된 [1차 IA](https://docs.google.com/spreadsheets/d/18IZuGCG0WY9OYwqpgGDTa3rN43op8eiumYNFRp6DHdY/edit)와 [1차 SRS](https://docs.google.com/spreadsheets/d/1Yyk_KWuRlCEWIedvOdFgjUvsCJL54SwqT4zrGmPuCMA/edit)에는 문의 폼·본인 확인 수단·문의번호 형식의 상세 기준은 없다.
-- 따라서 다음 세부 규칙은 이번 API의 구현 기준이다. 문의 전용 본인 확인은 기존 아이디·비밀번호로 진행하고, 제목 1~100자/본문 1~5000자, 페이지 기본 10건, 문의번호는 아래 형식을 사용한다. 기획의 확정 문구로 간주하지 않으며 화면 연결 시 공유한다.
-- 기존 사용자 API는 제한 계정의 문의 접수·본인 내역 조회를 담당한다. 관리자 접수 처리·이메일 답변은 아래 MOTU-30-1-1 범위에서 추가한다. 회원 잠금·정지 변경, 마이페이지 일반 문의, 첨부파일·SMS·푸시는 별도 범위다.
-- 이슈 [#92](https://github.com/MARS-crew/motu-backend/issues/92)는 [2차 화면설계서](https://docs.google.com/presentation/d/1enVRxUOunj_8btTQwLHhJdK1t9dmbxcK/edit)의 **USR-AUTH-10 → ADM-INQ-01** 흐름을 추가한다. 새 화면은 아래 비로그인 API에 연결하며, 기존 본인 확인 접수·조회 API는 호환성을 위해 유지한다.
+- 이슈 [#92](https://github.com/MARS-crew/motu-backend/issues/92)와 선행 관리자 이슈 #91. [2차 화면설계서](https://docs.google.com/presentation/d/1enVRxUOunj_8btTQwLHhJdK1t9dmbxcK/edit)의 **USR-AUTH-10 → ADM-INQ-01**을 연결한다.
+- **신규 계정·인증 문의 접수는 `POST /api/account-inquiries` 한 경로만 사용한다.** 로그인·문의 토큰·아이디·비밀번호가 필요 없다. 잠금·정지·등록 휴대폰 사용 불가 화면에서 같은 폼으로 진입한다.
+- 이전 회원 연결 문의는 삭제하거나 이메일로 재연결하지 않는다. 과거 본인 내역은 읽기 전용으로 보존하고 관리자 목록에서는 접수 경로를 구분한다.
+- 회원 잠금·정지 변경, 마이페이지 일반 문의, 첨부파일·SMS·푸시는 별도 범위다.
 
-## 비로그인 계정·인증 문의 — USR-AUTH-10
+## 공개 접수 — USR-AUTH-10
 
-**`POST /api/account-inquiries`**. Authorization 없이 접수한다. 로그인·문의 전용 토큰 발급이 필요 없다. 잠금·정지 안내 또는 등록 휴대폰 사용 불가 화면에서 진입하며, 프론트는 해당 화면의 문의 유형을 보낸다.
+**`POST /api/account-inquiries`**, Authorization 없이 접수한다.
 
 ```json
 {
@@ -25,11 +23,11 @@
 
 | 필드 | 규칙 |
 |---|---|
-| `inquiryType` | 필수. `LOGIN_FAILED_LOCKED`(계정 잠금), `SUSPENDED`(계정 정지), `PHONE_UNAVAILABLE`(등록 휴대폰 사용 불가) |
-| `replyEmail` | 필수. 공백 제거 후 유효한 이메일, 최대 255자. 답변 수신용이며 이메일 소유권 확인을 뜻하지 않음 |
-| `content` | 필수. 앞뒤 공백 제거 후 1~5000자. 내부 줄바꿈 보존 |
+| `inquiryType` | 필수. LOGIN_FAILED_LOCKED(계정 잠금), SUSPENDED(계정 정지), PHONE_UNAVAILABLE(등록 휴대폰 사용 불가). 진입 화면의 유형을 전송 |
+| `replyEmail` | 필수. 공백 제거 후 유효한 이메일, 최대 255자. 회신 주소이며 소유권 확인을 뜻하지 않음 |
+| `content` | 필수. 앞뒤 공백 제거 후 유니코드 문자 기준 1~5000자. 내부 줄바꿈 보존 |
 
-제목은 서버가 유형에 맞춰 생성한다. 비밀번호·인증번호·휴대폰 전체 번호 등 민감정보를 입력하지 않도록 화면에 안내한다. `userId`, `loginId`, `password`, `title`, `status`, `source`, 담당자 등 추가 필드는 400으로 거부한다. 실제 회원 존재 여부·계정 상태를 조회하지 않고 같은 접수 응답을 반환한다.
+제목은 서버가 생성한다. 회원 존재 여부·계정 상태를 조회하지 않고 `userId=null`, `source=PUBLIC_ACCOUNT_AUTH`로 저장한다. 같은 이메일의 회원이 있어도 추정·연결하지 않는다. `loginId`, `password`, `userId`, `title`, `status`, `source`, 담당자 등 추가 필드는 400으로 거부한다. 비밀번호·인증번호·휴대폰 전체 번호를 본문에 넣지 않도록 화면에 안내한다.
 
 HTTP **201**, `Cache-Control: no-store`:
 
@@ -45,123 +43,51 @@ HTTP **201**, `Cache-Control: no-store`:
 }
 ```
 
-프론트는 접수번호와 이메일 답변 안내를 표시한다. 접수 시 메일은 발송하지 않으며, 관리자 답변 발송 시에만 입력 주소로 메일을 보낸다. 접수번호는 한국 날짜+난수이며, 접수번호·이메일만으로 사용자에게 문의 내역을 공개하지 않는다. 공개 목록·상세 API는 제공하지 않는다. 같은 이메일의 회원이 있어도 회원 관계(`userId`)는 항상 null이므로 기존 본인 내역에 노출되지 않는다.
+접수 시 이메일은 보내지 않는다. 관리자가 확인 후 입력 주소로 답변한다. 접수번호는 한국 날짜+난수이며 공개 목록·상세는 제공하지 않는다. 이메일·접수번호만으로 내역을 공개하지 않는다. 같은 내용의 재요청은 새 문의이므로 전송 중 버튼을 비활성화하고 성공 후 반복 제출하지 않는다. 접수 멱등 키는 제공하지 않는다.
 
-### 접수 경로와 관리자 연결
+### 접수 제한과 운영 프록시 판단
 
-- 기존 문의는 `source=RESTRICTED_ACCOUNT`로 보존한다. 기존 회원 관계와 회신 주소를 덮어쓰지 않는다.
-- 신규 비로그인 문의는 `source=PUBLIC_ACCOUNT_AUTH`이며 입력 주소·내용을 저장한다. 마이페이지 일반 문의와 별도다.
-- 관리자 목록·상세는 두 접수 경로를 함께 보여 주고 `source`를 제공한다. 같은 접수번호로 검색한 뒤 기존 처리 시작 → 답변 초안 저장 → 발송 API를 사용한다. 회원이 없는 문의도 처리할 수 있다.
-- 관리자 발송의 수신 주소는 접수 당시 입력 주소로 고정된다. 가입 이메일 변경이나 발송 요청의 임의 주소로 바꾸지 않는다. 답변은 별도 본인 확인을 대신하지 않으며 계정 해제도 수행하지 않는다.
+- 회신 이메일별 **1시간 10건**으로 기존 3건보다 완화한다. 대소문자를 같은 주소로 집계하고 정상 저장된 접수만 차감한다. DTO 검증 실패·DB 저장 실패는 한도를 차감하지 않는다.
+- 초과 시 **429 `INQUIRY_SUBMISSION_RATE_LIMITED`**. `error.details`의 `retryAfterSeconds`(재시도까지 남은 초), `limit=10`, `windowSeconds=3600`을 사용해 안내한다. 최초 접수부터 1시간이며 거부 요청으로 만료를 연장하지 않는다.
+- **IP 제한은 적용하지 않는다.** 2026-11-19 Railway production 확인 결과 공개 도메인은 Nginx에 있고 Server는 비공개다. Nginx가 추가된 전달 경로에서 `trust proxy=1`을 곧바로 실제 사용자 IP 기준이라고 단정할 수 없다. 연결된 Railway 도구는 NGINX_CONFIG 값도 공개하지 않아 헤더 덮어쓰기·추가 규칙은 미확인이다. 따라서 공유 프록시 주소의 전역 차단을 없애는 선택을 한다. 기존 IP guard와 IP 집계 호출을 제거하고 `trust proxy`를 변경하지 않는다.
+- 실제 사용자 IP의 신뢰 경계와 모든 진입 경로의 헤더 정제 규칙을 검증하기 전에는 IP 제한을 재활성화하지 않는다. 입력한 `X-Forwarded-For`를 직접 집계 키로 쓰지 않는다. 같은 프록시의 잘못된 요청이 다른 이메일의 정상 접수를 429로 막지 않는다.
+- DB 원자적 집계로 여러 인스턴스에서 한도를 공유한다. HMAC 키만 제한 테이블에 저장하며 검증을 통과한 접수 요청에서 만료 행을 최대 100개씩 정리한다. 청소는 카운터 트랜잭션 밖에서 수행해 다른 이메일의 집계 잠금과 교차하지 않게 한다. 과거 IP 키는 만료 뒤 청소되며 더 이상 차단에 사용하지 않는다.
+- 이메일 소유 확인이 없으므로 **10건 완화는 타인 주소의 한도 소진 위험을 줄이는 조치이며 이를 완전히 차단하지는 못한다.** IP 제한 중단으로 다수 이메일을 사용하는 대량 접수도 이 API에서 제한하지 않는다. 소유 확인·별도 남용 방지 수단은 화면 흐름과 함께 후속 정책으로 정해야 한다. 확인되지 않은 연락처를 오류 안내에 넣지 않는다.
 
-### 공개 접수 요청 제한
+### 이전 접수 종료와 과거 내역 보존
 
-- 접속 IP별 **1분 60회**: 공개 경로에서 DTO 검증에 실패한 요청도 집계한다.
-- 회신 이메일별 **1시간 3건**: 정상 접수만 집계한다. 대소문자를 동일하게 취급한다. 문의 저장 실패 시 이메일 접수 횟수도 함께 롤백한다.
-- 제한 시 **429 `INQUIRY_SUBMISSION_RATE_LIMITED`**. 문의를 추가하지 않는다. 최초 요청부터 유효기간을 계산하고 만료 후 초기화한다. DB 원자적 집계로 서버 재시작·여러 인스턴스에서도 공유한다.
-- 집계 키에는 목적별 HMAC을 사용하며 원문 IP·이메일을 저장하지 않는다. 공개 요청에서 만료 집계 행을 최대 100개씩 정리한다. 원래 문의의 회신 이메일 보존 정책은 별도다.
-- 임의 `X-Forwarded-For`를 신뢰하지 않고 Express의 현재 접속 IP를 사용한다. **현재 서버는 trust proxy를 설정하지 않으므로 Railway 등 프록시 뒤에서는 IP 제한이 같은 프록시를 공유하는 사용자에게 합산될 수 있다.** 실제 사용자 IP로 세분화하려면 인프라의 신뢰 프록시 경계를 먼저 확정해야 한다. 이메일별 제한은 독립적으로 동작한다.
-- 반복 제출은 새 문의로 접수한다. 전송 중 버튼을 비활성화하고, 성공 응답 뒤 재접수하지 않는다. 이 API는 재요청 멱등 키를 제공하지 않는다.
-
-## 기존 본인 확인 API
-
-모든 경로는 `/api` 기준이다. 일반 로그인은 잠금·정지 계정을 계속 차단한다. 아래 기존 경로는 문의 전용 본인 확인을 거쳐 접수·본인 조회한다. 이메일만으로 본인 문의를 조회할 수 없다. 새 비로그인 접수는 위 `/account-inquiries`를 사용한다.
-
-| 메서드 | 경로 | 인증 | 용도 |
-|---|---|---|---|
-| POST | `/inquiries/access-token` | 아이디·비밀번호 | 잠금·정지 계정 문의 전용 토큰 발급 |
-| POST | `/inquiries` | 문의 전용 토큰 | 제한 해제 문의 접수 및 문의번호 발급 |
-| GET | `/inquiries?page=1&size=10` | 문의 전용 토큰 또는 정상 계정 Access 토큰 | 본인 문의 목록 |
-| GET | `/inquiries/:inquiryId` | 동일 | 본인 문의 상세 |
-
-### 문의 본인 확인
-
-```json
-{ "loginId": "motulocked", "password": "motuuser1!" }
-```
-
-성공 시 `data: { "inquiryAccessToken": "...", "expiresIn": 900 }`를 반환한다. 토큰은 15분간 유효하고 Refresh 토큰은 발급하지 않는다. 일반 로그인 실패 횟수·최근 로그인 시각·계정 잠금/정지 상태를 바꾸지 않는다. 문의용 실패 횟수와 차단 시각은 별도 DB 테이블 `inquiry_access_attempts`에 저장한다. 만료되면 아이디·비밀번호로 다시 확인한다.
-
-- `LOCKED`, `BLOCKED` 계정만 비밀번호 검사를 수행한다. 정상 계정과 없는 계정은 비밀번호 확인 전에 동일한 `401 / INQUIRY_INVALID_CREDENTIALS`로 거절한다. 정상 계정에서는 비밀번호가 맞는지 알아내는 경로로 사용할 수 없다.
-- 기존 JWT 키에서 용도를 분리해 만든 키로 HS256 서명하며, `purpose=INQUIRY`, 발급자/수신자를 검증한다. 일반 API와 `/auth/refresh`에 사용할 수 없다. 기존 키 외에 새 환경 변수는 필요 없다.
-- 토큰은 프론트의 **일반 로그인 Access 토큰과 별도로** 보관한다. 문의 화면을 나가면 전용 토큰을 제거한다. URL/로그에 토큰과 비밀번호를 남기지 않는다.
-- 문의용 비밀번호를 연속 5회 틀리면 5번째 요청부터 `429 / INQUIRY_ACCESS_TEMPORARILY_BLOCKED`를 반환하고 15분간 차단한다. 차단 중에는 올바른 비밀번호도 검사/발급하지 않으며 만료 시각을 연장하지 않는다. 만료 후 실패는 1회부터 다시 집계하고, 성공하면 문의용 실패 기록만 초기화한다. 이 제한은 회원 행 잠금과 DB 기록으로 여러 인스턴스·서버 재시작에도 유지된다. 일반 로그인 실패 횟수나 기존 LOCKED/BLOCKED 상태를 초기화하지 않는다.
-- 별도로 계정당 1분 최대 10회(성공·실패 포함) 본인 확인 요청을 허용한다. 현재 Railway 1개 인스턴스를 기준으로 한 프로세스 내 제한이며 재시작하면 초기화된다. 여러 인스턴스 운용 시 공유 저장소/게이트웨이 기반 제한이 필요하다.
-- 일반 Access 토큰을 받았던 계정이 나중에 잠금/정지된 경우에도 기존 토큰으로 문의를 우회하지 않고 전용 본인 확인부터 진행한다.
-
-### 접수
-
-```json
-{ "title": "계정 잠금 해제 문의", "content": "계정이 잠겼습니다. 잠금 해제 절차를 알려주세요." }
-```
-
-- 제목·본문 앞뒤 공백을 제거한 뒤 제목 1~100자, 본문 1~5000자를 DTO와 서비스 양쪽에서 검증한다. 길이 기준 상수를 공유하며 Swagger 스키마에도 minLength/maxLength를 명시한다. DB는 제목 VARCHAR(100), 본문 VARCHAR(5000) 및 빈 문자열 거절 제약으로 직접 저장 시에도 제한한다. 이모지 한 글자는 1자로 센다. 공백만 있거나 타입이 다르면 거절한다. 본문 내부 줄바꿈은 보존하며 일반 텍스트로 취급한다.
-- 작성자는 토큰의 본인으로 고정한다. `userId`, `inquiryCode`, `inquiryType`, `status` 등 추가 필드는 거절한다.
-- 접수 시 DB의 최신 계정 상태를 확인해 LOCKED는 `LOGIN_FAILED_LOCKED`, BLOCKED는 `SUSPENDED`로 자동 분류한다. 문의 접수와 동시에 계정 제한이 해제되는 경우 회원 행 잠금으로 선후관계를 보장한다.
-- 문의번호는 `INQ-YYYYMMDD-XXXXXXXXXXXX`(한국 날짜 + 무작위 12자리 16진수)다. 일일 순번이 아니다. DB UNIQUE 제약으로 중복을 막고 충돌 시 새 트랜잭션에서 최대 3회 시도한다.
-- 접수 상태는 `SUBMITTED`다. 문의 상태는 `SUBMITTED`(접수), `IN_PROGRESS`(처리 중), `COMPLETED`(처리 완료)이며 사용자 API는 상태 변경을 허용하지 않는다.
-- 같은 내용으로 POST를 다시 보내면 별도의 문의가 접수된다. 프론트는 제출 중 중복 클릭을 막고, 통신 오류 후에는 본인 목록에서 접수 여부를 먼저 확인한다.
-
-HTTP 201의 `data` 예시:
-
-```json
-{
-  "id": 1,
-  "inquiryCode": "INQ-20261028-A1B2C3D4E5F6",
-  "inquiryType": "LOGIN_FAILED_LOCKED",
-  "title": "계정 잠금 해제 문의",
-  "content": "계정이 잠겼습니다. 잠금 해제 절차를 알려주세요.",
-  "status": "SUBMITTED",
-  "createDate": "2026-10-28T09:00:00.000Z",
-  "modifiedDate": "2026-10-28T09:00:00.000Z"
-}
-```
-
-### 본인 문의 목록·상세
-
-목록 응답은 `data: { items: [문의 객체], page: 1, size: 10, totalCount: 1 }`다. 최신 생성일 내림차순, 생성일이 같으면 ID 내림차순이다. `page` 1~100000, `size` 1~50을 허용한다. 빈 목록은 `items: []`, `totalCount: 0`이다. 조회만으로 상태가 변경되지는 않는다.
-
-상세는 목록의 `id`로 조회하며 접수 당시 제목·본문·문의번호·현재 상태·생성/수정일을 반환한다. 타인 문의와 없는 문의는 같은 404로 응답하고, 목록의 개수와 항목도 본인 데이터만 포함한다. 비밀번호·이메일·다른 회원 정보는 반환하지 않는다.
-
-계정 제한이 해제된 후에는 기존 문의 전용 토큰의 남은 유효기간 동안 이력을 조회할 수 있으나 새 제한 문의는 접수할 수 없다. 이후 정상 로그인 Access 토큰으로 기존 이력을 계속 조회한다.
-
-| 상태/코드 | 상황 |
+| API | 현재 동작 |
 |---|---|
-| 401 `INQUIRY_INVALID_CREDENTIALS` | 없는 아이디, 정상 계정(비밀번호 정오 무관), 제한 계정의 틀린 비밀번호(1~4회) |
-| 401 `INQUIRY_UNAUTHORIZED` | 문의 인증 없음, 위조·잘못된 목적/수신자, 없는 회원, 제한 계정의 기존 일반 토큰 |
-| 401 `INQUIRY_TOKEN_EXPIRED` | 문의/일반 토큰 만료 |
-| 403 `INQUIRY_ACCOUNT_NOT_RESTRICTED` | 정상 계정의 새 제한 문의 접수 (전용 토큰 발급은 동일한 401) |
-| 404 `INQUIRY_NOT_FOUND` | 타인/없는 문의 또는 ID 범위 초과 |
-| 429 `INQUIRY_ACCESS_TEMPORARILY_BLOCKED` | 문의 비밀번호 연속 5회 실패 및 15분 차단 중 |
-| 429 `INQUIRY_TOO_MANY_ATTEMPTS` | 문의 본인 확인 요청 제한 초과 |
-| 400 `BAD_REQUEST` | 한글 안내 문구와 함께 입력값·페이지·경로 ID 검증 실패 |
+| `POST /api/inquiries/access-token` | **410 INQUIRY_SUBMISSION_RETIRED**. 비밀번호 확인·토큰 발급 없음 |
+| `POST /api/inquiries` | **410 INQUIRY_SUBMISSION_RETIRED**. 토큰이 있어도 신규 접수하지 않음 |
+| `GET /api/inquiries?page=1&size=10` | 과거 회원 연결 문의의 본인 목록만 읽기 전용 조회 |
+| `GET /api/inquiries/{inquiryId}` | 같은 본인 범위의 상세만 읽기 전용 조회 |
 
-## 로컬 Swagger 테스트
+종료한 두 POST는 Swagger에서 숨기며 이 PR 적용 시점부터 새 접수 경로를 병행 운영하지 않는다. 프론트는 토큰 발급 요청을 삭제하고 새 공개 접수 API로 전환해야 한다. 종료 응답은 정상 JSON 요청 기준이며 잘못된 JSON 자체는 공통 파서가 400을 반환할 수 있다.
 
-1. 로컬 PostgreSQL에 마이그레이션을 적용하고 `npm run db:seed`, `npm run start:dev` 실행. 공개된 seed 비밀번호는 로컬 전용이다.
-2. `http://localhost:3000/api/docs`의 Inquiries에서 `POST /api/inquiries/access-token`에 `motulocked`/`motuuser1!`을 입력한다. 정지 계정은 `motublocked`를 사용한다. 일반 로그인 `/auth/login`은 403이 정상이다.
-3. 반환된 `inquiryAccessToken`을 Swagger Authorize에 넣는다. 이미 정상 계정 토큰이 있으면 교체한다.
-4. `POST /api/inquiries`에 위 접수 본문을 전송하고 201·문의번호·SUBMITTED를 확인한다.
-5. `GET /api/inquiries`에서 본인 문의와 `totalCount`를 확인한다. 반환된 `id`로 `GET /api/inquiries/{inquiryId}`를 조회한다.
-6. `motublocked`의 전용 토큰으로 교체해 앞서 만든 잠금 계정 문의 ID를 상세 조회하면 404다. 새 문의를 접수하면 유형은 SUSPENDED다.
-7. 문의 토큰으로 `GET /api/users/me`를 호출하면 401이다. 일반 기능 테스트로 돌아갈 때는 `motuuser`로 정상 로그인해 Authorize를 다시 교체한다.
+이전 데이터는 `source=RESTRICTED_ACCOUNT`, 회원 관계·회신 이메일 스냅샷을 그대로 유지한다. 새 공개 문의는 해당 회원의 본인 목록에 포함하지 않는다. 기존 DB CHECK 제약으로 PUBLIC_ACCOUNT_AUTH에 회원을 연결하거나 RESTRICTED_ACCOUNT의 회원 관계를 비울 수 없다.
 
-8. 정상 계정 `motuuser`로 `POST /api/inquiries/access-token`을 호출하면 비밀번호가 맞아도 틀려도 동일한 401이다.
-9. 별도 로컬 제한 계정으로 문의 비밀번호를 5회 틀리면 1~4회는 401, 5회부터 429 `INQUIRY_ACCESS_TEMPORARILY_BLOCKED`다. 이후 올바른 비밀번호로도 15분간 발급할 수 없다. 1분 10회 요청 제한과 별개이며, 반복 확인을 피하고 15분 후 다시 시도한다. 만료·동시 요청·재시작 검증은 아래 자동 스크립트에서 별도 테스트 계정으로 수행한다.
+기존 GET은 정상 계정의 일반 Access 토큰 또는 종료 전에 발급되어 아직 유효한 문의 전용 토큰만 받는다. 문의 토큰의 기존 15분 수명이 끝나면 새 토큰은 발급하지 않는다. 잠금·정지 계정은 공개 접수와 이메일 답변 흐름을 이용한다. 토큰을 갱신하거나 문의를 접수하는 우회 경로는 없다. 문의 토큰은 일반 API·refresh에 사용할 수 없고 타인·회원 미연결 문의는 404로 보호한다. 과거 인증 실패 기록 테이블은 신규 집계를 멈추되 이 PR에서 삭제하지 않는다.
 
-## 자동 검증·배포
+### 관리자 연결
 
-```powershell
+관리자 목록·상세는 `source`로 과거·공개 접수를 구분한다. 관리자에게 회신 주소는 문의에 저장된 값으로 표시하고 현재 가입 이메일에서 다시 가져오지 않는다. 처리 시작 → 내부 답변 저장 → 확인 팝업 → 발송·완료 순서와 공동 처리·중복 발송 방지 정책은 아래 #93 관리자 계약을 사용한다. 회원 미연결 문의도 같은 API로 답변할 수 있다. 이 PR은 최신 #93의 COMPLETED 상태·공동 처리·사용자 메일 안내 변경을 통합했다.
+
+### 적용과 검증
+
+마이그레이션 `20261118120000_add_public_account_inquiries`와 #93의 `20261119110000_rename_inquiry_completed_status`를 포함한다. 새 환경 변수·의존성은 없다. `npm run db:deploy` → `npm run db:generate` → 서버 실행 순서이며 **COMPLETED의 운영 전환 제약은 아래 절차를 먼저 확인한다.** #93 병합 후 이 PR을 dev에 동기화해 병합한다. 프론트 접수 API 전환을 같은 배포에 맞춰야 한다.
+
+```bash
 npm run lint
 npm test
 npm run build
+node scripts/verify-public-account-inquiries.mjs
+node scripts/verify-admin-inquiries.mjs
 node scripts/verify-inquiries.mjs
+node scripts/verify-inquiry-status-migration.mjs
 ```
 
-HTTP 검증은 localhost PostgreSQL에 별도 임시 DB를 만들고 모든 마이그레이션을 적용한 뒤 테스트한다. 운영 DB/메일/MinIO는 사용하지 않으며 테스트 DB는 종료 시 삭제한다. 인증·한글 검증·본인/타인 조회·페이지·동시 접수·제한 해제 후 일반 API 격리·요청 제한, 정상 계정의 비밀번호 확인 우회 차단, 5회 실패/15분 차단/만료/성공 초기화, 두 앱의 동시 실패, 별도 자식 프로세스의 차단 유지, 서비스 직접 호출 및 DB 길이 제한을 검증한다.
-
-새 `add_inquiries` 및 리뷰 보강용 `harden_inquiry_access` 마이그레이션을 함께 적용한다. 후자는 실패 기록 테이블을 만들고 기존 본문을 VARCHAR(5000)으로 제한한다. 기존 값이 5000자를 넘거나 빈 문자열이면 자동으로 자르거나 삭제하지 않고 마이그레이션이 실패하므로 배포 전에 확인해야 한다. Railway Server는 dev 자동 배포 및 기존 `npm run db:deploy` Pre-deploy가 설정되어 있으므로, 향후 승인된 PR 병합/배포 시 적용한다. 이번 로컬 구현으로 운영 변경이나 배포가 이루어진 것은 아니다. 추가 환경 변수는 없다.
-
+HTTP·마이그레이션 검증은 localhost 일회용 DB만 사용하고 종료 시 삭제한다. 공개 접수·회원 추정 방지·기존 POST 410·과거 조회 격리·관리자 답변·동시 접수 한도·프록시 합산 차단 제거·저장 실패 롤백·상태 전환 보존을 검증한다. 실제 이메일 발송·운영 데이터 변경은 수행하지 않는다.
 
 ## 관리자 계정·인증 문의 관리 — MOTU-30-1-1
 
@@ -197,7 +123,7 @@ HTTP 검증은 localhost PostgreSQL에 별도 임시 DB를 만들고 모든 마�
 
 처리 시작은 `SUBMITTED → IN_PROGRESS`로 바꾸고 현재 로그인한 관리자와 최초 시작 시각을 기록한다. 처리 중 문의의 재요청은 다른 관리자도 같은 결과를 반환한다. 동시에 시작해도 상태 전환·최초 담당자·시작 이력은 한 번만 저장된다. 담당자 기록은 배타적 권한이 아니며 별도 인계 API 없이 다른 활성 관리자가 이어서 답변할 수 있다. 미배정 기존 문의는 처리 시작으로 보강한다. 새 발송 예약에서 실제 발송 관리자를 담당자로 기록하고, 다른 관리자가 완료 반영을 복구하면 완료 처리 관리자를 기록한다. 발송 시도의 `adminId`에는 최초 발송자 신원을 계속 보존한다.
 
-기존 문의의 회신 이메일은 마이그레이션에서 가입 이메일로 보강한다. 신규 기존 방식 접수는 접수 당시 가입 이메일을 복사한다. 이미 보존된 주소는 회원 이메일이 나중에 바뀌어도 갱신하지 않는다. 미보강 문의에만 처리 시작 시 가입 이메일을 보강한다. 관리자 발송 본문에는 수신 주소를 받지 않으며 확인 팝업에는 상세의 `replyEmail`을 표시한다.
+기존 문의의 회신 이메일은 마이그레이션에서 가입 이메일로 보강한다. 기존 방식의 신규 접수는 종료하며 저장된 과거 문의만 유지한다. 이미 보존된 주소는 회원 이메일이 나중에 바뀌어도 갱신하지 않는다. 미보강 문의에만 처리 시작 시 가입 이메일을 보강한다. 관리자 발송 본문에는 수신 주소를 받지 않으며 확인 팝업에는 상세의 `replyEmail`을 표시한다.
 
 USR-AUTH-10의 비로그인 접수·입력 회신 이메일·회원 미연결 처리와 PHONE_UNAVAILABLE 접수는 후속 [#92](https://github.com/MARS-crew/motu-backend/issues/92)다. 현재 기존 사용자 토큰/접수/조회 계약과 회원 필수 관계는 유지한다. 후속 접수에서도 `replyEmail`을 명시적으로 보존해 이 관리자 API와 연결해야 한다.
 
@@ -299,7 +225,7 @@ USR-AUTH-10의 비로그인 접수·입력 회신 이메일·회원 미연결 �
 
 - `npm run lint`, `npm test`, `npm run build`
 - `node scripts/verify-admin-inquiries.mjs`: 별도 일회용 localhost DB에 모든 마이그레이션을 적용한다. 실제 HTTP·DB와 모의 공급자로 권한·조회·담당자 경합·초안 버전·동시 발송·확정 실패·타임아웃·명시적 재발송·중단 요청·발송 후 완료 반영 재시도·활동 이력 롤백·수신 주소 보존·계정 상태 유지를 검사한다. 외부 메일을 발송하지 않고 DB를 정리한다.
-- `node scripts/verify-inquiries.mjs`: 기존 문의 전용 인증·접수·조회·요청 제한 회귀 검증.
+- `node scripts/verify-inquiries.mjs`: 이전 접수·토큰 발급 410 종료와 과거 본인 조회·토큰 격리·데이터 보존 회귀 검증.
 - `node scripts/verify-public-account-inquiries.mjs`: 비로그인 세 유형 접수 → 관리자 검색·상세·담당자 지정 → 답변 저장·모의 공급자 발송 → 완료까지 검증한다. 회원 추정 연결 방지·본인 조회 차단·회신 주소 보존·계정 상태 유지·중복 발송·실패 초안 보존·콘솔 미완료·여러 인스턴스의 접수 제한·만료·롤백도 확인한다. 일회용 로컬 DB를 사용하고 정리하며 실제 메일은 보내지 않는다.
 
 이슈 #92의 마이그레이션 `20261118120000_add_public_account_inquiries`는 기존 문의를 삭제하지 않고 회원 관계를 선택 사항으로 만들며 접수 경로·공개 접수 제한 테이블과 경로별 회원 연결 DB 제약을 추가한다. 관리자 기능(PR #93)이 선행 의존성이다. 로컬 적용 명령은 `npm run db:deploy` → `npm run db:generate` → `npm run start:dev`다.
@@ -310,6 +236,6 @@ USR-AUTH-10의 비로그인 접수·입력 회신 이메일·회원 미연결 �
 2. 관리자 계정으로 `POST /api/auth/login`을 실행하고 Access 토큰을 Authorize에 등록한다.
 3. `GET /api/admin/inquiries`의 `keyword`에 접수번호를 넣는다. 결과 항목의 `id`와 `source=PUBLIC_ACCOUNT_AUTH`를 확인한다.
 4. `GET /api/admin/inquiries/{id}`에서 입력한 회신 주소·내용을 확인한 뒤 `POST /api/admin/inquiries/{id}/start-processing` → `PATCH /api/admin/inquiries/{id}/reply-draft` 순서로 실행한다. 초안 본문은 위 예시의 `expectedVersion=0`, `replyText`를 사용한다.
-5. `POST /api/admin/inquiries/{id}/send-reply`에 새 UUID인 `requestId`와 초안 응답의 버전인 `expectedDraftVersion`을 보낸다. Brevo 접수 성공이면 상세가 APPROVED·완료 시각 있음, 로컬 콘솔 발송이면 SIMULATED·IN_PROGRESS·완료 시각 null이 정상이다. 실제 수신 확인은 Brevo 설정과 수신 주소를 확인한 경우에만 수행한다.
+5. `POST /api/admin/inquiries/{id}/send-reply`에 새 UUID인 `requestId`와 초안 응답의 버전인 `expectedDraftVersion`을 보낸다. Brevo 접수 성공이면 상세가 COMPLETED·완료 시각 있음, 로컬 콘솔 발송이면 SIMULATED·IN_PROGRESS·완료 시각 null이 정상이다. 실제 수신 확인은 Brevo 설정과 수신 주소를 확인한 경우에만 수행한다.
 
 Swagger 수동 테스트는 제한 계정 문의 접수 후 관리자로 로그인해 Admin - Inquiries에서 목록·상세 → start-processing → reply-draft → send-reply 순서로 진행한다. 초안 응답의 버전을 발송에 넣는다. 로컬 로그 모의 발송에서는 처리 중을 유지하는 것이 정상이다. 실제 메일 테스트는 사용할 수신 주소와 Brevo 설정을 확인한 별도 테스트에서 수행한다.
