@@ -9,10 +9,8 @@ import { UsersModule } from '../users/users.module.js';
 import { InquiriesController } from './inquiries.controller.js';
 import { InquiriesService } from './inquiries.service.js';
 import { InquiryAuthGuard } from './inquiry-auth.guard.js';
-import { InquirySessionRateLimitGuard } from './inquiry-session-rate-limit.guard.js';
 import { AccountInquiriesController } from './account-inquiries.controller.js';
 import { AccountInquiriesService } from './account-inquiries.service.js';
-import { AccountInquiryRateLimitGuard } from './account-inquiry-rate-limit.guard.js';
 import { InquirySubmissionLimiter } from './inquiry-submission-limiter.service.js';
 
 @Module({
@@ -35,9 +33,7 @@ import { InquirySubmissionLimiter } from './inquiry-submission-limiter.service.j
     InquiriesService,
     InquiriesAdminService,
     InquiryAuthGuard,
-    InquirySessionRateLimitGuard,
     AccountInquiriesService,
-    AccountInquiryRateLimitGuard,
     InquirySubmissionLimiter,
   ],
 })
