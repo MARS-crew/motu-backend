@@ -12,10 +12,10 @@
 | [2차 보안](two-factor.md) | SMS 2차 보안 설정·해제·상태, 중요 기능 재인증, 주문 최초 활성화, SMS 발송 | `modules/two-factor`, `common/sms` |
 | [회원가입·회원](users.md) | 아이디·닉네임 중복 확인, 가입 이메일 인증, 회원가입, 내 정보(마이페이지), 연락처 변경, 관리자 회원 목록·상세·상태 변경·잠금 해제 | `modules/users` |
 | [계좌·포인트](accounts.md) | 내 계좌, 포인트 이력, 추가 지급, 리셋, 관리자 계좌 관리 | `modules/accounts` |
-| [상품](stocks.md) | 카테고리, 상품 목록, 신규 상장, 상품 상세, 최근 본 종목, 관리자 상품 목록·상세 | `modules/sectors`, `modules/stocks` |
+| [상품](stocks.md) | 카테고리, 상품 목록, 신규 상장, 상품 상세, 최근 본 종목, 관리자 상품 목록·상세·정보 수정·거래 중지·재개·종료 | `modules/sectors`, `modules/stocks` |
 | [검색](search.md) | 상품 검색, 최근 검색어 | `modules/stocks`, `modules/search-histories` |
 | [관심상품](wishlists.md) | 관심상품 등록·해제, 관심 상품 목록 | `modules/stocks` |
-| [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, FAQ | `modules/notices`, `modules/faqs` |
+| [공지사항·FAQ](notices.md) | 공지 목록·상세, 홈 최신 공지, 관리자 공지 관리·상단 고정 검증, FAQ | `modules/notices`, `modules/faqs` |
 | [주문](orders.md) | 거래 규칙, 주문 가능 정보, 매수·매도 주문, 주문 취소, 내 주문, 호가 5단계 | `modules/orders`, `modules/matching` |
 | [체결](trades.md) | 최근 체결 | `modules/trades` |
 | [포트폴리오](portfolio.md) | 총 자산, 평가손익, 자산 구성, 보유 종목 | `modules/portfolio` |
@@ -26,6 +26,7 @@
 | [제한 계정 1:1 문의](inquiries.md) | 잠금·정지 계정 본인 확인, 문의 접수·문의번호 발급·본인 내역 조회 | `modules/inquiries` |
 | [상장 신청](listing-applications.md) | 임시저장·작성 중 목록, 단계별 검증·저장, 본인 상세·상태 조회 | `modules/listing-applications` |
 | [보완 요청·재제출](listing-revisions.md) | 본인 보완 요청 조회·기한 검사·증빙 재제출 | `modules/listing-applications` |
+| [거래 모니터링](anomalies.md) | 이상 거래 탐지 기준, 목록·상세, 조치(상품 거래 중지·회원 정지·이상 없음) | `modules/anomalies` |
 | [관리자 활동 이력](admin-activity-logs.md) | 관리자 처리 기록 목록·상세, 상품 변경 이력, 대시보드 최근 운영 이력, 이력 남기는 방법 | `modules/admin-activity-logs` |
 
 ## 문서 관리
@@ -40,6 +41,6 @@
 
 | 항목 | 현재 동작 | 예정 |
 |------|------|------|
-| 공지·FAQ 등록·수정·삭제 (관리자) | 없음, 로컬은 seed로 넣음 | 관리자 화면 작업 때 |
+| FAQ 등록·수정·삭제 (관리자) | 로컬은 seed로 넣음 | 관리자 화면 작업 때 |
 | 회원 탈퇴, 비밀번호 재설정 메일의 화면 주소 | 없음 / 로컬 주소 | 2차 개발 |
 

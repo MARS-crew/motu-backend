@@ -63,6 +63,8 @@ describe('OrdersService', () => {
     match: vi.fn(),
     apply: vi.fn(),
     publishTrades: vi.fn(),
+    publishOrderAccepted: vi.fn(),
+    publishOrderFailed: vi.fn(),
     removeOrder: vi.fn(),
     reloadBook: vi.fn(),
     depth: vi.fn(),
@@ -446,6 +448,11 @@ describe('OrdersService', () => {
         fills,
       );
       expect(matching.publishTrades).toHaveBeenCalledWith(trades);
+      // 이상 거래 탐지용 주문 접수 이벤트
+      expect(matching.publishOrderAccepted).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 100n }),
+        USER_ID,
+      );
       expect(result).toMatchObject({
         filledQty: 80,
         remainingQty: 120,
@@ -467,6 +474,19 @@ describe('OrdersService', () => {
         service.placeOrder(USER_ID, buyOf(5_000, 200)),
       ).rejects.toThrow('호가창과 DB의 주문이 다릅니다');
       expect(matching.reloadBook).toHaveBeenCalledWith(1);
+      // 이상 거래의 주문 처리 실패로 알린다.
+      expect(matching.publishOrderFailed).toHaveBeenCalledWith({
+        stockId: 1,
+        userId: USER_ID,
+        side: OrderSide.BUY,
+        price: 5_000n,
+        qty: 200n,
+        error: expect.objectContaining({
+          message: '호가창과 DB의 주문이 다릅니다: order=11',
+        }),
+        failedDate: expect.any(Date),
+      });
+      expect(matching.publishOrderAccepted).not.toHaveBeenCalled();
     });
 
     it('업무 규칙 에러는 정상적인 거부라서 호가창을 다시 만들지 않는다', async () => {
@@ -478,6 +498,7 @@ describe('OrdersService', () => {
 
       expect(error.error).toBe(OrderErrors.INSUFFICIENT_CASH);
       expect(matching.reloadBook).not.toHaveBeenCalled();
+      expect(matching.publishOrderFailed).not.toHaveBeenCalled();
     });
 
     it('중복 요청(P2002)은 호가창을 다시 만들지 않는다', async () => {

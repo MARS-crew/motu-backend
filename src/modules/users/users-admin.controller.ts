@@ -26,7 +26,7 @@ import { Roles } from '../../common/auth/roles.decorator.js';
 import { ParseIdPipe } from '../../common/pipes/parse-id.pipe.js';
 import { clientInfo } from '../../common/utils/client-info.js';
 import { Role } from '../../generated/prisma/client.js';
-import { AdminReasonReqDto } from './dto/req/admin-reason-req.dto.js';
+import { AdminReasonReqDto } from '../../common/dto/admin-reason-req.dto.js';
 import { ChangeUserStatusReqDto } from './dto/req/change-user-status-req.dto.js';
 import { GetAdminUsersReqDto } from './dto/req/get-admin-users-req.dto.js';
 import { ChangeUserStatusResDto } from './dto/res/change-user-status-res.dto.js';
@@ -84,11 +84,16 @@ export class UsersAdminController {
     @Body() dto: ChangeUserStatusReqDto,
     @Req() request: Request,
   ): Promise<ChangeUserStatusResDto> {
-    return this.usersAdminService.changeStatus(userId, dto.status, {
-      adminId: admin.userId,
-      reason: dto.reason,
-      client: clientInfo(request),
-    });
+    return this.usersAdminService.changeStatus(
+      userId,
+      dto.status,
+      {
+        adminId: admin.userId,
+        reason: dto.reason,
+        client: clientInfo(request),
+      },
+      dto.anomalyId,
+    );
   }
 
   @Post(':userId/unlock')

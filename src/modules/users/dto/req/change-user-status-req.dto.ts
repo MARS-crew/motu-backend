@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn } from 'class-validator';
+import { IsEnum } from 'class-validator';
 import { UserStatus } from '../../../../generated/prisma/client.js';
-import { AdminReasonReqDto } from './admin-reason-req.dto.js';
+import { AdminReasonReqDto } from '../../../../common/dto/admin-reason-req.dto.js';
 
 const MANAGEABLE_USER_STATUSES = [
   UserStatus.ACTIVE,
@@ -16,6 +16,6 @@ export class ChangeUserStatusReqDto extends AdminReasonReqDto {
     enum: MANAGEABLE_USER_STATUSES,
     example: UserStatus.BLOCKED,
   })
-  @IsIn(MANAGEABLE_USER_STATUSES, { message: '변경 상태를 선택해 주세요.' })
-  status: (typeof MANAGEABLE_USER_STATUSES)[number];
+  @IsEnum(UserStatus, { message: '변경 상태를 선택해 주세요.' })
+  status: UserStatus;
 }

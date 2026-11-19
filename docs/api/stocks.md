@@ -83,6 +83,7 @@
 | `operatorName` | 운영사 |
 | `metrics` | 주요 서비스 지표 `{ mau, dau, revenue, transactionVolume, startDate, endDate }` — 값이 없으면 각각 null |
 | `listingDate`, `tradeStatus` | 상장일, 거래 상태 |
+| `statusNotice` | 거래 중지·종료 안내문 (관리자가 입력, 없으면 null) |
 | `currentPrice`, `changeAmount`, `changeRate` | 현재가, 전일 대비 |
 | `isWishlisted` | 관심상품 여부 |
 
@@ -94,6 +95,7 @@
 - 지표나 정보 값이 null이면 화면에 "정보없음"을 표시합니다.
 - 지표는 상장 신청에서 입력한 MAU, DAU, 연간 매출(원), 거래액(원), 집계 기간입니다. (화면 예시의 누적 가입자·평균 수익률은 받지 않음)
 - 거래 대기·중지·종료 상품은 매수·매도 버튼을 비활성화합니다. (SRS No.12)
+- 거래 중지·종료 상품은 `statusNotice`가 있으면 상품 상세에 안내로 표시합니다. 종료 상품은 '거래 종료 안내'에 이 문구를 씁니다(ADM-PRD-05 사용자 앱 예시).
 - 호가·차트·체결 탭은 [호가 5단계](orders.md#호가-5단계), [차트·시세](charts.md), [최근 체결](trades.md#최근-체결)을 씁니다.
 
 ## 최근 본 종목
@@ -142,16 +144,71 @@
 | 탭 | 필드 |
 |------|------|
 | 기본 정보 | `summary`(한 줄 소개), `description`(상품 소개), `operatorName`, `officialUrl`, `logoImageUrl`, `mainImageUrl`, `isPublic` |
-| 거래 정보 | `currentPrice`, `listedShares`(총 발행량), `listingDate`(거래 시작일시), `openOrderCount`(미체결 주문 건수), `tradeStatus` |
+| 거래 정보 | `currentPrice`, `listedShares`(총 발행량), `listingDate`(거래 시작일시), `openOrderCount`(미체결 주문 건수), `tradeStatus`, `statusNotice`(사용자 안내문) |
 | 서비스 지표 (ADM-PRD-02-02) | `metrics { mau, transactionVolume, baseDate }`. 값이 없으면 null이고 화면에는 '미등록'으로 표시합니다. |
 | 변경 이력 (ADM-PRD-02-01) | [관리자 활동 이력](admin-activity-logs.md) `GET /api/admin/activity-logs?targetType=STOCK&targetId={stockId}` |
 
-- `metrics.baseDate`(지표 기준일)는 상장 신청에서 받은 지표 집계 기간의 종료일입니다.
-- 상품 상태에 따라 [거래 중지·재개] 또는 [상품 종료] 버튼을 보여 줍니다. (정보 수정·거래 상태 변경 API는 다음 작업에서 추가)
+- `metrics.baseDate`(지표 기준일)는 상장 신청에서 받은 지표 집계 기간의 종료일이고, [정보 수정](#상장-상품-정보-수정-adm-prd-03)에서 바꿀 수 있습니다.
+- 상품 상태에 따라 버튼을 보여 줍니다: 거래 가능 → [거래 중지]·[상품 종료], 거래 중지 → [거래 재개]·[상품 종료], 거래 대기 → [상품 종료], 거래 종료 → 없음.
 
 | 에러 | 상황 |
 |------|------|
 | 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 |
 | 400 `BAD_REQUEST` | 쿼리 값 오류 (상태·노출 상태 값, 페이지 범위 등) |
 | 403 `AUTH_FORBIDDEN` | 관리자가 아님 |
+
+### 상장 상품 정보 수정 (ADM-PRD-03)
+
+`PATCH /api/admin/stocks/:stockId`
+
+| 요청 | 필수 | 설명 |
+|------|------|------|
+| `name` | O | 상품명 1~30자 |
+| `sectorCode` | O | 카테고리 코드 ([카테고리](#카테고리), DB 9개 기준) |
+| `isPublic` | O | 노출 상태 (true 공개, false 비공개) |
+| `reason` | O | 수정 사유 1~200자 |
+| `summary` |  | 한 줄 소개 1~60자. 보내지 않으면 그대로 |
+| `description` |  | 상품 소개 500자 이내. null이면 지움 |
+| `officialUrl` |  | 공식 URL (https, 500자 이내). null이면 지움 |
+| `mau`, `transactionVolume` |  | 서비스 지표 (0 이상 정수). null이면 지움 |
+| `metricsBaseDate` |  | 지표 기준일 `YYYY-MM-DD`. MAU나 거래액이 남아 있으면 필수 |
+
+응답: 수정된 [상장 상품 상세](#상장-상품-상세-adm-prd-02)
+
+- 선택 항목은 **보내지 않으면 그대로**, **null을 보내면 지웁니다.** 화면 폼을 그대로 보내면 됩니다.
+- 바뀐 항목만 저장하고, 변경 전·후 값과 사유를 관리자 활동 이력(`STOCK_UPDATE`)에 남깁니다. 변경 내용 확인 모달은 프론트에서 기존 상세와 비교해 보여 줍니다.
+- 거래 상태는 이 API로 바꾸지 않습니다. 아래 거래 중지·재개·종료를 씁니다.
+- 대표 이미지 변경은 아직 지원하지 않습니다. 승인된 상품의 이미지를 어떻게 저장·제공할지 상장 승인 작업과 함께 정합니다.
+
+| 에러 | 상황 |
+|------|------|
+| 400 `STOCK_NOT_CHANGED` | 바뀐 항목이 없음 |
+| 400 `STOCK_METRICS_DATE_REQUIRED` | MAU·거래액이 있는데 지표 기준일이 없음 |
+| 400 `STOCK_SECTOR_NOT_FOUND` | 없는 카테고리 코드 |
+| 400 `BAD_REQUEST` | 필수값 누락, 길이·형식 오류 (사유 누락이면 "사유 입력은 필수입니다.") |
+| 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 |
+
+### 거래 중지·재개 (ADM-PRD-04), 상품 종료 (ADM-PRD-05)
+
+| 기능 | API | 요청 | 할 수 있는 상태 |
+|------|------|------|------|
+| 거래 중지 | `POST /api/admin/stocks/:stockId/pause` | `reason`(필수), `notice`(사용자 안내문, 선택 200자), `anomalyId`(선택, 이상 거래에서 넘어온 경우) | 거래 가능 |
+| 거래 재개 | `POST /api/admin/stocks/:stockId/resume` | `reason`(필수) | 거래 중지 |
+| 상품 종료 | `POST /api/admin/stocks/:stockId/close` | `reason`(필수), `notice`(사용자 안내문, **필수** 1~200자) | 거래 대기·가능·중지 |
+
+응답: `stockId`, `statusBefore`, `statusAfter`, `canceledOrderCount`(취소한 미체결 주문 수, 재개는 0)
+
+- **거래 중지와 종료는 미체결 주문을 모두 취소하고 예약 포인트·수량을 해제**합니다. 호가창도 비워집니다. 중지 확인 화면의 "미체결 주문 N건 취소"는 상세의 `openOrderCount`를 씁니다.
+- 거래 중지 중에는 신규 주문이 `ORDER_STOCK_NOT_TRADABLE`로 막힙니다. 재개하면 그때부터 주문을 다시 받습니다.
+- 상품 종료는 되돌릴 수 없습니다. 이미 체결해 보유한 수량은 그대로 남고 자동 매도·환급은 없습니다. 켜진 지정가 알림도 끕니다.
+- 안내문은 사용자 상품 상세의 `statusNotice`로 나갑니다. 재개하면 지웁니다.
+- 처리 전·후 상태, 안내문, 취소한 주문 수, 사유를 관리자 활동 이력(`STOCK_PAUSE`, `STOCK_RESUME`, `STOCK_CLOSE`)에 남깁니다.
+- 이상 거래 상세(ADM-MON-02)에서 "상품 거래 중지"로 넘어온 경우도 같은 거래 중지 API를 쓰고 `anomalyId`를 함께 보냅니다. 거래 중지와 같은 트랜잭션에서 그 이상 거래를 처리완료합니다. ([거래 모니터링](anomalies.md#조치-adm-mon-02-46번)) 처리 후 이상 거래 상세로 돌아가는 것은 프론트에서 처리합니다.
+
+| 에러 | 상황 | 화면 처리 |
+|------|------|------|
+| 409 `STOCK_INVALID_TRADE_STATUS` + `details { tradeStatus }` | 지금 상태에서 할 수 없는 처리 (예: 이미 중지된 상품 중지, 종료된 상품 재개) | 상세를 다시 불러옵니다. |
+| 400 `BAD_REQUEST` | 사유 누락, 종료 안내문 누락, 길이 초과 | 입력칸 아래 안내 |
+| 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 | |
+| 400 `ANOMALY_TARGET_MISMATCH` / 409 `ANOMALY_ALREADY_RESOLVED` | `anomalyId`가 이 상품의 이상 거래가 아님 / 이미 처리완료 (주문 취소 전에 막음) | 이상 거래 상세를 다시 불러옵니다. |
 

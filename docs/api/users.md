@@ -164,13 +164,14 @@
 |------|------|
 | `status` | 변경할 상태 (`ACTIVE` / `LOCKED` / `BLOCKED`) |
 | `reason` | 변경 사유, 1~200자, 필수 |
+| `anomalyId` | 선택. 이상 거래 상세(ADM-MON-02)에서 회원 정지로 넘어온 경우 이상 거래 ID. `status`가 `BLOCKED`일 때만 |
 
 응답: `userId`, `statusBefore`, `statusAfter`
 
 - 잠금·정지로 바꾸면 그 회원의 로그인 세션(Refresh 토큰)을 모두 만료합니다. 이미 받은 Access 토큰도 다음 요청부터 `AUTH_ACCOUNT_LOCKED` / `AUTH_ACCOUNT_BLOCKED`로 막힙니다.
 - 잠금에서 정상으로 바꾸면 로그인 실패 횟수도 0으로 초기화합니다.
 - 변경 전·후 상태와 사유는 관리자 활동 이력(`USER_STATUS_CHANGE`)에 남습니다.
-- 이상 거래 상세(ADM-MON-02)에서 진입한 경우 처리 후 그 화면으로 돌아가는 것은 프론트에서 처리합니다.
+- 이상 거래 상세(ADM-MON-02)에서 진입한 경우 `anomalyId`를 함께 보내면 정지와 같은 트랜잭션에서 그 이상 거래를 처리완료합니다. 이상 거래의 회원이 아니면 400 `ANOMALY_TARGET_MISMATCH`, 정지가 아니면 400 `ANOMALY_INVALID_ACTION`, 이미 처리완료면 409 `ANOMALY_ALREADY_RESOLVED`입니다. ([거래 모니터링](anomalies.md#조치-adm-mon-02-46번)) 처리 후 그 화면으로 돌아가는 것은 프론트에서 처리합니다.
 
 ### 계정 잠금 해제 (ADM-MBR-02-02)
 

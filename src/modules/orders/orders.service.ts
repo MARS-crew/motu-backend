@@ -189,11 +189,22 @@ export class OrdersService {
               );
               return result;
             }, TRADING_TX_OPTIONS),
+          (error) =>
+            this.matching.publishOrderFailed({
+              stockId: stock.id,
+              userId,
+              side: dto.side,
+              price,
+              qty,
+              error,
+              failedDate: new Date(),
+            }),
         );
 
-        // 커밋에 성공한 뒤에만 메모리 호가창을 바꾸고 체결을 알린다.
+        // 커밋에 성공한 뒤에만 메모리 호가창을 바꾸고 체결·주문을 알린다.
         this.matching.apply(stock.id, settled, match.fills);
         this.matching.publishTrades(trades);
+        this.matching.publishOrderAccepted(settled, userId);
         return settled;
       });
       await this.twoFactor.markOrderActivated(userId);
@@ -476,10 +487,12 @@ export class OrdersService {
   /**
    * 정산 중 예상하지 못한 에러가 나면 호가창과 DB가 어긋났을 수 있으므로 그 종목의 호가창을 DB 기준으로 다시 만든다.
    * 업무 규칙 에러와 중복 요청(P2002)은 정상적인 거부라서 그대로 던진다.
+   * onUnexpected는 호가창을 다시 만든 뒤 예상하지 못한 에러를 알릴 때 쓴다 (이상 거래의 주문 처리 실패).
    */
   private async withBookRecovery<T>(
     stockId: number,
     task: () => Promise<T>,
+    onUnexpected?: (error: unknown) => void,
   ): Promise<T> {
     try {
       return await task();
@@ -490,6 +503,7 @@ export class OrdersService {
           error.code === 'P2002');
       if (!isExpected) {
         await this.matching.reloadBook(stockId);
+        onUnexpected?.(error);
       }
       throw error;
     }

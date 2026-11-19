@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { Notice, Prisma } from '../../generated/prisma/client.js';
+import {
+  NoticeStatus,
+  NoticeType,
+  Prisma,
+} from '../../generated/prisma/client.js';
 import { GetLatestNoticeResDto } from './dto/res/get-latest-notice-res.dto.js';
 import { GetNoticeResDto } from './dto/res/get-notice-res.dto.js';
 import {
@@ -10,16 +14,26 @@ import {
 } from './dto/res/get-notices-res.dto.js';
 import { NoticeErrors } from './notices.errors.js';
 
+const stockInclude = {
+  stock: { select: { name: true } },
+} satisfies Prisma.NoticeInclude;
+type PublicNotice = Prisma.NoticeGetPayload<{ include: typeof stockInclude }>;
+
 @Injectable()
 export class NoticesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** 게시 중인 공지를 중요 공지 먼저, 그다음 최근 게시순으로 조회한다. */
-  async getNotices(page: number, size: number): Promise<GetNoticesResDto> {
-    const where = this.postedWhere(new Date());
+  async getNotices(
+    page: number,
+    size: number,
+    stockId?: number,
+  ): Promise<GetNoticesResDto> {
+    const where = this.postedWhere(new Date(), stockId);
     const [notices, totalCount] = await this.prisma.$transaction([
       this.prisma.notice.findMany({
         where,
+        include: stockInclude,
         orderBy: [
           { isImportant: 'desc' },
           { postStartDate: 'desc' },
@@ -43,6 +57,7 @@ export class NoticesService {
   async getLatestNotice(): Promise<GetLatestNoticeResDto> {
     const notice = await this.prisma.notice.findFirst({
       where: this.postedWhere(new Date()),
+      include: stockInclude,
       orderBy: [{ postStartDate: 'desc' }, { id: 'desc' }],
     });
     return { notice: notice ? this.toItem(notice) : null };
@@ -51,6 +66,7 @@ export class NoticesService {
   async getNotice(noticeId: number): Promise<GetNoticeResDto> {
     const notice = await this.prisma.notice.findFirst({
       where: { AND: [{ id: noticeId }, this.postedWhere(new Date())] },
+      include: stockInclude,
     });
     if (!notice) {
       throw new BusinessException(NoticeErrors.NOT_FOUND);
@@ -61,19 +77,31 @@ export class NoticesService {
   /**
    * 게시 기간 안에 있는 공지 조건. 게시 시작·종료를 배치로 바꾸지 않고 조회할 때 거른다.
    */
-  private postedWhere(now: Date): Prisma.NoticeWhereInput {
+  private postedWhere(now: Date, stockId?: number): Prisma.NoticeWhereInput {
+    const stockNotice = {
+      type: NoticeType.STOCK,
+      stock: { isPublic: true, isDeleted: false },
+    };
     return {
       isDeleted: false,
+      status: NoticeStatus.POSTED,
       postStartDate: { lte: now },
       OR: [{ postEndDate: null }, { postEndDate: { gt: now } }],
+      AND:
+        stockId === undefined
+          ? { OR: [{ type: NoticeType.ALL }, stockNotice] }
+          : { ...stockNotice, stockId },
     };
   }
 
-  private toItem(notice: Notice): NoticeItemResDto {
+  private toItem(notice: PublicNotice): NoticeItemResDto {
+    if (!notice.postStartDate)
+      throw new Error('게시 공지의 시작 일시가 없습니다.');
     return {
       noticeId: notice.id,
       type: notice.type,
       title: notice.title,
+      stockName: notice.stock?.name ?? null,
       isImportant: notice.isImportant,
       postDate: notice.postStartDate,
     };

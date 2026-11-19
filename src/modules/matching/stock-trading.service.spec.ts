@@ -280,4 +280,123 @@ describe('StockTradingService', () => {
       expect(matching.clearBook).not.toHaveBeenCalled();
     });
   });
+
+  describe('pauseStock', () => {
+    beforeEach(() => {
+      tx.stock.findFirst.mockResolvedValue({
+        id: STOCK_ID,
+        tradeStatus: TradeStatus.ACTIVE,
+      });
+    });
+
+    it('미체결 주문을 취소하고 거래를 중지한다. 지정가 알림은 그대로 둔다', async () => {
+      tx.order.findMany.mockResolvedValue([
+        {
+          id: 1n,
+          accountId: 5,
+          side: OrderSide.BUY,
+          qty: 10n,
+          filledQty: 0n,
+          lockedAmount: 50_000n,
+        },
+        {
+          id: 2n,
+          accountId: 3,
+          side: OrderSide.SELL,
+          qty: 4n,
+          filledQty: 1n,
+          lockedAmount: 0n,
+        },
+      ]);
+
+      const result = await service.pauseStock(STOCK_ID);
+
+      expect(tx.account.update).toHaveBeenCalledWith({
+        where: { id: 5 },
+        data: { lockedCash: { decrement: 50_000n }, version: { increment: 1 } },
+      });
+      expect(tx.holding.update).toHaveBeenCalledWith({
+        where: { accountId_stockId: { accountId: 3, stockId: STOCK_ID } },
+        data: { lockedQty: { decrement: 3n } },
+      });
+      expect(tx.order.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: [1n, 2n] } },
+        data: {
+          status: OrderStatus.CANCELED,
+          lockedAmount: 0n,
+          canceledDate: expect.any(Date),
+        },
+      });
+      expect(tx.stock.update).toHaveBeenCalledWith({
+        where: { id: STOCK_ID },
+        data: { tradeStatus: TradeStatus.PAUSED },
+      });
+      expect(tx.priceAlert.updateMany).not.toHaveBeenCalled();
+      expect(matching.clearBook).toHaveBeenCalledWith(STOCK_ID);
+      expect(result).toEqual({ canceledCount: 2 });
+    });
+
+    it('check가 막으면 주문·상태를 바꾸지 않고 호가창도 그대로 둔다', async () => {
+      const blocked = new Error('blocked');
+
+      await expect(
+        service.pauseStock(STOCK_ID, {
+          check: () => {
+            throw blocked;
+          },
+        }),
+      ).rejects.toBe(blocked);
+      expect(tx.order.findMany).not.toHaveBeenCalled();
+      expect(tx.stock.update).not.toHaveBeenCalled();
+      expect(matching.clearBook).not.toHaveBeenCalled();
+    });
+
+    it('상태를 바꾼 뒤 같은 트랜잭션에서 afterChange를 호출한다', async () => {
+      tx.order.findMany.mockResolvedValue([]);
+      const afterChange = vi.fn();
+
+      await service.pauseStock(STOCK_ID, { afterChange });
+
+      expect(afterChange).toHaveBeenCalledWith(tx, {
+        stock: { id: STOCK_ID, tradeStatus: TradeStatus.ACTIVE },
+        canceledCount: 0,
+      });
+      expect(afterChange.mock.invocationCallOrder[0]).toBeGreaterThan(
+        tx.stock.update.mock.invocationCallOrder[0],
+      );
+    });
+  });
+
+  describe('resumeStock', () => {
+    it('거래 가능으로 바꾸고 주문은 건드리지 않는다', async () => {
+      tx.stock.findFirst.mockResolvedValue({
+        id: STOCK_ID,
+        tradeStatus: TradeStatus.PAUSED,
+      });
+      const afterChange = vi.fn();
+
+      await service.resumeStock(STOCK_ID, { afterChange });
+
+      expect(matching.runExclusive).toHaveBeenCalledWith(
+        STOCK_ID,
+        expect.any(Function),
+      );
+      expect(tx.stock.update).toHaveBeenCalledWith({
+        where: { id: STOCK_ID },
+        data: { tradeStatus: TradeStatus.ACTIVE },
+      });
+      expect(tx.order.findMany).not.toHaveBeenCalled();
+      expect(afterChange).toHaveBeenCalledWith(tx, {
+        stock: { id: STOCK_ID, tradeStatus: TradeStatus.PAUSED },
+        canceledCount: 0,
+      });
+    });
+
+    it('없는 상품이면 404', async () => {
+      tx.stock.findFirst.mockResolvedValue(null);
+
+      const error = await errorOf(service.resumeStock(STOCK_ID));
+      expect(error.error).toBe(StockErrors.NOT_FOUND);
+    });
+  });
 });
