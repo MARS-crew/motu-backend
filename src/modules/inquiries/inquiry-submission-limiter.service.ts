@@ -15,19 +15,19 @@ export class InquirySubmissionLimiter {
     private readonly config: ConfigService<EnvironmentVariables, true>,
   ) {}
 
-  async consumeIp(ip: string) {
+  async cleanupExpired() {
     // 요청당 최대 100행만 청소한다. 원문 IP·이메일과 만료 이력을 보존하지 않는다.
+    // 다른 이메일의 카운터 잠금과 교차하지 않도록 접수 트랜잭션 밖에서 청소한다.
     await this.prisma.$executeRaw`
       DELETE FROM inquiry_submission_limits WHERE expires_at <= clock_timestamp() AND key IN (
         SELECT key FROM inquiry_submission_limits WHERE expires_at <= clock_timestamp()
         ORDER BY expires_at LIMIT 100 FOR UPDATE SKIP LOCKED
       )
     `;
-    await this.consume(this.prisma, 'ip', ip, 60, 60);
   }
 
   consumeEmail(tx: Prisma.TransactionClient, email: string) {
-    return this.consume(tx, 'email', email.toLowerCase(), 3, 3600);
+    return this.consume(tx, 'email', email.toLowerCase(), 10, 3600);
   }
 
   private async consume(
@@ -43,7 +43,9 @@ export class InquirySubmissionLimiter {
     )
       .update(`motu:public-inquiry:${scope}:v1:${identity}`)
       .digest('hex');
-    const [result] = await tx.$queryRaw<{ count: number }[]>`
+    const [result] = await tx.$queryRaw<
+      { count: number; retryAfterSeconds: number }[]
+    >`
       INSERT INTO inquiry_submission_limits (key, count, expires_at)
       VALUES (${key}, 1, clock_timestamp() + ${seconds} * INTERVAL '1 second')
       ON CONFLICT (key) DO UPDATE SET
@@ -52,9 +54,18 @@ export class InquirySubmissionLimiter {
         expires_at = CASE WHEN inquiry_submission_limits.expires_at <= clock_timestamp()
           THEN clock_timestamp() + ${seconds} * INTERVAL '1 second'
           ELSE inquiry_submission_limits.expires_at END
-      RETURNING count
+      RETURNING count,
+        GREATEST(1, CEIL(EXTRACT(EPOCH FROM (expires_at - clock_timestamp()))))::int AS "retryAfterSeconds"
     `;
     if (!result || result.count > limit)
-      throw new BusinessException(InquiryErrors.SUBMISSION_RATE_LIMITED);
+      throw new BusinessException(
+        InquiryErrors.SUBMISSION_RATE_LIMITED,
+        undefined,
+        {
+          retryAfterSeconds: result?.retryAfterSeconds ?? seconds,
+          limit,
+          windowSeconds: seconds,
+        },
+      );
   }
 }
