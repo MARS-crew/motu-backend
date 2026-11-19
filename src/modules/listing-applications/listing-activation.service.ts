@@ -49,6 +49,7 @@ export class ListingActivationService
               isDeleted: false,
               tradeStatus: TradeStatus.PENDING,
               listingDate: { lte: dueAt },
+              listingBlockedAt: null,
             },
           },
           select: { id: true, userId: true, stockId: true },
@@ -69,16 +70,27 @@ export class ListingActivationService
               error.error.code === MatchingErrors.LISTING_NOT_PENDING.code
             )
               continue;
+            if (
+              error instanceof BusinessException &&
+              error.error.code === MatchingErrors.ISSUER_WITHDRAWN.code
+            ) {
+              this.logger.warn(
+                `상장 발행 보류: 신청서 ${application.id}, 상품 ${application.stockId}. 신청자 탈퇴로 자동 재시도를 중단합니다.`,
+              );
+              continue;
+            }
             this.logger.error(
               `상장 거래 시작 실패: 신청서 ${application.id}, 상품 ${application.stockId}. 다음 주기에 재시도합니다.`,
+              error instanceof Error ? error.stack : String(error),
             );
           }
         }
         if (applications.length < 100) break;
       }
-    } catch {
+    } catch (error) {
       this.logger.error(
         '상장 거래 시작 예약 조회 실패. 다음 주기에 재시도합니다.',
+        error instanceof Error ? error.stack : String(error),
       );
     } finally {
       this.running = false;
