@@ -46,7 +46,7 @@ export class ListingReviewController {
   @ApiOperation({
     summary: '상장 신청 검토 시작',
     description:
-      '접수 → 검토 중. 상세 조회는 상태를 변경하지 않는다. 중복 처리는 409.',
+      '접수 → 검토 중. 프론트는 접수 상태에서 [심사 결과 처리] 클릭 시 이 API 성공 후 처리 화면으로 이동한다. 상세 조회는 상태를 변경하지 않는다. 이미 검토 중이면 다시 호출하지 않는다. 경합으로 409이면 최신 상태를 다시 조회한다.',
   })
   start(
     @Param('id', ParseIdPipe) id: number,
@@ -83,7 +83,7 @@ export class ListingReviewController {
   @ApiOperation({
     summary: '미재제출 보완 기한 연장',
     description:
-      '보완 요청 상태만 허용. 경과한 기한도 미래로 연장할 수 있다. 기존 기한보다 늦어야 하며 연장 사유 필수.',
+      '보완 요청 상태만 허용. 상세 화면의 [보완 기한 연장]에서 새 기한과 사유를 입력해 호출한다. 경과한 기한도 미래로 연장할 수 있다. 기존 기한보다 늦어야 하며 연장 사유 필수.',
   })
   extend(
     @Param('id', ParseIdPipe) id: number,
