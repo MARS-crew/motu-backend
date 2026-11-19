@@ -1,5 +1,6 @@
 import { AdminActivityLogsModule } from '../admin-activity-logs/admin-activity-logs.module.js';
 import { MatchingModule } from '../matching/matching.module.js';
+import { StocksModule } from '../stocks/stocks.module.js';
 import { ListingReviewController } from './listing-review.controller.js';
 import { ListingReviewService } from './listing-review.service.js';
 import { ListingActivationService } from './listing-activation.service.js';
@@ -26,6 +27,7 @@ import { ListingRevisionsService } from './listing-revisions.service.js';
     NotificationsModule,
     AdminActivityLogsModule,
     MatchingModule,
+    StocksModule,
   ],
   controllers: [
     ListingReviewController,
