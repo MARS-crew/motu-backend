@@ -484,7 +484,6 @@ try {
     { totalIssuedQuantity: '0' },
     { finalPrice: '9007199254740992' },
     { finalPrice: '9007199254740991', totalIssuedQuantity: '9007199254740991' },
-    { finalPrice: '11000' },
     { listingDate: '2026-02-30' },
     { listingDate: '2000-01-01' },
     { listingDate: future(3).slice(0, 10) },
@@ -549,7 +548,7 @@ try {
   const changedApproval = {
     ...approval,
     finalPrice: '11000',
-    priceAdjustmentReason: '산정 근거 재검토 결과 조정',
+    reason: '산정 근거 재검토 결과 조정',
   };
   const approvedResponses = await Promise.all([
     request(`${route}/${one.id}/approve`, admin.token, 'POST', changedApproval),
@@ -562,6 +561,7 @@ try {
   const stock = await prisma.stock.findUnique({
     where: { id: approved.stockId },
   });
+  assert.match(stock.stockCode, /^MOTU[0-9]{4,}$/);
   assert.equal(stock.tradeStatus, 'PENDING');
   assert.equal(stock.basePrice, 11000n);
   assert.equal(stock.listedShares, 1000n);
@@ -588,7 +588,7 @@ try {
   assert.equal(userDetail.stockId, stock.id);
   assert.equal(
     userDetail.approval.priceAdjustmentReason,
-    changedApproval.priceAdjustmentReason,
+    changedApproval.reason,
   );
   await post(one.id, 'approve', changedApproval, { status: 409 });
   await post(
@@ -658,9 +658,45 @@ try {
     app.get(MatchingService).getBook(stock.id).depth('SELL', 5).length,
     1,
   );
+  // 기존 seed 코드와 같은 이름 공간을 사용하고 서로 다른 생성 트랜잭션도 중복되지 않는다.
+  const { StockCodesService } =
+    await import('../dist/modules/stocks/stock-codes.service.js');
+  const codes = app.get(StockCodesService);
+  await assert.rejects(
+    prisma.$transaction(async (tx) => {
+      await tx.stock.update({
+        where: { id: stock.id },
+        data: { stockCode: 'MOTU0042' },
+      });
+      assert.equal(await codes.next(tx), 'MOTU0043');
+      throw new Error('rollback code fixture');
+    }),
+  );
+  const codeProducts = await Promise.all(
+    [0, 1].map(() =>
+      prisma.$transaction(async (tx) => {
+        const stockCode = await codes.next(tx);
+        return tx.stock.create({
+          data: { ...stock, id: undefined, stockCode },
+        });
+      }),
+    ),
+  );
+  assert.equal(new Set(codeProducts.map((p) => p.stockCode)).size, 2);
+  assert(codeProducts.every((p) => /^MOTU[0-9]{4,}$/.test(p.stockCode)));
+
   // 다른 프로세스처럼 별도 매칭 큐를 사용해도 발행은 한 번만 성공한다.
   const otherApp = await listing({ status: 'UNDER_REVIEW' });
-  const otherApproved = await post(otherApp.id, 'approve', approval);
+  const otherApproved = await post(otherApp.id, 'approve', {
+    ...approval,
+    finalPrice: '11000',
+    priceAdjustmentReason: '기존 클라이언트 조정 사유',
+  });
+  assert.equal(
+    (await json(`${route}/${otherApp.id}`, admin.token)).approval
+      .priceAdjustmentReason,
+    '기존 클라이언트 조정 사유',
+  );
   const trading1 = app.get(StockTradingService);
   const independentMatching = new MatchingService(prisma);
   const { SettlementService } =
@@ -670,6 +706,54 @@ try {
     independentMatching,
     app.get(SettlementService),
   );
+  let releaseStock, stockLocked;
+  const stockReady = new Promise((resolve) => (stockLocked = resolve));
+  const stockGate = new Promise((resolve) => (releaseStock = resolve));
+  const statusChange = trading1.closeStock(codeProducts[0].id, {
+    afterChange: async () => {
+      stockLocked();
+      await stockGate;
+    },
+  });
+  statusChange.catch(() => {});
+  await stockReady;
+  let fkCompleted = false;
+  const fkInsert = prisma.order
+    .create({
+      data: {
+        accountId: (
+          await prisma.account.findUniqueOrThrow({
+            where: { userId: owner.id },
+          })
+        ).id,
+        stockId: codeProducts[0].id,
+        clientOrderId: randomUUID(),
+        side: 'SELL',
+        price: 10000n,
+        qty: 1n,
+      },
+    })
+    .then((result) => {
+      fkCompleted = true;
+      return result;
+    });
+  try {
+    await Promise.race([
+      fkInsert,
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error('상품 상태 잠금이 FK INSERT까지 차단합니다.')),
+          2000,
+        ),
+      ),
+    ]);
+    assert(fkCompleted);
+  } finally {
+    releaseStock();
+    await statusChange;
+    await fkInsert;
+  }
+
   const opens = await Promise.allSettled([
     trading1.openListing(otherApproved.stockId, owner.id),
     trading2.openListing(otherApproved.stockId, owner.id),
@@ -727,9 +811,10 @@ try {
   assert.equal(approvalLog.afterValue.stockId, stock.id);
   assert.equal(
     approvalLog.afterValue.priceAdjustmentReason,
-    changedApproval.priceAdjustmentReason,
+    changedApproval.reason,
   );
-  assert.equal(approvalLog.reason, approval.reason);
+  assert.equal(approvalLog.reason, changedApproval.reason);
+  assert.equal(approvalLog.summary, '검토 중 → 승인');
   // #88의 아직 미병합인 상태값을 이 일회용 DB에만 준비한다. 탈퇴 API 자체를 대체 검증하는 것은 아니다.
   await prisma.$executeRawUnsafe(
     "ALTER TYPE user_status ADD VALUE IF NOT EXISTS 'WITHDRAWN'",
@@ -912,6 +997,10 @@ try {
         'approval-first-withdrawal-contract',
         'withdrawal-first-issuance-lock',
         'persisted-hold-admin-view-no-retry',
+        'single-approval-reason',
+        'korean-audit-summary',
+        'seed-compatible-concurrent-stock-codes',
+        'stock-status-lock-fk-compatibility',
       ],
     }),
   );
