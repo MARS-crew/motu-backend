@@ -460,6 +460,10 @@ model Stock {
   listingApplication ListingApplication?
   anomalies          Anomaly[]
 
+  /// 발행 보류 시 PENDING을 유지하고 예약 재시도에서 제외한다. 관리자 확인용이다.
+  listingBlockedAt DateTime? @map("listing_blocked_at") @db.Timestamptz(3)
+  listingBlockedReason String? @map("listing_blocked_reason") @db.VarChar(255)
+
   @@index([sectorCode])
   @@index([listingDate])
   @@map("stocks")
