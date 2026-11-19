@@ -10,6 +10,7 @@ import { AdminActivityLogsModule } from './modules/admin-activity-logs/admin-act
 import { AnomaliesModule } from './modules/anomalies/anomalies.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { ChartsModule } from './modules/charts/charts.module.js';
+import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { FaqsModule } from './modules/faqs/faqs.module.js';
 import { FilesModule } from './modules/files/files.module.js';
 import { HealthModule } from './modules/health/health.module.js';
@@ -67,6 +68,7 @@ import { UsersModule } from './modules/users/users.module.js';
     TwoFactorModule,
     AdminActivityLogsModule,
     AnomaliesModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}
