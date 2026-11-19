@@ -112,8 +112,8 @@ enum InquiryType {
 enum InquiryStatus {
   SUBMITTED
   IN_PROGRESS
-  /// 기존 사용자 API와 호환되는 답변 처리 완료 상태. 회원 승인·계정 해제를 뜻하지 않는다.
-  APPROVED
+  /// 문의 답변 처리 완료. 회원 승인·계정 해제를 뜻하지 않는다.
+  COMPLETED
 
   @@map("inquiry_status")
 }
