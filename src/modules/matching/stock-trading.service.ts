@@ -185,7 +185,7 @@ export class StockTradingService {
     stockId: number,
   ): Promise<Stock> {
     // 예약 시작·중지·종료가 다른 서버에서 겹쳐도 상태와 발행·주문 취소를 직렬화한다.
-    await tx.$queryRaw`SELECT stock_id FROM stocks WHERE stock_id = ${stockId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT stock_id FROM stocks WHERE stock_id = ${stockId} FOR NO KEY UPDATE`;
     const stock = await tx.stock.findFirst({
       where: { id: stockId, isDeleted: false },
     });
