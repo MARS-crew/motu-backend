@@ -133,6 +133,8 @@ export class ListingApplicationsAdminService {
         application.approvalData as unknown as ListingApprovalResDto | null,
       reviewComment: application.reviewComment,
       revisionDeadline: application.revisionDeadline,
+      listingBlockedAt: application.stock?.listingBlockedAt ?? null,
+      listingBlockedReason: application.stock?.listingBlockedReason ?? null,
       data,
       attachments: {
         logo: this.withAdminPaths(id, attachments.logo),
@@ -200,6 +202,9 @@ export class ListingApplicationsAdminService {
         ...listSelect,
         stockId: true,
         approvalData: true,
+        stock: {
+          select: { listingBlockedAt: true, listingBlockedReason: true },
+        },
         reviewComment: true,
         revisionDeadline: true,
         revisions: {
