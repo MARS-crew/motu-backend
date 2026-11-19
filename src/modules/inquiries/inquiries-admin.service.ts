@@ -96,7 +96,7 @@ export class InquiriesAdminService {
     };
   }
 
-  detail(id: number, actorId: number, query: GetAdminInquiryDetailReqDto) {
+  detail(id: number, query: GetAdminInquiryDetailReqDto) {
     this.checkId(id);
     return this.prisma.$transaction(
       async (tx) => {
@@ -124,10 +124,7 @@ export class InquiriesAdminService {
           replyEmail: inquiry.replyEmail,
           replyDraft: inquiry.replyDraft,
           replyVersion: inquiry.replyVersion,
-          canEdit:
-            inquiry.status === Status.IN_PROGRESS &&
-            inquiry.assignedAdminId === actorId &&
-            !busy,
+          canEdit: inquiry.status === Status.IN_PROGRESS && !busy,
           latestReplyAttempt: inquiry.activeReplyAttempt
             ? this.attempt(inquiry.activeReplyAttempt)
             : null,
@@ -151,8 +148,7 @@ export class InquiriesAdminService {
         before.status === Status.IN_PROGRESS &&
         before.assignedAdminId !== null
       ) {
-        if (before.assignedAdminId !== actor.adminId)
-          throw new BusinessException(Errors.ASSIGNED);
+        // 담당자 기록은 배타적 소유권이 아니다. 다른 관리자의 재요청도 기존 시작을 보존한다.
         return this.processingResult(before);
       }
       if (
@@ -192,14 +188,9 @@ export class InquiriesAdminService {
     });
   }
 
-  saveDraft(
-    id: number,
-    dto: SaveInquiryReplyDraftReqDto,
-    actor: InquiryAdminActor,
-  ) {
+  saveDraft(id: number, dto: SaveInquiryReplyDraftReqDto) {
     return this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, id);
-      this.owner(before, actor);
       if (before.status !== Status.IN_PROGRESS)
         throw new BusinessException(Errors.STATE);
       const current = before.activeReplyAttemptId
@@ -227,15 +218,7 @@ export class InquiriesAdminService {
         where: { id },
         data: { replyDraft: dto.replyText, replyVersion: { increment: 1 } },
       });
-      await this.record(
-        tx,
-        after,
-        actor,
-        Action.INQUIRY_REPLY_DRAFT_SAVE,
-        '문의 답변 초안 저장',
-        { replyVersion: before.replyVersion },
-        { replyVersion: after.replyVersion },
-      );
+      // 확인 팝업 전 내부 저장이다. 상태·처리자 변경이 없어 운영 활동 이력을 생성하지 않는다.
       return this.draftResult(after);
     });
   }
@@ -257,7 +240,7 @@ export class InquiriesAdminService {
       const result: TrackedMailResult = await this.mail.sendTracked({
         to: reserved.attempt.toEmail,
         subject: `[MOTU] 문의 답변 (${reserved.inquiryCode})`,
-        text: `안녕하세요. MOTU입니다.\n\n문의번호: ${reserved.inquiryCode}\n\n${reserved.attempt.replyText}\n\n답변 발송은 계정의 잠금·정지 상태를 변경하지 않습니다.`,
+        text: `안녕하세요. MOTU입니다.\n\n문의번호: ${reserved.inquiryCode}\n\n${reserved.attempt.replyText}\n\n계정 잠금 해제 및 이용 제한 변경은 본인 확인 후 별도로 처리됩니다.`,
       });
       if (!result || !['BREVO', 'CONSOLE'].includes(result.mode))
         throw new Error('추적 가능한 발송 결과가 필요합니다.');
@@ -295,7 +278,6 @@ export class InquiriesAdminService {
   ) {
     return this.prisma.$transaction(async (tx) => {
       const inquiry = await this.lock(tx, id);
-      this.owner(inquiry, actor);
       const existing = await tx.inquiryReplyAttempt.findUnique({
         where: {
           inquiryId_requestId: { inquiryId: id, requestId: dto.requestId },
@@ -303,7 +285,6 @@ export class InquiriesAdminService {
       });
       if (existing) {
         if (
-          existing.adminId !== actor.adminId ||
           existing.draftVersion !== dto.expectedDraftVersion ||
           (existing.retryReason ?? null) !== (dto.retryReason ?? null)
         )
@@ -370,7 +351,10 @@ export class InquiriesAdminService {
       });
       await tx.inquiry.update({
         where: { id },
-        data: { activeReplyAttemptId: attempt.id },
+        data: {
+          activeReplyAttemptId: attempt.id,
+          assignedAdminId: actor.adminId,
+        },
       });
       await this.record(
         tx,
@@ -378,12 +362,13 @@ export class InquiriesAdminService {
         actor,
         Action.INQUIRY_REPLY_SEND,
         '문의 이메일 답변 발송 요청',
-        { status: inquiry.status },
+        { status: inquiry.status, assignedAdminId: inquiry.assignedAdminId },
         {
           requestId: attempt.requestId,
           attemptId: attempt.id,
           replyVersion: attempt.draftVersion,
           outcome: attempt.status,
+          assignedAdminId: actor.adminId,
           retryReason: attempt.retryReason,
         },
       );
@@ -405,7 +390,6 @@ export class InquiriesAdminService {
       });
     const result = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, observed.inquiryId);
-      this.owner(before, actor);
       const attempt = await tx.inquiryReplyAttempt.findUniqueOrThrow({
         where: { id: attemptId },
       });
@@ -413,13 +397,14 @@ export class InquiriesAdminService {
       if (!attempt.finalizedAt) {
         if (
           attempt.status === ReplyStatus.ACCEPTED &&
-          before.status !== Status.APPROVED
+          before.status !== Status.COMPLETED
         ) {
           inquiry = await tx.inquiry.update({
             where: { id: before.id },
             data: {
-              status: Status.APPROVED,
+              status: Status.COMPLETED,
               completedAt: attempt.finishedAt ?? new Date(),
+              assignedAdminId: actor.adminId,
             },
           });
         }
@@ -436,9 +421,10 @@ export class InquiriesAdminService {
           actor,
           Action.INQUIRY_REPLY_SEND,
           summary,
-          { status: before.status },
+          { status: before.status, assignedAdminId: before.assignedAdminId },
           {
             status: inquiry.status,
+            assignedAdminId: inquiry.assignedAdminId,
             requestId: attempt.requestId,
             attemptId: attempt.id,
             outcome: attempt.status,
@@ -489,10 +475,6 @@ export class InquiriesAdminService {
   private checkId(id: number) {
     if (!Number.isSafeInteger(id) || id < 1 || id > 2147483647)
       throw new BusinessException(Errors.NOT_FOUND);
-  }
-  private owner(inquiry: Inquiry, actor: InquiryAdminActor) {
-    if (inquiry.assignedAdminId !== actor.adminId)
-      throw new BusinessException(Errors.OWNER);
   }
   private blocksDraft(attempt: InquiryReplyAttempt | null) {
     return (
