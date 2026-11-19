@@ -5,7 +5,7 @@ import {
 } from '../../generated/prisma/client.js';
 
 /*
- * 탐지 기준값. 설계서(ADM-MON-01)·SRS 61에 기준이 없어 임시로 정했다. 기획 확인 후 이 값만 바꾼다.
+ * 탐지 기준값. 기획 확정(2026-11-18), 화면설계서 ADM-MON-01에 반영됨. 기준이 바뀌면 이 값만 바꾼다.
  */
 
 /** 비정상 가격 체결: 직전 체결가(첫 체결이면 상장가)에서 이 비율(%)을 넘게 벗어난 체결 */
@@ -14,7 +14,7 @@ export const PRICE_DEVIATION_PERCENT = 30n;
 /** 대량 주문: 주문 수량이 발행량의 이 비율(%) 이상인 주문 */
 export const LARGE_ORDER_PERCENT = 1n;
 
-/** 반복 주문: 같은 회원이 같은 상품에 이 시간(초) 안에 */
+/** 반복 주문: 같은 회원이 같은 상품에 이 시간(초) 안에 (매수·매도 합산) */
 export const REPEATED_ORDER_WINDOW_SECONDS = 60;
 
 /** 반복 주문: 이 건수 이상 주문하면 탐지한다 */
