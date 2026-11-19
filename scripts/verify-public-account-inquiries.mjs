@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import pg from 'pg';
 import { hash } from 'argon2';
+import { JwtService } from '@nestjs/jwt';
 
 const original = new URL(process.env.DATABASE_URL);
 assert(
@@ -221,12 +222,18 @@ try {
     status: 404,
     code: 'INQUIRY_NOT_FOUND',
   });
-  const inquiryToken = (
-    await json('/inquiries/access-token', {
-      method: 'POST',
-      body: { loginId: locked.loginId, password },
-    })
-  ).inquiryAccessToken;
+  // 이전에 발급된 문의 토큰의 잔여 수명 동안에는 과거 내역만 읽을 수 있다.
+  const { inquiryTokenSecret } =
+    await import('../dist/modules/inquiries/inquiries.constants.js');
+  const inquiryToken = await new JwtService().signAsync(
+    { sub: locked.id, purpose: 'INQUIRY' },
+    {
+      secret: inquiryTokenSecret(process.env.JWT_ACCESS_SECRET),
+      issuer: 'motu-inquiries',
+      audience: 'inquiries',
+      expiresIn: 900,
+    },
+  );
   await json('/inquiries/' + linked.id, {
     token: inquiryToken,
     status: 404,
@@ -236,15 +243,27 @@ try {
     (await json('/inquiries', { token: inquiryToken })).totalCount,
     0,
   );
-  const legacy = await json('/inquiries', {
-    token: inquiryToken,
-    method: 'POST',
-    status: 201,
-    body: {
-      title: '기존 본인 확인 문의',
-      content: '기존 문의는 계속 사용할 수 있습니다.',
+  const legacy = await prisma.inquiry.create({
+    data: {
+      userId: locked.id,
+      inquiryCode: 'INQ-LEGACY-' + randomUUID().slice(0, 8),
+      inquiryType: 'LOGIN_FAILED_LOCKED',
+      title: '기존 회원 문의',
+      content: '과거 문의 보존',
+      replyEmail: locked.email,
     },
   });
+  for (const path of ['/inquiries/access-token', '/inquiries']) {
+    for (const token of [undefined, inquiryToken, userToken]) {
+      await json(path, {
+        method: 'POST',
+        token,
+        body: { loginId: locked.loginId, password },
+        status: 410,
+        code: 'INQUIRY_SUBMISSION_RETIRED',
+      });
+    }
+  }
   assert.equal(
     (await prisma.inquiry.findUniqueOrThrow({ where: { id: legacy.id } }))
       .source,
@@ -313,7 +332,7 @@ try {
   const completed = await json(adminRoute + '/' + phone.id, {
     token: adminToken,
   });
-  assert.equal(completed.status, 'APPROVED');
+  assert.equal(completed.status, 'COMPLETED');
   assert(completed.completedAt);
   assert.equal(completed.replyAttempts.totalCount, 1);
   assert.equal(completed.latestReplyAttempt.status, 'ACCEPTED');
@@ -322,7 +341,17 @@ try {
     await prisma.adminActivityLog.count({
       where: { targetType: 'INQUIRY', targetId: BigInt(phone.id) },
     }),
-    4,
+    3,
+  );
+  assert.equal(
+    await prisma.adminActivityLog.count({
+      where: {
+        targetType: 'INQUIRY',
+        targetId: BigInt(phone.id),
+        action: 'INQUIRY_REPLY_DRAFT_SAVE',
+      },
+    }),
+    0,
   );
   // 입력 주소를 다른 회원의 주소로 바꾸거나 계정 상태를 바꾸지 않는다.
   await draft(
@@ -378,7 +407,7 @@ try {
   await prisma.inquirySubmissionLimit.deleteMany();
   const limited = body({ replyEmail: 'limit@example.com' });
   const races = await Promise.all(
-    Array.from({ length: 8 }, (_, i) =>
+    Array.from({ length: 15 }, (_, i) =>
       request(publicRoute, {
         method: 'POST',
         body: {
@@ -389,15 +418,22 @@ try {
       }),
     ),
   );
-  assert.deepEqual(
-    races.map((r) => r.status).sort(),
-    [201, 201, 201, 429, 429, 429, 429, 429],
-  );
+  assert.deepEqual(races.map((r) => r.status).sort(), [
+    ...Array(10).fill(201),
+    ...Array(5).fill(429),
+  ]);
   checks += races.length;
   for (const r of races) {
     const v = await r.json();
-    if (r.status === 429)
+    if (r.status === 429) {
       assert.equal(v.error.code, 'INQUIRY_SUBMISSION_RATE_LIMITED');
+      assert.equal(v.error.details.limit, 10);
+      assert.equal(v.error.details.windowSeconds, 3600);
+      assert(
+        v.error.details.retryAfterSeconds >= 1 &&
+          v.error.details.retryAfterSeconds <= 3600,
+      );
+    }
   }
   assert.equal(
     await prisma.inquiry.count({
@@ -405,13 +441,13 @@ try {
         replyEmail: { equals: limited.replyEmail, mode: 'insensitive' },
       },
     }),
-    3,
+    10,
   );
   const limits = await prisma.inquirySubmissionLimit.findMany();
-  assert.equal(limits.length, 2);
+  assert.equal(limits.length, 1);
   assert(limits.every((l) => /^[a-f0-9]{64}$/.test(l.key)));
   assert(
-    limits.some((l) => l.count === 3),
+    limits.some((l) => l.count === 10),
     '실패 요청으로 회신 주소별 접수 상한을 넘길 수 없다.',
   );
   // 만료 후 초기화·청소. 만료되지 않은 이메일 제한은 그대로 유지한다.
@@ -420,7 +456,7 @@ try {
     data: { expiresAt: new Date(Date.now() - 1000) },
   });
   await submit(limited);
-  assert.equal(await prisma.inquirySubmissionLimit.count(), 2);
+  assert.equal(await prisma.inquirySubmissionLimit.count(), 1);
   // DB 생성 실패 시 이메일 접수 횟수도 롤백한다.
   await prisma.inquirySubmissionLimit.deleteMany();
   await assert.rejects(
@@ -430,7 +466,7 @@ try {
     }),
   );
   assert.equal(await prisma.inquirySubmissionLimit.count(), 0);
-  // IP 제한은 여러 인스턴스·변조 Forwarded 헤더·다른 이메일로 우회할 수 없다.
+  // 공유 프록시 뒤에서도 잘못된 요청 65건이 다른 사용자의 접수를 막지 않는다. IP 키는 만들지 않는다.
   const ipRaces = await Promise.all(
     Array.from({ length: 65 }, (_, i) =>
       request(publicRoute, {
@@ -441,19 +477,15 @@ try {
       }),
     ),
   );
-  assert.equal(ipRaces.filter((r) => r.status === 400).length, 60);
-  assert.equal(ipRaces.filter((r) => r.status === 429).length, 5);
+  assert.equal(ipRaces.filter((r) => r.status === 400).length, 65);
+  assert.equal(ipRaces.filter((r) => r.status === 429).length, 0);
   checks += ipRaces.length;
   for (const r of ipRaces) await r.arrayBuffer();
-  assert(
-    (await prisma.inquirySubmissionLimit.findMany()).every(
-      (l) => l.count <= 61,
-    ),
-  );
-  await prisma.inquirySubmissionLimit.updateMany({
-    data: { expiresAt: new Date(Date.now() - 1000) },
-  });
+  assert.equal(await prisma.inquirySubmissionLimit.count(), 0);
   await submit(body());
+  // 이전 3건 한도로 다른 사람의 주소를 소진시키던 경우에도 네 번째 접수가 가능하다.
+  const sharedAddress = 'shared-' + randomUUID() + '@example.com';
+  for (let i = 0; i < 4; i++) await submit(body({ replyEmail: sharedAddress }));
   // DB 제약으로 공개 문의에 임의 회원 연결도 차단한다.
   await assert.rejects(
     prisma.inquiry.create({
@@ -470,6 +502,13 @@ try {
   );
   const swagger = await (await fetch(base + '/docs-json')).json();
   assert(!swagger.paths['/api/account-inquiries'].post.security?.length);
+  assert(!swagger.paths['/api/inquiries/access-token']);
+  assert(!swagger.paths['/api/inquiries'].post);
+  assert(swagger.paths['/api/inquiries'].get);
+  assert.deepEqual(
+    swagger.components.schemas.InquiryResDto.properties.status.enum,
+    ['SUBMITTED', 'IN_PROGRESS', 'COMPLETED'],
+  );
   assert.deepEqual(
     Object.keys(
       swagger.components.schemas.CreateAccountInquiryReqDto.properties,
@@ -495,7 +534,9 @@ try {
         'failed-draft-preserved',
         'console-not-completed',
         'account-state-preserved',
-        'distributed-email-ip-limits',
+        'distributed-email-limit-10',
+        'no-shared-proxy-global-limit',
+        'legacy-post-retired',
         'quota-expiry-rollback',
         'database-constraint',
         'swagger',
