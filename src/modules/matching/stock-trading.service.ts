@@ -15,6 +15,7 @@ import { StockErrors } from '../stocks/stocks.errors.js';
 import { MatchingErrors } from './matching.errors.js';
 import { MatchingService } from './matching.service.js';
 import { SettlementService } from './settlement.js';
+import { lockListingIssuer } from './listing-issuer.js';
 
 /**
  * 거래 상태를 바꾸는 트랜잭션 안에서 호출하는 함수. 바꾸기 전 상품을 받는다.
@@ -55,11 +56,22 @@ export class StockTradingService {
         if (stock.tradeStatus !== TradeStatus.PENDING) {
           throw new BusinessException(MatchingErrors.LISTING_NOT_PENDING);
         }
-        const account = await tx.account.findUnique({
-          where: { userId: issuerUserId },
-        });
+        if (stock.listingBlockedAt) return null;
+        const account = await lockListingIssuer(tx, issuerUserId);
         if (!account) {
           throw new BusinessException(AccountErrors.NOT_FOUND);
+        }
+
+        if (account.withdrawn) {
+          await tx.stock.update({
+            where: { id: stockId },
+            data: {
+              listingBlockedAt: new Date(),
+              listingBlockedReason: '신청자 탈퇴로 발행 보류',
+            },
+          });
+          // 보류 기록을 커밋한다. 예외는 트랜잭션 밖에서 반환해 기록 롤백을 방지한다.
+          return null;
         }
 
         // 발행 주식은 모두 상장 매도 주문에 묶인다.
@@ -90,6 +102,7 @@ export class StockTradingService {
       }, TRADING_TX_OPTIONS);
 
       // 거래 시작 전에는 주문을 받지 않으므로 호가창이 비어 있어 체결할 것이 없다.
+      if (!order) throw new BusinessException(MatchingErrors.ISSUER_WITHDRAWN);
       this.matching.apply(stockId, order, []);
       return { orderId: order.id };
     });
