@@ -10,6 +10,7 @@ import { EnvironmentVariables } from '../../config/env.validation.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
 import { MailErrors } from '../../common/mail/mail.errors.js';
 import {
+  Role,
   User,
   UserStatus,
   VerificationChannel,
@@ -127,13 +128,25 @@ export class AuthService {
       accessToken,
       accessTokenExpiresIn,
       refreshToken,
+      ...(user.role === Role.ADMIN && {
+        passwordChangeRequired: await this.isPasswordChangeRequired(user.id),
+      }),
       user: {
         userId: user.id,
         loginId: user.loginId,
-        nickname: user.nickname,
+        nickname: user.nickname ?? user.loginId,
         role: user.role,
       },
     };
+  }
+
+  /** 관리자 계정이 임시 비밀번호 상태인지. 관리자 정보가 없는 계정(seed 관리자)은 false다. */
+  private async isPasswordChangeRequired(userId: number): Promise<boolean> {
+    const profile = await this.prisma.adminProfile.findUnique({
+      where: { userId },
+      select: { passwordChangeRequired: true },
+    });
+    return profile?.passwordChangeRequired ?? false;
   }
 
   /**
@@ -188,17 +201,18 @@ export class AuthService {
   async sendFindLoginIdCode(
     email: string,
   ): Promise<SendLoginIdVerificationResDto> {
-    if (!(await this.usersService.findByEmail(email))) {
-      throw new BusinessException(AuthErrors.EMAIL_NOT_REGISTERED);
-    }
+    await this.findLoginIdUser(email);
+
     return this.verificationsService.sendEmailCode(
       VerificationPurpose.FIND_LOGIN_ID,
       email,
     );
   }
 
-  /** 인증번호가 맞으면 일부를 가린 아이디를 알려준다. 인증 결과는 한 번만 쓸 수 있다. */
+  /** 인증번호가 맞으면 마스킹한 아이디를 알려준다. 인증 결과는 한 번만 쓸 수 있다. */
   async findLoginId(email: string, code: string): Promise<FindLoginIdResDto> {
+    await this.findLoginIdUser(email);
+
     await this.verificationsService.confirmEmailCode(
       VerificationPurpose.FIND_LOGIN_ID,
       email,
@@ -211,11 +225,19 @@ export class AuthService {
       email,
     );
 
+    const user = await this.findLoginIdUser(email);
+    return { maskedLoginId: maskLoginId(user.loginId) };
+  }
+
+  /** 탈퇴 회원은 아이디 찾기에서 일치하는 계정이 없는 것으로 처리한다. */
+  private async findLoginIdUser(email: string): Promise<User> {
     const user = await this.usersService.findByEmail(email);
-    if (!user) {
+
+    if (!user || user.userStatus === UserStatus.WITHDRAWN) {
       throw new BusinessException(AuthErrors.EMAIL_NOT_REGISTERED);
     }
-    return { maskedLoginId: maskLoginId(user.loginId) };
+
+    return user;
   }
 
   /**
@@ -340,12 +362,15 @@ export class AuthService {
     this.assertLoginAllowed(user);
   }
 
-  private assertLoginAllowed(user: User): void {
+  private assertLoginAllowed(user: Pick<User, 'userStatus'>): void {
     if (user.userStatus === UserStatus.LOCKED) {
       throw new BusinessException(AuthErrors.ACCOUNT_LOCKED);
     }
     if (user.userStatus === UserStatus.BLOCKED) {
       throw new BusinessException(AuthErrors.ACCOUNT_BLOCKED);
+    }
+    if (user.userStatus !== UserStatus.ACTIVE) {
+      throw new BusinessException(AuthErrors.UNAUTHORIZED);
     }
   }
 
@@ -359,12 +384,26 @@ export class AuthService {
       infer: true,
     });
 
-    await this.prisma.refreshToken.create({
-      data: {
-        userId: user.userId,
-        tokenHash: this.hashToken(refreshToken),
-        expiresAt: new Date(Date.now() + refreshDays * DAY_MS),
-      },
+    await this.prisma.$transaction(async (tx) => {
+      // 탈퇴 처리와 세션 발급이 같은 회원 행을 기준으로 순서대로 실행된다.
+      const [current] = await tx.$queryRaw<Pick<User, 'userStatus'>[]>`
+        SELECT user_status::text AS "userStatus"
+        FROM users
+        WHERE user_id = ${user.userId}
+        FOR NO KEY UPDATE
+      `;
+      if (!current) {
+        throw new BusinessException(AuthErrors.UNAUTHORIZED);
+      }
+      this.assertLoginAllowed(current);
+
+      await tx.refreshToken.create({
+        data: {
+          userId: user.userId,
+          tokenHash: this.hashToken(refreshToken),
+          expiresAt: new Date(Date.now() + refreshDays * DAY_MS),
+        },
+      });
     });
 
     return {

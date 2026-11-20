@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Subscription } from 'rxjs';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { UserStatus } from '../../generated/prisma/client.js';
 import { KeyedSerialQueue } from '../matching/serial-queue.js';
 import {
   MatchingService,
@@ -110,6 +111,11 @@ export class PriceAlertMonitorService implements OnModuleInit, OnModuleDestroy {
           SELECT alert_id, user_id, target_price, is_active, version
           FROM price_alerts
           WHERE alert_id = ${candidate.id}
+            AND EXISTS (
+              SELECT 1 FROM users
+              WHERE users.user_id = price_alerts.user_id
+                AND users.user_status <> ${UserStatus.WITHDRAWN}::user_status
+            )
           FOR UPDATE
         `;
         if (!alert?.is_active || alert.version !== candidate.version) {

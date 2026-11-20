@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Mail, MailSender } from './mail-sender.js';
+import { Mail, MailSender, type TrackedMailResult } from './mail-sender.js';
 
 /**
  * 메일을 실제로 보내지 않고 서버 로그에 출력한다. BREVO_API_KEY가 없는 로컬·테스트 환경에서 쓴다.
@@ -7,6 +7,11 @@ import { Mail, MailSender } from './mail-sender.js';
 @Injectable()
 export class ConsoleMailSender extends MailSender {
   private readonly logger = new Logger(ConsoleMailSender.name);
+
+  async sendTracked(mail: Mail): Promise<TrackedMailResult> {
+    await this.send(mail);
+    return { mode: 'CONSOLE', messageId: null };
+  }
 
   send(mail: Mail): Promise<void> {
     this.logger.log(

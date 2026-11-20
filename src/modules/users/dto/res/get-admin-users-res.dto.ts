@@ -11,8 +11,13 @@ export class AdminUserItemResDto {
   @ApiProperty({ example: '선정' })
   nickname: string;
 
-  @ApiProperty({ description: '가린 이메일', example: 'su*******@mail.com' })
-  email: string;
+  @ApiProperty({
+    description: '가린 이메일. 탈퇴 회원은 null',
+    example: 'su*******@mail.com',
+    nullable: true,
+    type: String,
+  })
+  email: string | null;
 
   @ApiProperty({ description: '가입일시', example: '2026-09-01T03:00:00.000Z' })
   createDate: Date;

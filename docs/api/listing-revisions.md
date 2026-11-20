@@ -2,23 +2,23 @@
 
 경로는 `/api` 기준이다. [공통 인증·응답](common.md), [신청 상세·상태](listing-applications.md), [파일·링크](files.md)를 함께 참고한다.
 
-## 이번 PR 범위
+## 사용자 기능 범위
 
 - MOTU-39-01-02: 사용자가 재제출할 때 보완기한 검사.
 - MOTU-39-01-03: 저장 완료된 증빙자료 재제출.
 - MOTU-39-01-04: 기존 신청번호·접수일을 유지하면서 검토 중으로 전환.
 - MOTU-39-01-05: 본인의 보완 요청·재제출 이력 조회.
-- MOTU-39-01-01 관리자 보완 요청 생성, 관리자 이력 조회·기한 연장은 후속 관리자 기능으로 분리한다. 이번 PR에는 해당 API·DTO·생성/연장 서비스가 없다.
+- MOTU-39-01-01 관리자 보완 요청 생성·기한 지정/연장은 이슈 #89의 관리자 심사 API로 제공한다. 기존 1차 사용자 기능과 분리된 관리자 권한이 필요하다.
 
 ## 요구사항과 확정 정책
 
-[1차 개발 IA](https://docs.google.com/spreadsheets/d/18IZuGCG0WY9OYwqpgGDTa3rN43op8eiumYNFRp6DHdY/edit?gid=748545779)와 [화면설계서](https://drive.google.com/file/d/1432WUouwlx6Jp-_mh67lpIPurlO5ja5X) USR-LST-08-02~05의 사용자 조회·증빙 수정·재제출·완료 흐름을 구현한다. 관리자 화면·운영 기능은 별도로 진행한다.
+[1차 개발 IA](https://docs.google.com/spreadsheets/d/18IZuGCG0WY9OYwqpgGDTa3rN43op8eiumYNFRp6DHdY/edit?gid=748545779)와 [화면설계서](https://drive.google.com/file/d/1432WUouwlx6Jp-_mh67lpIPurlO5ja5X) USR-LST-08-02~05의 사용자 조회·증빙 수정·재제출·완료 흐름을 구현한다. 관리자 화면·운영 기능의 API는 상장 신청 심사 명세에서 정리한다.
 
 [1차 개발 SRS](https://docs.google.com/spreadsheets/d/1Yyk_KWuRlCEWIedvOdFgjUvsCJL54SwqT4zrGmPuCMA/edit?gid=1313656183)의 이미지/PDF 형식·용량, HTTPS 링크, 합산 최대 10개, 설명 10~500자, 저장 완료 자료 정책을 재사용한다. 사용자와 확인한 추가 정책은 다음과 같다.
 
 - 저장 완료된 파일 또는 링크 최소 1개와 설명이 필요하다.
 - 기한 경과 시 재제출을 차단하고 보완 요청 상태를 유지한다. 자동 반려하지 않는다.
-- 관리자 기한 연장은 후속 관리자 기능에서 제공한다. 사용자에게 기한 변경 API를 제공하지 않는다.
+- 관리자 기한 연장은 관리자 심사 API에서 제공한다. 사용자에게 기한 변경 API를 제공하지 않는다.
 
 ## 공개 API (모두 로그인 필요)
 
@@ -122,3 +122,7 @@ node scripts/verify-listing-revisions.mjs
 HTTP 검증은 일회용 로컬 DB에 전체 마이그레이션과 보완 요청 fixture를 준비해 사용자 조회·권한·기한·재제출·동시 요청·동결·롤백을 확인한다. 관리자 경로가 관리자 토큰으로도 404이고 Swagger에도 없음을 검사한다. DB·임시 파일은 정리하며 운영 DB·메일·MinIO는 사용하지 않는다.
 
 `20261026070000_add_listing_revisions`의 공통 이력 테이블·nullable frozenAt·인덱스/제약을 유지한다. 이미 로컬에 적용한 마이그레이션을 다시 쓰거나 DB를 초기화하지 않는다. 운영은 PR 병합·배포 시 기존 Pre-deploy의 npm run db:deploy로 적용한다. 새 환경 변수·Cron 설정은 없다. 알림 발송·최종 제출·SMS·관리자 생성/조회/기한 연장·전체 심사는 후속 범위다.
+
+## 관리자 요청·기한 연장 연결
+
+관리자 요청 생성·기한 연장 API는 [상장 신청 심사 처리](listing-applications.md#관리자-상장-심사-처리-motu-21-1-2-이슈-89)를 참고한다. 사용자 목록의 각 회차에 보완 항목 `requestItems`와 기한 지정·연장 이력 `deadlineHistory`를 제공한다. 기한 경과 시 보완 요청 상태를 유지하며 관리자가 기한을 연장하면 다시 재제출할 수 있다. 재제출 이후 추가 보완은 별도 회차로 생성한다.

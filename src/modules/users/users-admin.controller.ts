@@ -75,7 +75,9 @@ export class UsersAdminController {
   @ApiOkResponse({ type: ChangeUserStatusResDto })
   @ApiBadRequestResponse({ description: 'USER_STATUS_UNCHANGED' })
   @ApiNotFoundResponse({ description: 'USER_NOT_FOUND' })
-  @ApiConflictResponse({ description: 'USER_STATUS_CONFLICT' })
+  @ApiConflictResponse({
+    description: 'USER_STATUS_CONFLICT / USER_WITHDRAWN_STATUS_IMMUTABLE',
+  })
   changeStatus(
     @CurrentUser() admin: AuthUser,
     @Param('userId', ParseIdPipe) userId: number,

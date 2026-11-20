@@ -6,6 +6,7 @@ import { SmsModule } from './common/sms/sms.module.js';
 import { PrismaModule } from './common/prisma/prisma.module.js';
 import { validateEnv } from './config/env.validation.js';
 import { createLoggerOptions } from './config/logger.config.js';
+import { AdminAccountsModule } from './modules/admin-accounts/admin-accounts.module.js';
 import { AdminActivityLogsModule } from './modules/admin-activity-logs/admin-activity-logs.module.js';
 import { AnomaliesModule } from './modules/anomalies/anomalies.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
@@ -69,6 +70,7 @@ import { UsersModule } from './modules/users/users.module.js';
     AdminActivityLogsModule,
     AnomaliesModule,
     DashboardModule,
+    AdminAccountsModule,
   ],
 })
 export class AppModule {}

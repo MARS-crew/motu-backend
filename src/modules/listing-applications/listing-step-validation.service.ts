@@ -81,13 +81,18 @@ export class ListingStepValidationService {
     return issues;
   }
 
-  async getAttachments(userId: number, data: ListingDraftDataReqDto) {
+  async getAttachments(
+    userId: number,
+    data: ListingDraftDataReqDto,
+    tx?: Prisma.TransactionClient,
+  ) {
     return {
       logo: data.logoCollectionId
         ? await this.readCollection(
             userId,
             data.logoCollectionId,
             AttachmentPurpose.LOGO,
+            tx,
           )
         : null,
       mainImage: data.mainImageCollectionId
@@ -95,6 +100,7 @@ export class ListingStepValidationService {
             userId,
             data.mainImageCollectionId,
             AttachmentPurpose.MAIN_IMAGE,
+            tx,
           )
         : null,
       evidence: data.evidenceCollectionId
@@ -102,6 +108,7 @@ export class ListingStepValidationService {
             userId,
             data.evidenceCollectionId,
             AttachmentPurpose.EVIDENCE,
+            tx,
           )
         : null,
     };

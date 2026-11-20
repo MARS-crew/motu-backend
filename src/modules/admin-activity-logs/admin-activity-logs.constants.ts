@@ -9,9 +9,16 @@ export const ACTIONS_BY_TARGET: Record<
   readonly AdminActivityAction[]
 > = {
   [AdminActivityTarget.LISTING_APPLICATION]: [
+    AdminActivityAction.LISTING_REVIEW_START,
+    AdminActivityAction.LISTING_REVISION_DEADLINE_UPDATE,
     AdminActivityAction.LISTING_APPROVE,
     AdminActivityAction.LISTING_REVISION_REQUEST,
     AdminActivityAction.LISTING_REJECT,
+  ],
+  [AdminActivityTarget.INQUIRY]: [
+    AdminActivityAction.INQUIRY_START,
+    AdminActivityAction.INQUIRY_REPLY_DRAFT_SAVE,
+    AdminActivityAction.INQUIRY_REPLY_SEND,
   ],
   [AdminActivityTarget.STOCK]: [
     AdminActivityAction.STOCK_UPDATE,

@@ -2,6 +2,11 @@ import { HttpStatus } from '@nestjs/common';
 import { ErrorDefinition } from '../../common/exceptions/business.exception.js';
 
 export const StockErrors = {
+  CODE_EXHAUSTED: {
+    code: 'STOCK_CODE_EXHAUSTED',
+    message: '상품 코드를 발급할 수 없습니다. 관리자에게 문의해 주세요.',
+    status: HttpStatus.CONFLICT,
+  },
   NOT_FOUND: {
     code: 'STOCK_NOT_FOUND',
     message: '존재하지 않는 상품입니다.',
