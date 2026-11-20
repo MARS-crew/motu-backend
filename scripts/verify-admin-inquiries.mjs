@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import pg from 'pg';
 import { hash } from 'argon2';
+import { JwtService } from '@nestjs/jwt';
 
 const original = new URL(process.env.DATABASE_URL);
 assert(
@@ -133,20 +134,31 @@ try {
   const at = await login(admin),
     bt = await login(otherAdmin),
     ut = await login(normal);
-  const it = (
-    await json('/inquiries/access-token', null, {
-      method: 'POST',
-      body: { loginId: locked.loginId, password },
-    })
-  ).inquiryAccessToken;
+  // 종료 전에 발급된 토큰을 재현해 과거 문의의 읽기 전용 호환을 확인한다.
+  const { inquiryTokenSecret } =
+    await import('../dist/modules/inquiries/inquiries.constants.js');
+  const it = await new JwtService().signAsync(
+    { sub: locked.id, purpose: 'INQUIRY' },
+    {
+      secret: inquiryTokenSecret(process.env.JWT_ACCESS_SECRET),
+      issuer: 'motu-inquiries',
+      audience: 'inquiries',
+      expiresIn: 900,
+    },
+  );
   const originalState = await prisma.user.findUnique({
     where: { id: locked.id },
     select: { userStatus: true, loginFailCount: true, lastLoginDate: true },
   });
-  const submitted = await json('/inquiries', it, {
-    method: 'POST',
-    status: 201,
-    body: { title: '계정 잠금 문의', content: '잠금 해제 절차를 알려주세요.' },
+  const submitted = await prisma.inquiry.create({
+    data: {
+      userId: locked.id,
+      inquiryCode: 'INQ-LEGACY-' + randomUUID().slice(0, 8),
+      inquiryType: 'LOGIN_FAILED_LOCKED',
+      title: '기존 회원 문의',
+      content: '과거 문의 보존',
+      replyEmail: locked.email,
+    },
   });
   assert.equal(
     (await prisma.inquiry.findUnique({ where: { id: submitted.id } }))

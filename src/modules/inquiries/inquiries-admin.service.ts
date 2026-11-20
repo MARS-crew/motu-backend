@@ -42,6 +42,7 @@ export interface InquiryAdminActor {
 const actorSelect = { id: true, loginId: true, nickname: true };
 const itemSelect = {
   id: true,
+  source: true,
   inquiryCode: true,
   inquiryType: true,
   title: true,
@@ -159,12 +160,14 @@ export class InquiriesAdminService {
       // 기존 접수의 회신 주소는 가입 이메일로 보강한다. 요청 본문에서 수신자를 받지 않는다.
       const email =
         before.replyEmail ??
-        (
-          await tx.user.findUnique({
-            where: { id: before.userId },
-            select: { email: true },
-          })
-        )?.email;
+        (before.userId !== null
+          ? (
+              await tx.user.findUnique({
+                where: { id: before.userId },
+                select: { email: true },
+              })
+            )?.email
+          : undefined);
       if (!email || !isEmail(email)) throw new BusinessException(Errors.EMAIL);
       const after = await tx.inquiry.update({
         where: { id },
@@ -488,6 +491,7 @@ export class InquiriesAdminService {
     return {
       id: item.id,
       inquiryCode: item.inquiryCode,
+      source: item.source,
       inquiryType: item.inquiryType,
       title: item.title,
       status: item.status,

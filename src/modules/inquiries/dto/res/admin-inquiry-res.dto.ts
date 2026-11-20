@@ -3,6 +3,7 @@ import {
   InquiryStatus,
   InquiryType,
   InquiryReplyStatus,
+  InquirySource,
 } from '../../../../generated/prisma/client.js';
 export class InquiryAdminActorResDto {
   @ApiProperty() userId: number;
@@ -11,6 +12,12 @@ export class InquiryAdminActorResDto {
 }
 export class AdminInquiryItemResDto {
   @ApiProperty() id: number;
+  @ApiProperty({
+    enum: InquirySource,
+    description:
+      'PUBLIC_ACCOUNT_AUTH는 비로그인 접수. 이메일로 회원을 추정하지 않는다.',
+  })
+  source: InquirySource;
   @ApiProperty() inquiryCode: string;
   @ApiProperty({ enum: InquiryType }) inquiryType: InquiryType;
   @ApiProperty() title: string;
