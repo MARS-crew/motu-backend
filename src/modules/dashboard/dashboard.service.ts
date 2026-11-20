@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { ChartInterval, Role } from '../../generated/prisma/client.js';
+import {
+  ChartInterval,
+  Role,
+  UserStatus,
+} from '../../generated/prisma/client.js';
 import { candleStartOf } from '../charts/candle-time.js';
 import {
   CUSTOM_DAILY_MAX_DAYS,
@@ -65,7 +69,7 @@ export class DashboardService {
 
   /**
    * 운영 대시보드 상단 카드. 지금 값을 세고 한국 시간 어제 마감 값과 비교한다.
-   * 회원·이상 거래는 가입·탐지 시각으로 어제 값을 세고, 상장 상품·처리 대기는 일별 통계의 어제 행과 비교한다.
+   * 회원은 가입·탈퇴 시각으로, 이상 거래는 탐지 시각으로 어제 값을 세고, 상장 상품·처리 대기는 일별 통계의 어제 행과 비교한다.
    */
   async getKpis(now: Date = new Date()): Promise<GetDashboardKpisResDto> {
     const todayStart = candleStartOf(now, ChartInterval.DAY);
@@ -79,9 +83,16 @@ export class DashboardService {
       prevAnomalyCount,
       yesterday,
     ] = await Promise.all([
-      this.prisma.user.count({ where: { role: Role.USER } }),
       this.prisma.user.count({
-        where: { role: Role.USER, createDate: { lt: todayStart } },
+        where: { role: Role.USER, userStatus: { not: UserStatus.WITHDRAWN } },
+      }),
+      // 어제 마감 회원: 오늘 00시 전에 가입했고, 그때 탈퇴하지 않은 회원
+      this.prisma.user.count({
+        where: {
+          role: Role.USER,
+          createDate: { lt: todayStart },
+          OR: [{ deletedDate: null }, { deletedDate: { gte: todayStart } }],
+        },
       }),
       this.dailyStats.countBacklog(),
       this.prisma.anomaly.count({

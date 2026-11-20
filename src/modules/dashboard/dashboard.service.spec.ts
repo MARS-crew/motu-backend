@@ -1,6 +1,10 @@
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { ChartInterval, Role } from '../../generated/prisma/client.js';
+import {
+  ChartInterval,
+  Role,
+  UserStatus,
+} from '../../generated/prisma/client.js';
 import { TradeTrendRange, TradeTrendUnit } from './dashboard.constants.js';
 import { DashboardErrors } from './dashboard.errors.js';
 import { DashboardService, periodLabelOf } from './dashboard.service.js';
@@ -72,11 +76,16 @@ describe('DashboardService', () => {
         anomalyChange: 1,
       });
       const todayStart = kst('2026-11-19T00:00:00');
+      // 탈퇴 회원은 빼고, 어제 값은 오늘 00시 전에 탈퇴한 회원만 뺀다.
       expect(user.count).toHaveBeenNthCalledWith(1, {
-        where: { role: Role.USER },
+        where: { role: Role.USER, userStatus: { not: UserStatus.WITHDRAWN } },
       });
       expect(user.count).toHaveBeenNthCalledWith(2, {
-        where: { role: Role.USER, createDate: { lt: todayStart } },
+        where: {
+          role: Role.USER,
+          createDate: { lt: todayStart },
+          OR: [{ deletedDate: null }, { deletedDate: { gte: todayStart } }],
+        },
       });
       expect(anomaly.count).toHaveBeenNthCalledWith(1, {
         where: { detectedDate: { gte: todayStart } },

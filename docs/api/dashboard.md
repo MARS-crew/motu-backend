@@ -21,7 +21,7 @@
 
 | 카드 | 값 | 전일 대비 |
 |---|---|---|
-| 전체 회원 `userCount` | 일반 회원 수 (잠김·정지 포함, 관리자 제외) | `userChangeRate` 증감률(%, 소수점 둘째 자리). 오늘 00시 전에 가입한 회원 수와 비교한다. 0명이면 `null` |
+| 전체 회원 `userCount` | 일반 회원 수 (잠김·정지 포함, 관리자·탈퇴 회원 제외) | `userChangeRate` 증감률(%, 소수점 둘째 자리). 오늘 00시 전에 가입했고 그때 탈퇴하지 않은 회원 수와 비교한다. 0명이면 `null` |
 | 상장 상품 `listedStockCount` | 거래 중·거래 중지 상품 수 | `listedStockChange` 건수 차이 |
 | 처리 대기 `pendingCount` | 상장 심사 대기 `pendingListingCount` + 계정 문의 대기 `pendingInquiryCount` | `pendingChange` 건수 차이 |
 | 이상 거래 `anomalyCount` | 오늘 탐지된 건수 | `anomalyChange` 오늘 − 어제 탐지 건수 |

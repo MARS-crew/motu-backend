@@ -3,7 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 /** 운영 대시보드 상단 카드. 전일 대비는 한국 시간 어제 마감 값과 비교한다. */
 export class GetDashboardKpisResDto {
   @ApiProperty({
-    description: '전체 회원 수. 일반 회원(잠김·정지 포함), 관리자 제외',
+    description:
+      '전체 회원 수. 일반 회원(잠김·정지 포함), 관리자·탈퇴 회원 제외',
     example: 12_480,
   })
   userCount: number;
