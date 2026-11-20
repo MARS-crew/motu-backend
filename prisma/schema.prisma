@@ -1180,6 +1180,30 @@ model Anomaly {
   @@map("anomalies")
 }
 
+// ─── 운영 통계 ───────────────────────────────────────
+
+/// 하루(한국 시간) 운영 통계. 매일 00시가 지나면 배치가 전날 행을 만들고, 만든 행은 고치지 않는다.
+/// 주별·월별은 일별 행을 묶어 계산한다.
+model DailyStat {
+  /// 집계 날짜 (한국 시간)
+  statDate            DateTime @id @map("stat_date") @db.Date
+  /// 전체 상품 거래량 합계 (일봉 합계)
+  tradeVolume         BigInt   @map("trade_volume")
+  /// 전체 상품 거래대금 합계 (일봉 합계)
+  tradeAmount         BigInt   @map("trade_amount")
+  /// 마감 시점 상장 상품 수 (거래 중·거래 중지). 이력이 남지 않는 값이라, 마감 뒤 첫 집계에서만 채우고 밀린 날은 null
+  listedStockCount    Int?     @map("listed_stock_count")
+  /// 마감 시점 상장 심사 대기 건수 (접수·검토 중)
+  pendingListingCount Int?     @map("pending_listing_count")
+  /// 마감 시점 계정 문의 대기 건수 (접수·처리 중)
+  pendingInquiryCount Int?     @map("pending_inquiry_count")
+  /// 마감 시점 미처리 이상 거래 건수 (미처리·확인중)
+  pendingAnomalyCount Int?     @map("pending_anomaly_count")
+  createDate          DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  @@map("daily_stats")
+}
+
 // ─── 관리자 계정 ─────────────────────────────────────
 
 /// 관리자 계정 정보. 로그인 정보는 users(role=ADMIN)에 두고 관리자에게만 있는 값을 둔다.

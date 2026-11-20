@@ -27,6 +27,7 @@
 | [상장 신청](listing-applications.md) | 임시저장·단계 저장·본인 조회, 관리자 신청 검색·상세·서류, 검토 시작·승인·반려·보완·상품 생성 | `modules/listing-applications` |
 | [보완 요청·재제출](listing-revisions.md) | 본인 보완 요청 조회·기한 검사·증빙 재제출 | `modules/listing-applications` |
 | [거래 모니터링](anomalies.md) | 이상 거래 탐지 기준, 목록·상세, 조치(상품 거래 중지·회원 정지·이상 없음) | `modules/anomalies` |
+| [대시보드](dashboard.md) | 운영 대시보드 지표 카드, 거래량·거래대금 추이, 일별 통계 배치 | `modules/dashboard` |
 | [관리자 계정](admin-accounts.md) | 관리자 계정 생성, 상태 변경(정상·정지), 임시 비밀번호·관리자 비밀번호 변경 | `modules/admin-accounts` |
 | [관리자 활동 이력](admin-activity-logs.md) | 관리자 처리 기록 목록·상세, 상품 변경 이력, 대시보드 최근 운영 이력, 이력 남기는 방법 | `modules/admin-activity-logs` |
 
