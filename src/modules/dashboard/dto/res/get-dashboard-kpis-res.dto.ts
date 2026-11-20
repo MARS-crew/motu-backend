@@ -38,7 +38,7 @@ export class GetDashboardKpisResDto {
   pendingCount: number;
 
   @ApiProperty({
-    description: '상장 심사 대기 건수 (SUBMITTED)',
+    description: '상장 심사 대기 건수 (접수·검토 중)',
     example: 5,
   })
   pendingListingCount: number;

@@ -1,4 +1,8 @@
-import { InquiryStatus, TradeStatus } from '../../generated/prisma/client.js';
+import {
+  InquiryStatus,
+  ListingApplicationStatus,
+  TradeStatus,
+} from '../../generated/prisma/client.js';
 
 /** 한국 시간(UTC+9). 서머타임이 없어 항상 같다. */
 export const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -13,6 +17,11 @@ export const DAILY_STATS_SETTLE_MS = 60 * 1000;
 export const LISTED_TRADE_STATUSES: TradeStatus[] = [
   TradeStatus.ACTIVE,
   TradeStatus.PAUSED,
+];
+/** 처리 대기로 세는 상장 신청 상태. 보완 요청(REVISION_REQUESTED)은 신청자 대기라 뺀다. */
+export const PENDING_LISTING_STATUSES: ListingApplicationStatus[] = [
+  ListingApplicationStatus.SUBMITTED,
+  ListingApplicationStatus.UNDER_REVIEW,
 ];
 /** 처리 대기로 세는 계정 문의 상태 */
 export const PENDING_INQUIRY_STATUSES: InquiryStatus[] = [

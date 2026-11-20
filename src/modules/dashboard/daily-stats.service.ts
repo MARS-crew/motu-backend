@@ -1,9 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import {
-  ChartInterval,
-  ListingApplicationStatus,
-} from '../../generated/prisma/client.js';
+import { ChartInterval } from '../../generated/prisma/client.js';
 import { candleStartOf } from '../charts/candle-time.js';
 import {
   DAILY_STATS_SETTLE_MS,
@@ -11,6 +8,7 @@ import {
   KST_OFFSET_MS,
   LISTED_TRADE_STATUSES,
   PENDING_INQUIRY_STATUSES,
+  PENDING_LISTING_STATUSES,
 } from './dashboard.constants.js';
 
 /** 이력이 남지 않아 지금 값만 셀 수 있는 대시보드 건수 */
@@ -81,7 +79,7 @@ export class DailyStatsService {
   }
 
   /**
-   * 상장 상품(거래 중·거래 중지), 상장 심사 대기(SUBMITTED), 계정 문의 대기(접수·처리 중)의 지금 건수.
+   * 상장 상품(거래 중·거래 중지), 상장 심사 대기(접수·검토 중), 계정 문의 대기(접수·처리 중)의 지금 건수.
    */
   async countBacklog(): Promise<BacklogCounts> {
     const [listedStockCount, pendingListingCount, pendingInquiryCount] =
@@ -94,7 +92,7 @@ export class DailyStatsService {
         }),
         this.prisma.listingApplication.count({
           where: {
-            status: ListingApplicationStatus.SUBMITTED,
+            status: { in: PENDING_LISTING_STATUSES },
             deletedDate: null,
           },
         }),

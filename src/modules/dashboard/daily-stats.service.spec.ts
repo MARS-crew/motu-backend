@@ -171,7 +171,7 @@ describe('DailyStatsService', () => {
     });
   });
 
-  it('countBacklog는 거래 중·거래 중지 상품, 접수된 상장 신청, 접수·처리 중 문의를 센다', async () => {
+  it('countBacklog는 거래 중·거래 중지 상품, 접수·검토 중 상장 신청, 접수·처리 중 문의를 센다', async () => {
     await expect(service.countBacklog()).resolves.toEqual({
       listedStockCount: 36,
       pendingListingCount: 5,
@@ -184,7 +184,15 @@ describe('DailyStatsService', () => {
       },
     });
     expect(listingApplication.count).toHaveBeenCalledWith({
-      where: { status: ListingApplicationStatus.SUBMITTED, deletedDate: null },
+      where: {
+        status: {
+          in: [
+            ListingApplicationStatus.SUBMITTED,
+            ListingApplicationStatus.UNDER_REVIEW,
+          ],
+        },
+        deletedDate: null,
+      },
     });
     expect(inquiry.count).toHaveBeenCalledWith({
       where: {

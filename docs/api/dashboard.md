@@ -27,6 +27,7 @@
 | 이상 거래 `anomalyCount` | 오늘 탐지된 건수 | `anomalyChange` 오늘 − 어제 탐지 건수 |
 
 - 상장 상품·처리 대기는 일별 통계의 어제 행과 비교한다. 어제 행이 없거나 밀린 날이라 값이 없으면 `null`이다. 00시가 지나고 배치가 돌기 전(최대 약 11분)에도 `null`일 수 있으니 화면은 증감 표시를 숨긴다.
+- 상장 심사 대기는 접수(`SUBMITTED`)와 검토 중(`UNDER_REVIEW`)을 센다. 보완 요청(`REVISION_REQUESTED`)은 신청자 대기라 뺀다.
 - [계정 문의]는 ADM-INQ-01을 연다.
 
 ## 거래량·거래대금 추이
@@ -59,7 +60,7 @@
 |---|---|---|
 | `trade_volume`, `trade_amount` | 그날 전체 상품 일봉의 거래량·거래대금 합계. 체결이 없으면 0 | 일봉이 남아 있어 정확히 채운다 |
 | `listed_stock_count` | 상장 상품 수 (거래 중·거래 중지, 삭제 제외) | `null` |
-| `pending_listing_count` | 상장 심사 대기 건수 (`SUBMITTED`, 삭제 제외) | `null` |
+| `pending_listing_count` | 상장 심사 대기 건수 (`SUBMITTED`·`UNDER_REVIEW`, 삭제 제외) | `null` |
 | `pending_inquiry_count` | 계정 문의 대기 건수 (접수·처리 중) | `null` |
 
 - 상장 상품·처리 대기는 상태 변경 이력이 없어 지난 시점 값을 다시 셀 수 없다. 그래서 마감 뒤 첫 실행에서 센 값을 어제 행에만 넣고, 그보다 오래 밀린 날은 `null`로 둔다.

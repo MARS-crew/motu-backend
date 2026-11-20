@@ -1193,7 +1193,7 @@ model DailyStat {
   tradeAmount         BigInt   @map("trade_amount")
   /// 마감 시점 상장 상품 수 (거래 중·거래 중지). 이력이 남지 않는 값이라, 마감 뒤 첫 집계에서만 채우고 밀린 날은 null
   listedStockCount    Int?     @map("listed_stock_count")
-  /// 마감 시점 상장 심사 대기 건수 (SUBMITTED)
+  /// 마감 시점 상장 심사 대기 건수 (접수·검토 중)
   pendingListingCount Int?     @map("pending_listing_count")
   /// 마감 시점 계정 문의 대기 건수 (접수·처리 중)
   pendingInquiryCount Int?     @map("pending_inquiry_count")
