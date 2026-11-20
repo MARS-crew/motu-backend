@@ -22,6 +22,7 @@ import {
   AdminUserItemResDto,
   GetAdminUsersResDto,
 } from './dto/res/get-admin-users-res.dto.js';
+import { WITHDRAWN_NICKNAME } from './users.constants.js';
 import { UserErrors } from './users.errors.js';
 
 const STATUS_LABELS: Record<UserStatus, string> = {
@@ -93,7 +94,7 @@ export class UsersAdminService {
 
     return Object.assign(this.toItem(user), {
       security: {
-        emailVerified: true,
+        emailVerified: user.email !== null,
         twoFactorStatus: user.twoFactorStatus,
         twoFactorPhoneNumber: user.twoFactorPhoneNumber
           ? maskPhoneNumber(user.twoFactorPhoneNumber)
@@ -253,8 +254,8 @@ export class UsersAdminService {
     return {
       userId: user.id,
       loginId: user.loginId,
-      nickname: user.nickname,
-      email: maskEmail(user.email),
+      nickname: user.nickname ?? WITHDRAWN_NICKNAME,
+      email: user.email === null ? null : maskEmail(user.email),
       createDate: user.createDate,
       userStatus: user.userStatus,
       lastLoginDate: user.lastLoginDate,
