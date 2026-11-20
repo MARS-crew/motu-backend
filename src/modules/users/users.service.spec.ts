@@ -12,7 +12,7 @@ import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { UsersService } from './users.service.js';
 
 describe('UsersService', () => {
-  const tx = { user: { create: vi.fn(), update: vi.fn() } };
+  const tx = { user: { create: vi.fn(), updateMany: vi.fn() } };
   const countUsers = vi.fn();
   const createInitialAccount = vi.fn();
   const sendEmailCode = vi.fn();
@@ -62,6 +62,7 @@ describe('UsersService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     countUsers.mockResolvedValue(0);
+    tx.user.updateMany.mockResolvedValue({ count: 1 });
     tx.user.create.mockImplementation(({ data }) =>
       Promise.resolve({ id: 1, userStatus: 'ACTIVE', role: 'USER', ...data }),
     );
@@ -159,7 +160,7 @@ describe('UsersService', () => {
       });
       expect(countUsers).toHaveBeenCalledWith({ where: { nickname } });
       expect(updateUser).toHaveBeenCalledWith({
-        where: { id: user.id },
+        where: { id: user.id, userStatus: { not: 'WITHDRAWN' } },
         data: { nickname },
       });
     });
@@ -332,8 +333,8 @@ describe('UsersService', () => {
         VerificationPurpose.CONTACT_PHONE_CHANGE,
         '6:01045678901',
       );
-      expect(tx.user.update).toHaveBeenCalledWith({
-        where: { id: 6 },
+      expect(tx.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 6, userStatus: { not: 'WITHDRAWN' } },
         data: { phoneNumber: '01045678901' },
       });
       expect(result).toMatchObject({
@@ -351,7 +352,7 @@ describe('UsersService', () => {
       await expect(
         service.changeContactPhone(6, '01045678901', '000000'),
       ).rejects.toThrow('VERIFICATION_CODE_MISMATCH');
-      expect(tx.user.update).not.toHaveBeenCalled();
+      expect(tx.user.updateMany).not.toHaveBeenCalled();
     });
   });
 });
