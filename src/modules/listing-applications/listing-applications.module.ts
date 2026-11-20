@@ -1,3 +1,10 @@
+import { AdminActivityLogsModule } from '../admin-activity-logs/admin-activity-logs.module.js';
+import { MatchingModule } from '../matching/matching.module.js';
+import { StocksModule } from '../stocks/stocks.module.js';
+import { ListingReviewController } from './listing-review.controller.js';
+import { ListingReviewService } from './listing-review.service.js';
+import { ListingActivationService } from './listing-activation.service.js';
+import { ListingStockImagesController } from './listing-stock-images.controller.js';
 import { Module } from '@nestjs/common';
 import { FilesModule } from '../files/files.module.js';
 import { SectorsModule } from '../sectors/sectors.module.js';
@@ -14,14 +21,25 @@ import { ListingRevisionsController } from './listing-revisions.controller.js';
 import { ListingRevisionsService } from './listing-revisions.service.js';
 
 @Module({
-  imports: [FilesModule, SectorsModule, NotificationsModule],
+  imports: [
+    FilesModule,
+    SectorsModule,
+    NotificationsModule,
+    AdminActivityLogsModule,
+    MatchingModule,
+    StocksModule,
+  ],
   controllers: [
+    ListingReviewController,
+    ListingStockImagesController,
     ListingApplicationsController,
     ListingApplicationsAdminController,
     ListingApplicationQueriesController,
     ListingRevisionsController,
   ],
   providers: [
+    ListingReviewService,
+    ListingActivationService,
     ListingApplicationsService,
     ListingApplicationsAdminService,
     ListingDraftExpirationService,

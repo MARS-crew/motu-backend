@@ -4,6 +4,8 @@ import { CollectionResDto } from '../../../files/dto/res/attachment-res.dto.js';
 
 export class ListingRevisionResDto {
   @ApiProperty() id: number;
+  @ApiProperty({ type: [String] }) requestItems: string[];
+  @ApiProperty({ type: [Object] }) deadlineHistory: unknown;
   @ApiProperty() requestContent: string;
   @ApiProperty() deadline: Date;
   @ApiProperty({

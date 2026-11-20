@@ -4,14 +4,17 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -19,6 +22,7 @@ import {
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
 import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { Public } from '../../common/auth/public.decorator.js';
+import { ChangeNicknameReqDto } from './dto/req/change-nickname-req.dto.js';
 import { CheckLoginIdReqDto } from './dto/req/check-login-id-req.dto.js';
 import { CheckNicknameReqDto } from './dto/req/check-nickname-req.dto.js';
 import { ConfirmContactPhoneVerificationReqDto } from './dto/req/confirm-contact-phone-verification-req.dto.js';
@@ -84,6 +88,20 @@ export class UsersController {
       dto.phoneNumber,
       dto.code,
     );
+  }
+
+  @Patch('me/nickname')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '내 닉네임 변경' })
+  @ApiOkResponse({ type: GetMyInfoResDto })
+  @ApiBadRequestResponse({ description: 'BAD_REQUEST' })
+  @ApiConflictResponse({ description: 'NICKNAME_DUPLICATED' })
+  @ApiNotFoundResponse({ description: 'USER_NOT_FOUND' })
+  changeNickname(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ChangeNicknameReqDto,
+  ): Promise<GetMyInfoResDto> {
+    return this.usersService.changeNickname(user.userId, dto.nickname);
   }
 
   @Public()
