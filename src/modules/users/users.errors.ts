@@ -54,4 +54,15 @@ export const UserErrors = {
     message: '이미 가입된 정보입니다.',
     status: HttpStatus.CONFLICT,
   },
+  WITHDRAWN_STATUS_IMMUTABLE: {
+    code: 'USER_WITHDRAWN_STATUS_IMMUTABLE',
+    message: '탈퇴한 회원의 상태는 변경할 수 없습니다.',
+    status: HttpStatus.CONFLICT,
+  },
+  WITHDRAWAL_PENDING_LISTING: {
+    code: 'USER_WITHDRAWAL_PENDING_LISTING',
+    message:
+      '승인된 상품이 거래 시작을 기다리고 있어 탈퇴할 수 없습니다. 고객센터에 문의해 주세요.',
+    status: HttpStatus.CONFLICT,
+  },
 } as const satisfies Record<string, ErrorDefinition>;

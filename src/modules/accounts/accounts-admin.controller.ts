@@ -15,6 +15,8 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
+  ApiForbiddenResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -73,6 +75,8 @@ export class AccountsAdminController {
   })
   @ApiOkResponse({ type: AdjustCashResDto })
   @ApiBadRequestResponse({ description: 'ACCOUNT_INSUFFICIENT_CASH' })
+  @ApiForbiddenResponse({ description: 'ACCOUNT_WITHDRAWN' })
+  @ApiConflictResponse({ description: 'ACCOUNT_CONCURRENT_UPDATE' })
   adjustCash(
     @CurrentUser() admin: AuthUser,
     @Param('userId', ParseIdPipe) userId: number,

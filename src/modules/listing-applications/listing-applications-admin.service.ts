@@ -11,6 +11,7 @@ import type { CollectionResDto } from '../files/dto/res/attachment-res.dto.js';
 import { FileErrors } from '../files/files.errors.js';
 import { FilesService } from '../files/files.service.js';
 import { SectorsService } from '../sectors/sectors.service.js';
+import { WITHDRAWN_NICKNAME } from '../users/users.constants.js';
 import type { GetAdminListingApplicationsReqDto } from './dto/req/get-admin-listing-applications-req.dto.js';
 import type { ListingDraftDataReqDto } from './dto/req/listing-draft-data-req.dto.js';
 import type {
@@ -259,7 +260,7 @@ export class ListingApplicationsAdminService {
       applicant: {
         userId: user.id,
         loginId: user.loginId,
-        nickname: user.nickname,
+        nickname: user.nickname ?? WITHDRAWN_NICKNAME,
       },
     } satisfies AdminListingApplicationItemResDto;
   }

@@ -41,8 +41,10 @@ describe('OrdersService', () => {
     holding: { update: vi.fn() },
     order: {
       create: vi.fn(),
+      findMany: vi.fn(),
       findUniqueOrThrow: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
   };
   const transaction = vi.fn((fn: (client: typeof tx) => Promise<unknown>) =>
@@ -969,6 +971,139 @@ describe('OrdersService', () => {
       ];
       expect(sql.join('?')).toMatch(/FROM orders[\s\S]*FOR UPDATE/);
       expect(values).toEqual([100n, USER_ID]);
+    });
+  });
+
+  describe('cancelOpenOrdersForWithdrawal', () => {
+    const openOrders = [
+      { id: 11n, stockId: 1, side: OrderSide.BUY, lockedAmount: 120n },
+      {
+        id: 22n,
+        stockId: 2,
+        side: OrderSide.SELL,
+        qty: 10n,
+        filledQty: 7n,
+      },
+    ];
+
+    it('계좌 잠금 뒤 탈퇴 검사에 실패하면 주문과 계좌를 변경하지 않는다', async () => {
+      order.findMany.mockResolvedValueOnce([{ stockId: 1 }]);
+      const blocked = new Error('승인된 거래 대기 상품이 있음');
+      const validateWithdrawal = vi.fn(async () => {
+        expect(settlement.lockAccounts).toHaveBeenCalledExactlyOnceWith(tx, [
+          ACCOUNT_ID,
+        ]);
+        throw blocked;
+      });
+      const finishWithdrawal = vi.fn();
+
+      await expect(
+        service.cancelOpenOrdersForWithdrawal(
+          ACCOUNT_ID,
+          finishWithdrawal,
+          validateWithdrawal,
+        ),
+      ).rejects.toBe(blocked);
+
+      expect(validateWithdrawal).toHaveBeenCalledExactlyOnceWith(tx);
+      expect(tx.order.findMany).not.toHaveBeenCalled();
+      expect(tx.account.update).not.toHaveBeenCalled();
+      expect(tx.holding.update).not.toHaveBeenCalled();
+      expect(tx.order.updateMany).not.toHaveBeenCalled();
+      expect(finishWithdrawal).not.toHaveBeenCalled();
+      expect(matching.removeOrder).not.toHaveBeenCalled();
+    });
+
+    it('새 종목의 주문을 다시 확인하고 남은 예약만 해제한다', async () => {
+      order.findMany
+        .mockResolvedValueOnce([{ stockId: 1 }])
+        .mockResolvedValueOnce([{ stockId: 1 }, { stockId: 2 }]);
+      tx.order.findMany
+        .mockResolvedValueOnce(openOrders)
+        .mockResolvedValueOnce(openOrders);
+
+      const finishWithdrawal = vi.fn(async () => {
+        expect(matching.removeOrder).not.toHaveBeenCalled();
+      });
+
+      await service.cancelOpenOrdersForWithdrawal(
+        ACCOUNT_ID,
+        finishWithdrawal,
+        async () => {},
+      );
+
+      expect(transaction).toHaveBeenCalledTimes(2);
+      expect(
+        matching.runExclusive.mock.calls.map(([stockId]) => stockId),
+      ).toEqual([1, 1, 2]);
+      expect(finishWithdrawal).toHaveBeenCalledExactlyOnceWith(
+        tx,
+        expect.any(Date),
+      );
+      expect(tx.account.update).toHaveBeenCalledExactlyOnceWith({
+        where: { id: ACCOUNT_ID },
+        data: { lockedCash: { decrement: 120n }, version: { increment: 1 } },
+      });
+      expect(tx.holding.update).toHaveBeenCalledExactlyOnceWith({
+        where: { accountId_stockId: { accountId: ACCOUNT_ID, stockId: 2 } },
+        data: { lockedQty: { decrement: 3n } },
+      });
+      expect(tx.order.updateMany).toHaveBeenCalledExactlyOnceWith({
+        where: {
+          accountId: ACCOUNT_ID,
+          status: { in: [OrderStatus.ACCEPTED, OrderStatus.PARTIAL] },
+        },
+        data: {
+          status: OrderStatus.CANCELED,
+          lockedAmount: 0n,
+          canceledDate: expect.any(Date),
+        },
+      });
+      expect(matching.removeOrder.mock.calls).toEqual([
+        [1, 11n],
+        [2, 22n],
+      ]);
+    });
+
+    it('트랜잭션 커밋에 실패하면 호가창에 취소를 반영하지 않는다', async () => {
+      order.findMany.mockResolvedValueOnce([{ stockId: 1 }, { stockId: 2 }]);
+      tx.order.findMany.mockResolvedValueOnce(openOrders);
+      transaction.mockImplementationOnce(async (run) => {
+        await run(tx);
+        throw new Error('커밋 실패');
+      });
+
+      const finishWithdrawal = vi.fn(async () => {});
+
+      await expect(
+        service.cancelOpenOrdersForWithdrawal(
+          ACCOUNT_ID,
+          finishWithdrawal,
+          async () => {},
+        ),
+      ).rejects.toThrow('커밋 실패');
+
+      expect(finishWithdrawal).toHaveBeenCalledOnce();
+      expect(matching.removeOrder).not.toHaveBeenCalled();
+    });
+
+    it('미체결 주문이 없어도 탈퇴 처리를 실행한다', async () => {
+      order.findMany.mockResolvedValueOnce([]);
+      tx.order.findMany.mockResolvedValueOnce([]);
+      const finishWithdrawal = vi.fn(async () => {});
+
+      await service.cancelOpenOrdersForWithdrawal(
+        ACCOUNT_ID,
+        finishWithdrawal,
+        async () => {},
+      );
+
+      expect(finishWithdrawal).toHaveBeenCalledExactlyOnceWith(
+        tx,
+        expect.any(Date),
+      );
+      expect(tx.order.updateMany).not.toHaveBeenCalled();
+      expect(matching.removeOrder).not.toHaveBeenCalled();
     });
   });
 

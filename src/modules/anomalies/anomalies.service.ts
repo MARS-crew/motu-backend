@@ -13,6 +13,7 @@ import {
   UserStatus,
 } from '../../generated/prisma/client.js';
 import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
+import { WITHDRAWN_NICKNAME } from '../users/users.constants.js';
 import {
   ANOMALY_ACTION_LABELS,
   ANOMALY_MAX_PERIOD_DAYS,
@@ -315,7 +316,7 @@ export class AnomaliesService {
   private toDetail(anomaly: AnomalyDetail): GetAnomalyResDto {
     return Object.assign(this.toItem(anomaly), {
       stockCode: anomaly.stock?.stockCode ?? null,
-      nickname: anomaly.user.nickname,
+      nickname: anomaly.user.nickname ?? WITHDRAWN_NICKNAME,
       orderId: anomaly.orderId === null ? null : Number(anomaly.orderId),
       tradeId: anomaly.tradeId === null ? null : Number(anomaly.tradeId),
       evidence: anomaly.evidence as Record<string, unknown>,

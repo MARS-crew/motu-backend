@@ -8,6 +8,7 @@ import {
   TwoFactorAction as TwoFactorHistoryAction,
   TwoFactorStatus,
   User,
+  UserStatus,
   VerificationChannel,
   VerificationPurpose,
 } from '../../generated/prisma/client.js';
@@ -149,8 +150,8 @@ export class TwoFactorService {
         VerificationPurpose.TWO_FACTOR_SETUP,
         target,
       );
-      await tx.user.update({
-        where: { id: user.id },
+      const { count } = await tx.user.updateMany({
+        where: { id: user.id, userStatus: { not: UserStatus.WITHDRAWN } },
         data: {
           twoFactorStatus: TwoFactorStatus.ENABLED,
           twoFactorPhoneNumber: phoneNumber,
@@ -159,6 +160,9 @@ export class TwoFactorService {
           twoFactorVerifiedDate: now,
         },
       });
+      if (count === 0) {
+        throw new BusinessException(UserErrors.NOT_FOUND);
+      }
       await tx.twoFactorHistory.create({
         data: {
           userId: user.id,
@@ -321,10 +325,20 @@ export class TwoFactorService {
       lastUsedDate: now,
       userAgent: userAgent?.slice(0, 255) ?? null,
     };
-    await this.prisma.trustedDevice.upsert({
-      where: { userId_deviceIdHash: { userId, deviceIdHash } },
-      create: { userId, deviceIdHash, createDate: now, ...data },
-      update: data,
+    await this.prisma.$transaction(async (tx) => {
+      const [user] = await tx.$queryRaw<{ userId: number }[]>`
+        SELECT user_id AS "userId" FROM users
+        WHERE user_id = ${userId} AND user_status = ${UserStatus.ACTIVE}::user_status
+        FOR NO KEY UPDATE
+      `;
+      if (!user) {
+        throw new BusinessException(UserErrors.NOT_FOUND);
+      }
+      await tx.trustedDevice.upsert({
+        where: { userId_deviceIdHash: { userId, deviceIdHash } },
+        create: { userId, deviceIdHash, createDate: now, ...data },
+        update: data,
+      });
     });
   }
 
@@ -338,29 +352,46 @@ export class TwoFactorService {
     method: LoginVerificationMethod;
     maskedTarget: string;
   } {
-    return user.twoFactorStatus === TwoFactorStatus.ENABLED &&
+    const { method, maskedTarget } = this.loginVerificationTarget(user);
+    return { method, maskedTarget };
+  }
+
+  private loginVerificationTarget(user: TwoFactorUser): {
+    method: LoginVerificationMethod;
+    address: string;
+    maskedTarget: string;
+  } {
+    if (
+      user.twoFactorStatus === TwoFactorStatus.ENABLED &&
       user.twoFactorPhoneNumber
-      ? {
-          method: LoginVerificationMethod.SMS,
-          maskedTarget: maskPhoneNumber(user.twoFactorPhoneNumber),
-        }
-      : {
-          method: LoginVerificationMethod.EMAIL,
-          maskedTarget: maskEmail(user.email),
-        };
+    ) {
+      return {
+        method: LoginVerificationMethod.SMS,
+        address: user.twoFactorPhoneNumber,
+        maskedTarget: maskPhoneNumber(user.twoFactorPhoneNumber),
+      };
+    }
+    if (user.email === null) {
+      throw new BusinessException(UserErrors.NOT_FOUND);
+    }
+    return {
+      method: LoginVerificationMethod.EMAIL,
+      address: user.email,
+      maskedTarget: maskEmail(user.email),
+    };
   }
 
   async sendLoginVerification(
     user: TwoFactorUser,
   ): Promise<SentLoginVerification> {
-    const { method, maskedTarget } = this.loginMethod(user);
+    const { method, address, maskedTarget } =
+      this.loginVerificationTarget(user);
     if (method === LoginVerificationMethod.SMS) {
       this.assertNotLocked(user);
-      const phoneNumber = user.twoFactorPhoneNumber!;
       const sent = await this.verifications.sendSmsCode(
         VerificationPurpose.NEW_DEVICE_LOGIN,
-        phoneNumber,
-        verificationTarget(user.id, phoneNumber),
+        address,
+        verificationTarget(user.id, address),
       );
       return {
         method,
@@ -372,8 +403,8 @@ export class TwoFactorService {
 
     const sent = await this.verifications.sendEmailCode(
       VerificationPurpose.NEW_DEVICE_LOGIN,
-      user.email,
-      verificationTarget(user.id, user.email),
+      address,
+      verificationTarget(user.id, address),
     );
     return { method, maskedTarget, ...sent, remainingAttempts: null };
   }
@@ -383,12 +414,9 @@ export class TwoFactorService {
     user: TwoFactorUser,
     code: string,
   ): Promise<void> {
-    const { method } = this.loginMethod(user);
+    const { method, address } = this.loginVerificationTarget(user);
     const isSms = method === LoginVerificationMethod.SMS;
-    const target = verificationTarget(
-      user.id,
-      isSms ? user.twoFactorPhoneNumber! : user.email,
-    );
+    const target = verificationTarget(user.id, address);
     if (isSms) {
       await this.confirmSms(
         user,
@@ -537,7 +565,7 @@ export class TwoFactorService {
 
   private async findUser(userId: number): Promise<User> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
+    if (!user || user.userStatus === UserStatus.WITHDRAWN) {
       throw new BusinessException(UserErrors.NOT_FOUND);
     }
     return user;

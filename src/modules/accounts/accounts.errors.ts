@@ -22,10 +22,20 @@ export const AccountErrors = {
     message: '사용 가능 포인트보다 많이 차감할 수 없습니다.',
     status: HttpStatus.BAD_REQUEST,
   },
+  WITHDRAWAL_LOCKED_CASH: {
+    code: 'ACCOUNT_WITHDRAWAL_LOCKED_CASH',
+    message: '예약 포인트가 남아 있어 회원 탈퇴를 완료할 수 없습니다.',
+    status: HttpStatus.CONFLICT,
+  },
   /** 같은 계좌를 동시에 갱신해 버전이 맞지 않는 경우 */
   CONCURRENT_UPDATE: {
     code: 'ACCOUNT_CONCURRENT_UPDATE',
     message: '다른 요청을 처리하고 있습니다. 잠시 후 다시 시도해 주세요.',
     status: HttpStatus.CONFLICT,
+  },
+  WITHDRAWN: {
+    code: 'ACCOUNT_WITHDRAWN',
+    message: '탈퇴한 회원의 계좌로 거래할 수 없습니다.',
+    status: HttpStatus.FORBIDDEN,
   },
 } as const satisfies Record<string, ErrorDefinition>;
