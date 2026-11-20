@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
-import { Role, UserStatus } from '../../generated/prisma/client.js';
+import {
+  ListingApplicationStatus,
+  Role,
+  TradeStatus,
+  TwoFactorStatus,
+  UserStatus,
+} from '../../generated/prisma/client.js';
 import { AccountsService } from '../accounts/accounts.service.js';
 import { OrdersService } from '../orders/orders.service.js';
 import { UserErrors } from './users.errors.js';
@@ -25,6 +31,12 @@ export class UsersWithdrawalService {
           now,
         );
 
+        // 알림 발송과 같은 순서로 알림 행을 먼저 잠그는다.
+        await tx.priceAlert.updateMany({
+          where: { userId, isActive: true },
+          data: { isActive: false },
+        });
+
         const { count } = await tx.user.updateMany({
           where: {
             id: userId,
@@ -33,6 +45,18 @@ export class UsersWithdrawalService {
           },
           data: {
             userStatus: UserStatus.WITHDRAWN,
+            // Signup IDs can only contain lowercase letters and digits.
+            loginId: `withdrawn_${userId}`,
+            email: null,
+            nickname: null,
+            birthDate: null,
+            phoneNumber: null,
+            twoFactorPhoneNumber: null,
+            twoFactorStatus: TwoFactorStatus.NOT_SET,
+            twoFactorEnabledDate: null,
+            twoFactorVerifiedDate: null,
+            twoFactorLockedUntil: null,
+            twoFactorFailCount: 0,
             reason,
             deletedDate: now,
             isDeleted: true,
@@ -42,6 +66,12 @@ export class UsersWithdrawalService {
           throw new BusinessException(UserErrors.STATUS_CONFLICT);
         }
 
+        await tx.twoFactorHistory.updateMany({
+          where: { userId, phoneNumber: { not: null } },
+          data: { phoneNumber: null },
+        });
+        await tx.trustedDevice.deleteMany({ where: { userId } });
+
         await tx.refreshToken.updateMany({
           where: { userId, revokedAt: null },
           data: { revokedAt: now },
@@ -50,6 +80,23 @@ export class UsersWithdrawalService {
           where: { userId, usedAt: null },
           data: { usedAt: now },
         });
+      },
+      async (tx) => {
+        const pendingListing = await tx.listingApplication.findFirst({
+          where: {
+            userId,
+            status: ListingApplicationStatus.APPROVED,
+            deletedDate: null,
+            stock: {
+              is: { tradeStatus: TradeStatus.PENDING, isDeleted: false },
+            },
+          },
+          select: { id: true },
+        });
+
+        if (pendingListing) {
+          throw new BusinessException(UserErrors.WITHDRAWAL_PENDING_LISTING);
+        }
       },
     );
   }
