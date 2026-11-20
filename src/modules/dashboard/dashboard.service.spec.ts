@@ -1,6 +1,7 @@
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
+  AnomalyStatus,
   ChartInterval,
   Role,
   UserStatus,
@@ -48,7 +49,7 @@ describe('DashboardService', () => {
   describe('getKpis', () => {
     beforeEach(() => {
       user.count.mockResolvedValueOnce(12_480).mockResolvedValueOnce(12_223);
-      anomaly.count.mockResolvedValueOnce(3).mockResolvedValueOnce(2);
+      anomaly.count.mockResolvedValue(3);
       dailyStats.countBacklog.mockResolvedValue({
         listedStockCount: 36,
         pendingListingCount: 5,
@@ -61,6 +62,7 @@ describe('DashboardService', () => {
         listedStockCount: 33,
         pendingListingCount: 4,
         pendingInquiryCount: 2,
+        pendingAnomalyCount: 2,
       });
 
       await expect(service.getKpis(NOW)).resolves.toEqual({
@@ -87,12 +89,11 @@ describe('DashboardService', () => {
           OR: [{ deletedDate: null }, { deletedDate: { gte: todayStart } }],
         },
       });
-      expect(anomaly.count).toHaveBeenNthCalledWith(1, {
-        where: { detectedDate: { gte: todayStart } },
-      });
-      expect(anomaly.count).toHaveBeenNthCalledWith(2, {
+      // 이상 거래는 미처리·확인중 건수다.
+      expect(anomaly.count).toHaveBeenCalledOnce();
+      expect(anomaly.count).toHaveBeenCalledWith({
         where: {
-          detectedDate: { gte: kst('2026-11-18T00:00:00'), lt: todayStart },
+          status: { in: [AnomalyStatus.PENDING, AnomalyStatus.REVIEWING] },
         },
       });
       expect(dailyStat.findUnique).toHaveBeenCalledWith({
@@ -100,14 +101,14 @@ describe('DashboardService', () => {
       });
     });
 
-    it('어제 일별 통계가 없으면 상장 상품·처리 대기 전일 대비는 null이다', async () => {
+    it('어제 일별 통계가 없으면 상장 상품·처리 대기·이상 거래 전일 대비는 null이다', async () => {
       dailyStat.findUnique.mockResolvedValue(null);
 
       const kpis = await service.getKpis(NOW);
 
       expect(kpis.listedStockChange).toBeNull();
       expect(kpis.pendingChange).toBeNull();
-      expect(kpis.anomalyChange).toBe(1);
+      expect(kpis.anomalyChange).toBeNull();
     });
 
     it('어제 행이 밀린 날이라 건수가 비어 있어도 null이다', async () => {
@@ -115,12 +116,14 @@ describe('DashboardService', () => {
         listedStockCount: null,
         pendingListingCount: null,
         pendingInquiryCount: null,
+        pendingAnomalyCount: null,
       });
 
       const kpis = await service.getKpis(NOW);
 
       expect(kpis.listedStockChange).toBeNull();
       expect(kpis.pendingChange).toBeNull();
+      expect(kpis.anomalyChange).toBeNull();
     });
 
     it('어제 마감 회원이 0명이면 증감률은 null이다', async () => {

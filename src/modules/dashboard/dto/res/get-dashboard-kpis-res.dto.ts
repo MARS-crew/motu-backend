@@ -57,14 +57,16 @@ export class GetDashboardKpisResDto {
   pendingChange: number | null;
 
   @ApiProperty({
-    description: '이상 거래 건수. 오늘(한국 시간 00시부터) 탐지된 건수',
+    description: '미처리 이상 거래 건수 (미처리·확인중)',
     example: 3,
   })
   anomalyCount: number;
 
   @ApiProperty({
-    description: '이상 거래 전일 대비 증감 건수 (오늘 - 어제 탐지 건수)',
+    description:
+      '미처리 이상 거래 전일 대비 증감 건수. 어제 일별 통계가 없으면 null',
     example: 1,
+    nullable: true,
   })
-  anomalyChange: number;
+  anomalyChange: number | null;
 }

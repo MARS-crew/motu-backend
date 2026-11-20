@@ -1,4 +1,5 @@
 import {
+  AnomalyStatus,
   InquiryStatus,
   ListingApplicationStatus,
   TradeStatus,
@@ -27,6 +28,12 @@ export const PENDING_LISTING_STATUSES: ListingApplicationStatus[] = [
 export const PENDING_INQUIRY_STATUSES: InquiryStatus[] = [
   InquiryStatus.SUBMITTED,
   InquiryStatus.IN_PROGRESS,
+];
+
+/** 미처리로 세는 이상 거래 상태 (미처리·확인중) */
+export const PENDING_ANOMALY_STATUSES: AnomalyStatus[] = [
+  AnomalyStatus.PENDING,
+  AnomalyStatus.REVIEWING,
 ];
 
 /** 거래 추이 조회 기간 (화면의 기간 버튼) */

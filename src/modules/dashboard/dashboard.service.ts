@@ -12,6 +12,7 @@ import {
   CUSTOM_HOURLY_MAX_DAYS,
   DAY_MS,
   KST_OFFSET_MS,
+  PENDING_ANOMALY_STATUSES,
   TradeTrendRange,
   TradeTrendUnit,
 } from './dashboard.constants.js';
@@ -69,42 +70,33 @@ export class DashboardService {
 
   /**
    * 운영 대시보드 상단 카드. 지금 값을 세고 한국 시간 어제 마감 값과 비교한다.
-   * 회원은 가입·탈퇴 시각으로, 이상 거래는 탐지 시각으로 어제 값을 세고, 상장 상품·처리 대기는 일별 통계의 어제 행과 비교한다.
+   * 회원은 가입·탈퇴 시각으로 어제 값을 세고, 상장 상품·처리 대기·미처리 이상 거래는 일별 통계의 어제 행과 비교한다.
    */
   async getKpis(now: Date = new Date()): Promise<GetDashboardKpisResDto> {
     const todayStart = candleStartOf(now, ChartInterval.DAY);
     const yesterdayStart = new Date(todayStart.getTime() - DAY_MS);
 
-    const [
-      userCount,
-      prevUserCount,
-      backlog,
-      anomalyCount,
-      prevAnomalyCount,
-      yesterday,
-    ] = await Promise.all([
-      this.prisma.user.count({
-        where: { role: Role.USER, userStatus: { not: UserStatus.WITHDRAWN } },
-      }),
-      // 어제 마감 회원: 오늘 00시 전에 가입했고, 그때 탈퇴하지 않은 회원
-      this.prisma.user.count({
-        where: {
-          role: Role.USER,
-          createDate: { lt: todayStart },
-          OR: [{ deletedDate: null }, { deletedDate: { gte: todayStart } }],
-        },
-      }),
-      this.dailyStats.countBacklog(),
-      this.prisma.anomaly.count({
-        where: { detectedDate: { gte: todayStart } },
-      }),
-      this.prisma.anomaly.count({
-        where: { detectedDate: { gte: yesterdayStart, lt: todayStart } },
-      }),
-      this.prisma.dailyStat.findUnique({
-        where: { statDate: toStatDate(yesterdayStart) },
-      }),
-    ]);
+    const [userCount, prevUserCount, backlog, anomalyCount, yesterday] =
+      await Promise.all([
+        this.prisma.user.count({
+          where: { role: Role.USER, userStatus: { not: UserStatus.WITHDRAWN } },
+        }),
+        // 어제 마감 회원: 오늘 00시 전에 가입했고, 그때 탈퇴하지 않은 회원
+        this.prisma.user.count({
+          where: {
+            role: Role.USER,
+            createDate: { lt: todayStart },
+            OR: [{ deletedDate: null }, { deletedDate: { gte: todayStart } }],
+          },
+        }),
+        this.dailyStats.countBacklog(),
+        this.prisma.anomaly.count({
+          where: { status: { in: PENDING_ANOMALY_STATUSES } },
+        }),
+        this.prisma.dailyStat.findUnique({
+          where: { statDate: toStatDate(yesterdayStart) },
+        }),
+      ]);
 
     const pendingCount =
       backlog.pendingListingCount + backlog.pendingInquiryCount;
@@ -133,7 +125,10 @@ export class DashboardService {
       pendingChange:
         prevPendingCount !== null ? pendingCount - prevPendingCount : null,
       anomalyCount,
-      anomalyChange: anomalyCount - prevAnomalyCount,
+      anomalyChange:
+        yesterday?.pendingAnomalyCount != null
+          ? anomalyCount - yesterday.pendingAnomalyCount
+          : null,
     };
   }
 

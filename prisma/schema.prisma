@@ -1197,6 +1197,8 @@ model DailyStat {
   pendingListingCount Int?     @map("pending_listing_count")
   /// 마감 시점 계정 문의 대기 건수 (접수·처리 중)
   pendingInquiryCount Int?     @map("pending_inquiry_count")
+  /// 마감 시점 미처리 이상 거래 건수 (미처리·확인중)
+  pendingAnomalyCount Int?     @map("pending_anomaly_count")
   createDate          DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
 
   @@map("daily_stats")

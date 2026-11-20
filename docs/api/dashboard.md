@@ -24,9 +24,9 @@
 | 전체 회원 `userCount` | 일반 회원 수 (잠김·정지 포함, 관리자·탈퇴 회원 제외) | `userChangeRate` 증감률(%, 소수점 둘째 자리). 오늘 00시 전에 가입했고 그때 탈퇴하지 않은 회원 수와 비교한다. 0명이면 `null` |
 | 상장 상품 `listedStockCount` | 거래 중·거래 중지 상품 수 | `listedStockChange` 건수 차이 |
 | 처리 대기 `pendingCount` | 상장 심사 대기 `pendingListingCount` + 계정 문의 대기 `pendingInquiryCount` | `pendingChange` 건수 차이 |
-| 이상 거래 `anomalyCount` | 오늘 탐지된 건수 | `anomalyChange` 오늘 − 어제 탐지 건수 |
+| 이상 거래 `anomalyCount` | 미처리 건수 (미처리 `PENDING` + 확인중 `REVIEWING`) | `anomalyChange` 건수 차이 |
 
-- 상장 상품·처리 대기는 일별 통계의 어제 행과 비교한다. 어제 행이 없거나 밀린 날이라 값이 없으면 `null`이다. 00시가 지나고 배치가 돌기 전(최대 약 11분)에도 `null`일 수 있으니 화면은 증감 표시를 숨긴다.
+- 상장 상품·처리 대기·이상 거래는 일별 통계의 어제 행과 비교한다. 어제 행이 없거나 밀린 날이라 값이 없으면 `null`이다. 00시가 지나고 배치가 돌기 전(최대 약 11분)에도 `null`일 수 있다. **전일 대비 값이 `null`이면 화면은 증감 표시를 숨긴다.**
 - 상장 심사 대기는 접수(`SUBMITTED`)와 검토 중(`UNDER_REVIEW`)을 센다. 보완 요청(`REVISION_REQUESTED`)은 신청자 대기라 뺀다.
 - [계정 문의]는 ADM-INQ-01을 연다.
 
@@ -62,6 +62,7 @@
 | `listed_stock_count` | 상장 상품 수 (거래 중·거래 중지, 삭제 제외) | `null` |
 | `pending_listing_count` | 상장 심사 대기 건수 (`SUBMITTED`·`UNDER_REVIEW`, 삭제 제외) | `null` |
 | `pending_inquiry_count` | 계정 문의 대기 건수 (접수·처리 중) | `null` |
+| `pending_anomaly_count` | 미처리 이상 거래 건수 (`PENDING`·`REVIEWING`) | `null` |
 
-- 상장 상품·처리 대기는 상태 변경 이력이 없어 지난 시점 값을 다시 셀 수 없다. 그래서 마감 뒤 첫 실행에서 센 값을 어제 행에만 넣고, 그보다 오래 밀린 날은 `null`로 둔다.
+- 상장 상품·처리 대기·미처리 이상 거래는 상태 변경 이력이 없어 지난 시점 값을 다시 셀 수 없다. 그래서 마감 뒤 첫 실행에서 센 값을 어제 행에만 넣고, 그보다 오래 밀린 날은 `null`로 둔다.
 - 집계가 실패하면 로그를 남기고 다음 주기에 다시 시도한다.

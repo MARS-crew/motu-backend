@@ -1,5 +1,6 @@
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
+  AnomalyStatus,
   ChartInterval,
   InquiryStatus,
   ListingApplicationStatus,
@@ -13,12 +14,14 @@ describe('DailyStatsService', () => {
   const stock = { count: vi.fn() };
   const listingApplication = { count: vi.fn() };
   const inquiry = { count: vi.fn() };
+  const anomaly = { count: vi.fn() };
   const prisma = {
     dailyStat,
     chart,
     stock,
     listingApplication,
     inquiry,
+    anomaly,
   } as unknown as PrismaService;
   const service = new DailyStatsService(prisma);
 
@@ -32,6 +35,7 @@ describe('DailyStatsService', () => {
     stock.count.mockResolvedValue(36);
     listingApplication.count.mockResolvedValue(5);
     inquiry.count.mockResolvedValue(3);
+    anomaly.count.mockResolvedValue(4);
     chart.groupBy.mockResolvedValue([]);
     dailyStat.createMany.mockImplementation(({ data }: { data: unknown[] }) =>
       Promise.resolve({ count: data.length }),
@@ -78,6 +82,7 @@ describe('DailyStatsService', () => {
             listedStockCount: null,
             pendingListingCount: null,
             pendingInquiryCount: null,
+            pendingAnomalyCount: null,
           },
           {
             statDate: statDate('2026-11-17'),
@@ -86,6 +91,7 @@ describe('DailyStatsService', () => {
             listedStockCount: null,
             pendingListingCount: null,
             pendingInquiryCount: null,
+            pendingAnomalyCount: null,
           },
           {
             statDate: statDate('2026-11-18'),
@@ -94,6 +100,7 @@ describe('DailyStatsService', () => {
             listedStockCount: 36,
             pendingListingCount: 5,
             pendingInquiryCount: 3,
+            pendingAnomalyCount: 4,
           },
         ],
         skipDuplicates: true,
@@ -155,6 +162,7 @@ describe('DailyStatsService', () => {
             listedStockCount: 36,
             pendingListingCount: 5,
             pendingInquiryCount: 3,
+            pendingAnomalyCount: 4,
           },
         ],
         skipDuplicates: true,
@@ -171,11 +179,12 @@ describe('DailyStatsService', () => {
     });
   });
 
-  it('countBacklog는 거래 중·거래 중지 상품, 접수·검토 중 상장 신청, 접수·처리 중 문의를 센다', async () => {
+  it('countBacklog는 거래 중·거래 중지 상품, 접수·검토 중 상장 신청, 접수·처리 중 문의, 미처리·확인중 이상 거래를 센다', async () => {
     await expect(service.countBacklog()).resolves.toEqual({
       listedStockCount: 36,
       pendingListingCount: 5,
       pendingInquiryCount: 3,
+      pendingAnomalyCount: 4,
     });
     expect(stock.count).toHaveBeenCalledWith({
       where: {
@@ -197,6 +206,11 @@ describe('DailyStatsService', () => {
     expect(inquiry.count).toHaveBeenCalledWith({
       where: {
         status: { in: [InquiryStatus.SUBMITTED, InquiryStatus.IN_PROGRESS] },
+      },
+    });
+    expect(anomaly.count).toHaveBeenCalledWith({
+      where: {
+        status: { in: [AnomalyStatus.PENDING, AnomalyStatus.REVIEWING] },
       },
     });
   });

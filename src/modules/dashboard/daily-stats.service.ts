@@ -7,6 +7,7 @@ import {
   DAY_MS,
   KST_OFFSET_MS,
   LISTED_TRADE_STATUSES,
+  PENDING_ANOMALY_STATUSES,
   PENDING_INQUIRY_STATUSES,
   PENDING_LISTING_STATUSES,
 } from './dashboard.constants.js';
@@ -16,6 +17,7 @@ export interface BacklogCounts {
   listedStockCount: number;
   pendingListingCount: number;
   pendingInquiryCount: number;
+  pendingAnomalyCount: number;
 }
 
 @Injectable()
@@ -24,7 +26,7 @@ export class DailyStatsService {
 
   /**
    * 마감한 날 중 행이 없는 날을 만든다. 마지막 행 다음 날부터, 행이 하나도 없으면 첫 체결일부터 어제까지다.
-   * 거래량·거래대금은 일봉 합계라 지난 날도 정확하다. 상장 상품·처리 대기는 지금 값만 알 수 있어 어제 행에만 넣는다.
+   * 거래량·거래대금은 일봉 합계라 지난 날도 정확하다. 상장 상품·처리 대기·미처리 이상 거래는 지금 값만 알 수 있어 어제 행에만 넣는다.
    * @returns 만든 행 수
    */
   async collectClosedDays(now: Date = new Date()): Promise<number> {
@@ -69,6 +71,7 @@ export class DailyStatsService {
         listedStockCount: isLastClosed ? counts.listedStockCount : null,
         pendingListingCount: isLastClosed ? counts.pendingListingCount : null,
         pendingInquiryCount: isLastClosed ? counts.pendingInquiryCount : null,
+        pendingAnomalyCount: isLastClosed ? counts.pendingAnomalyCount : null,
       });
     }
     const { count } = await this.prisma.dailyStat.createMany({
@@ -79,28 +82,41 @@ export class DailyStatsService {
   }
 
   /**
-   * 상장 상품(거래 중·거래 중지), 상장 심사 대기(접수·검토 중), 계정 문의 대기(접수·처리 중)의 지금 건수.
+   * 상장 상품(거래 중·거래 중지), 상장 심사 대기(접수·검토 중), 계정 문의 대기(접수·처리 중),
+   * 미처리 이상 거래(미처리·확인중)의 지금 건수.
    */
   async countBacklog(): Promise<BacklogCounts> {
-    const [listedStockCount, pendingListingCount, pendingInquiryCount] =
-      await Promise.all([
-        this.prisma.stock.count({
-          where: {
-            isDeleted: false,
-            tradeStatus: { in: LISTED_TRADE_STATUSES },
-          },
-        }),
-        this.prisma.listingApplication.count({
-          where: {
-            status: { in: PENDING_LISTING_STATUSES },
-            deletedDate: null,
-          },
-        }),
-        this.prisma.inquiry.count({
-          where: { status: { in: PENDING_INQUIRY_STATUSES } },
-        }),
-      ]);
-    return { listedStockCount, pendingListingCount, pendingInquiryCount };
+    const [
+      listedStockCount,
+      pendingListingCount,
+      pendingInquiryCount,
+      pendingAnomalyCount,
+    ] = await Promise.all([
+      this.prisma.stock.count({
+        where: {
+          isDeleted: false,
+          tradeStatus: { in: LISTED_TRADE_STATUSES },
+        },
+      }),
+      this.prisma.listingApplication.count({
+        where: {
+          status: { in: PENDING_LISTING_STATUSES },
+          deletedDate: null,
+        },
+      }),
+      this.prisma.inquiry.count({
+        where: { status: { in: PENDING_INQUIRY_STATUSES } },
+      }),
+      this.prisma.anomaly.count({
+        where: { status: { in: PENDING_ANOMALY_STATUSES } },
+      }),
+    ]);
+    return {
+      listedStockCount,
+      pendingListingCount,
+      pendingInquiryCount,
+      pendingAnomalyCount,
+    };
   }
 
   /**
