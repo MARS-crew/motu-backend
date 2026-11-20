@@ -13,10 +13,7 @@ import {
 import type { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
 import { PASSWORD_PATTERN } from '../users/users.constants.js';
 import { UserErrors } from '../users/users.errors.js';
-import {
-  ADMIN_BIRTH_DATE,
-  ADMIN_CREATE_TX_OPTIONS,
-} from './admin-accounts.constants.js';
+import { ADMIN_CREATE_TX_OPTIONS } from './admin-accounts.constants.js';
 import { AdminAccountErrors } from './admin-accounts.errors.js';
 import {
   AdminAccountsService,
@@ -118,13 +115,14 @@ describe('AdminAccountsService', () => {
         loginId: 'admin04',
         email: 'admin04@motu.app',
         role: Role.ADMIN,
-        birthDate: ADMIN_BIRTH_DATE,
         termsAgreed: false,
         privacyAgreed: false,
         marketingAgreed: false,
         adminProfile: { create: { name: '최운영', duty: '상장 심사' } },
       });
-      expect(data.nickname).toMatch(/^admin[a-z0-9]{5}$/);
+      // 관리자에게 의미 없는 회원 정보는 비워 둔다.
+      expect(data).not.toHaveProperty('nickname');
+      expect(data).not.toHaveProperty('birthDate');
       expect(data.password).toMatch(/^\$argon2/);
 
       const [mail] = mailSender.send.mock.calls[0] as [
@@ -194,24 +192,6 @@ describe('AdminAccountsService', () => {
       await expect(service.create(dtoOf(), actor)).rejects.toEqual(
         new BusinessException(MailErrors.SEND_FAILED),
       );
-    });
-
-    it('자동으로 만든 닉네임이 겹치면 다시 만든다', async () => {
-      user.create.mockRejectedValueOnce(p2002('nickname'));
-
-      await expect(service.create(dtoOf(), actor)).resolves.toMatchObject({
-        userId: 4,
-      });
-      expect(user.create).toHaveBeenCalledTimes(2);
-    });
-
-    it('닉네임이 계속 겹치면 3번까지만 시도한다', async () => {
-      user.create.mockRejectedValue(p2002('nickname'));
-
-      await expect(service.create(dtoOf(), actor)).rejects.toEqual(
-        new BusinessException(UserErrors.DUPLICATED),
-      );
-      expect(user.create).toHaveBeenCalledTimes(3);
     });
 
     it.each([

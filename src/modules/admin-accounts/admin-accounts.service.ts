@@ -15,11 +15,7 @@ import {
 import { AdminActivityLogsService } from '../admin-activity-logs/admin-activity-logs.service.js';
 import { UserErrors } from '../users/users.errors.js';
 import {
-  ADMIN_BIRTH_DATE,
   ADMIN_CREATE_TX_OPTIONS,
-  ADMIN_NICKNAME_MAX_ATTEMPTS,
-  ADMIN_NICKNAME_PREFIX,
-  ADMIN_NICKNAME_RANDOM_LENGTH,
   ADMIN_STATUS_LABELS,
   type AdminChangeableStatus,
   TEMPORARY_PASSWORD_LENGTH,
@@ -33,7 +29,6 @@ const LOWER = 'abcdefghijkmnpqrstuvwxyz';
 const UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const DIGITS = '23456789';
 const SYMBOLS = '!@#$%^&*';
-const NICKNAME_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 /** 처리한 관리자와 접속 정보 */
 export interface AdminActor {
@@ -69,93 +64,82 @@ export class AdminAccountsService {
     const temporaryPassword = generateTemporaryPassword();
     const password = await hash(temporaryPassword);
 
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(async (tx) => {
-          const user = await tx.user.create({
-            data: {
-              loginId: dto.loginId,
-              password,
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            loginId: dto.loginId,
+            password,
+            email: dto.email,
+            role: Role.ADMIN,
+            termsAgreed: false,
+            privacyAgreed: false,
+            marketingAgreed: false,
+            adminProfile: {
+              create: { name: dto.name, duty: dto.duty ?? null },
+            },
+          },
+          include: { adminProfile: true },
+        });
+        const profile = user.adminProfile!;
+
+        await this.adminActivityLogs.record(
+          {
+            adminId: actor.adminId,
+            targetType: AdminActivityTarget.ADMIN,
+            targetId: user.id,
+            targetLabel: user.loginId,
+            action: AdminActivityAction.ADMIN_CREATE,
+            summary: `관리자 계정 생성 (${profile.name})`,
+            after: {
+              loginId: user.loginId,
+              name: profile.name,
               email: dto.email,
-              role: Role.ADMIN,
-              // users의 필수 컬럼 중 관리자에게는 의미 없는 값
-              nickname: generateNickname(),
-              birthDate: ADMIN_BIRTH_DATE,
-              termsAgreed: false,
-              privacyAgreed: false,
-              marketingAgreed: false,
-              adminProfile: {
-                create: { name: dto.name, duty: dto.duty ?? null },
-              },
+              duty: profile.duty,
             },
-            include: { adminProfile: true },
-          });
-          const profile = user.adminProfile!;
+            client: actor.client,
+          },
+          tx,
+        );
+        // 메일 발송이 실패하면 트랜잭션과 함께 계정 생성도 취소된다.
+        await this.mailSender.send({
+          to: dto.email,
+          subject: '[MOTU] 관리자 계정 안내',
+          text: [
+            `${profile.name}님, MOTU 관리자 계정이 만들어졌습니다.`,
+            `아이디: ${user.loginId}`,
+            `임시 비밀번호: ${temporaryPassword}`,
+            '처음 로그인한 뒤 비밀번호를 변경해야 관리자 기능을 이용할 수 있습니다.',
+          ].join('\n'),
+        });
 
-          await this.adminActivityLogs.record(
-            {
-              adminId: actor.adminId,
-              targetType: AdminActivityTarget.ADMIN,
-              targetId: user.id,
-              targetLabel: user.loginId,
-              action: AdminActivityAction.ADMIN_CREATE,
-              summary: `관리자 계정 생성 (${profile.name})`,
-              after: {
-                loginId: user.loginId,
-                name: profile.name,
-                email: user.email,
-                duty: profile.duty,
-              },
-              client: actor.client,
-            },
-            tx,
-          );
-          // 메일 발송이 실패하면 트랜잭션과 함께 계정 생성도 취소된다.
-          await this.mailSender.send({
-            to: user.email,
-            subject: '[MOTU] 관리자 계정 안내',
-            text: [
-              `${profile.name}님, MOTU 관리자 계정이 만들어졌습니다.`,
-              `아이디: ${user.loginId}`,
-              `임시 비밀번호: ${temporaryPassword}`,
-              '처음 로그인한 뒤 비밀번호를 변경해야 관리자 기능을 이용할 수 있습니다.',
-            ].join('\n'),
-          });
-
-          return {
-            userId: user.id,
-            loginId: user.loginId,
-            name: profile.name,
-            email: user.email,
-            duty: profile.duty,
-            userStatus: user.userStatus,
-            passwordChangeRequired: profile.passwordChangeRequired,
-            createDate: user.createDate,
-          };
-        }, ADMIN_CREATE_TX_OPTIONS);
-      } catch (error) {
-        if (
-          !(error instanceof Prisma.PrismaClientKnownRequestError) ||
-          error.code !== 'P2002'
-        ) {
-          throw error;
-        }
-        const meta = JSON.stringify(error.meta ?? {});
-        // 중복 확인과 생성 사이에 같은 아이디·이메일로 먼저 만들어진 경우
-        if (meta.includes('login_id') || meta.includes('loginId')) {
-          throw new BusinessException(UserErrors.LOGIN_ID_DUPLICATED);
-        }
-        if (meta.includes('email')) {
-          throw new BusinessException(UserErrors.EMAIL_DUPLICATED);
-        }
-        // 자동으로 만든 닉네임이 겹친 경우만 다시 만든다.
-        if (
-          !meta.includes('nickname') ||
-          attempt >= ADMIN_NICKNAME_MAX_ATTEMPTS
-        ) {
-          throw new BusinessException(UserErrors.DUPLICATED);
-        }
+        return {
+          userId: user.id,
+          loginId: user.loginId,
+          name: profile.name,
+          email: dto.email,
+          duty: profile.duty,
+          userStatus: user.userStatus,
+          passwordChangeRequired: profile.passwordChangeRequired,
+          createDate: user.createDate,
+        };
+      }, ADMIN_CREATE_TX_OPTIONS);
+    } catch (error) {
+      if (
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== 'P2002'
+      ) {
+        throw error;
       }
+      const meta = JSON.stringify(error.meta ?? {});
+      // 중복 확인과 생성 사이에 같은 아이디·이메일로 먼저 만들어진 경우
+      if (meta.includes('login_id') || meta.includes('loginId')) {
+        throw new BusinessException(UserErrors.LOGIN_ID_DUPLICATED);
+      }
+      if (meta.includes('email')) {
+        throw new BusinessException(UserErrors.EMAIL_DUPLICATED);
+      }
+      throw new BusinessException(UserErrors.DUPLICATED);
     }
   }
 
@@ -313,14 +297,6 @@ export function generateTemporaryPassword(): string {
     [chars[i], chars[j]] = [chars[j], chars[i]];
   }
   return chars.join('');
-}
-
-function generateNickname(): string {
-  let random = '';
-  for (let i = 0; i < ADMIN_NICKNAME_RANDOM_LENGTH; i += 1) {
-    random += pick(NICKNAME_CHARS);
-  }
-  return ADMIN_NICKNAME_PREFIX + random;
 }
 
 function pick(chars: string): string {
