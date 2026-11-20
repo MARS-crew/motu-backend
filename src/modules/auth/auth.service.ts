@@ -130,7 +130,7 @@ export class AuthService {
       user: {
         userId: user.id,
         loginId: user.loginId,
-        nickname: user.nickname,
+        nickname: user.nickname ?? user.loginId,
         role: user.role,
       },
     };
