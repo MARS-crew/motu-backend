@@ -17,7 +17,8 @@ export class GetTradeTrendReqDto {
   range: TradeTrendRange;
 
   @ApiPropertyOptional({
-    description: '직접 설정 시작일 (YYYY-MM-DD, 한국 날짜). CUSTOM이면 필수',
+    description:
+      '직접 설정 시작일 (YYYY-MM-DD, 한국 날짜). CUSTOM이면 필수. 월별 단위에서 첫 체결일보다 이르면 첫 체결일부터 조회한다.',
     example: '2026-09-01',
   })
   @IsOptional()

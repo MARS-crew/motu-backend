@@ -27,7 +27,8 @@ export class GetTradeTrendResDto {
   unit: TradeTrendUnit;
 
   @ApiProperty({
-    description: '조회 시작 시각 (포함)',
+    description:
+      '조회 시작 시각 (포함). CUSTOM 월별에서 요청 시작일이 첫 체결일보다 이르면 첫 체결일이다.',
     example: '2026-09-10T15:00:00.000Z',
   })
   from: Date;

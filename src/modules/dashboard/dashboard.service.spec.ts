@@ -338,6 +338,10 @@ describe('DashboardService', () => {
       ['2026-10-20', '2026-11-19', TradeTrendUnit.DAY, 31],
       ['2026-10-19', '2026-11-19', TradeTrendUnit.MONTH, 2],
     ])('직접 설정 %s ~ %s는 %s 단위 %i개다', async (from, to, unit, length) => {
+      chart.findFirst.mockResolvedValue({
+        candleTime: kst('2026-01-05T00:00:00'),
+      });
+
       const trend = await service.getTradeTrend(
         queryOf({ range: TradeTrendRange.CUSTOM, from, to }),
         NOW,
@@ -345,6 +349,72 @@ describe('DashboardService', () => {
 
       expect(trend.unit).toBe(unit);
       expect(trend.buckets).toHaveLength(length);
+    });
+
+    it('직접 설정 월별은 시작일을 첫 체결일로 자른다', async () => {
+      chart.findFirst.mockResolvedValue({
+        candleTime: kst('2026-09-15T00:00:00'),
+      });
+
+      const trend = await service.getTradeTrend(
+        queryOf({
+          range: TradeTrendRange.CUSTOM,
+          from: '2000-01-01',
+          to: '2026-11-19',
+        }),
+        NOW,
+      );
+
+      expect(trend.unit).toBe(TradeTrendUnit.MONTH);
+      expect(trend.from).toEqual(kst('2026-09-15T00:00:00'));
+      expect(trend.periodLabel).toBe('2026.09.15 ~ 2026.11.19');
+      expect(trend.buckets.map(({ time }) => time)).toEqual([
+        kst('2026-09-01T00:00:00'),
+        kst('2026-10-01T00:00:00'),
+        kst('2026-11-01T00:00:00'),
+      ]);
+      // 잘린 시작일부터만 일봉을 읽는다.
+      const [{ where }] = chart.groupBy.mock.calls[0] as [
+        { where: { candleTime: { in: Date[] } } },
+      ];
+      expect(where.candleTime.in).toHaveLength(66);
+    });
+
+    it.each([
+      ['체결이 없으면', null],
+      [
+        '기간 전체가 첫 체결일 전이면',
+        { candleTime: kst('2026-11-01T00:00:00') },
+      ],
+    ])('직접 설정 월별에서 %s 마지막 날만 남긴다', async (_, first) => {
+      chart.findFirst.mockResolvedValue(first);
+
+      const trend = await service.getTradeTrend(
+        queryOf({
+          range: TradeTrendRange.CUSTOM,
+          from: '2000-01-01',
+          to: '2026-09-30',
+        }),
+        NOW,
+      );
+
+      expect(trend.from).toEqual(kst('2026-09-30T00:00:00'));
+      expect(trend.buckets).toEqual([
+        { time: kst('2026-09-01T00:00:00'), volume: 0, tradeAmount: 0 },
+      ]);
+    });
+
+    it('직접 설정 일별 이하는 첫 체결일을 조회하지 않는다', async () => {
+      await service.getTradeTrend(
+        queryOf({
+          range: TradeTrendRange.CUSTOM,
+          from: '2026-11-01',
+          to: '2026-11-19',
+        }),
+        NOW,
+      );
+
+      expect(chart.findFirst).not.toHaveBeenCalled();
     });
 
     it.each([

@@ -195,13 +195,9 @@ export class DashboardService {
       case TradeTrendRange.MONTH_1:
         return lastDays(30);
       case TradeTrendRange.ALL: {
-        const first = await this.prisma.chart.findFirst({
-          where: { interval: ChartInterval.DAY },
-          orderBy: { candleTime: 'asc' },
-          select: { candleTime: true },
-        });
+        const first = await this.findFirstTradeDay();
         return {
-          start: first?.candleTime ?? new Date(todayStart),
+          start: first ?? new Date(todayStart),
           end: tomorrowStart,
           unit: TradeTrendUnit.MONTH,
         };
@@ -210,7 +206,7 @@ export class DashboardService {
         if (!query.from || !query.to || query.from > query.to) {
           throw new BusinessException(DashboardErrors.INVALID_PERIOD);
         }
-        const start = new Date(`${query.from}T00:00:00+09:00`);
+        let start = new Date(`${query.from}T00:00:00+09:00`);
         const end = new Date(
           new Date(`${query.to}T00:00:00+09:00`).getTime() + DAY_MS,
         );
@@ -224,9 +220,30 @@ export class DashboardService {
             : days <= CUSTOM_DAILY_MAX_DAYS
               ? TradeTrendUnit.DAY
               : TradeTrendUnit.MONTH;
+        if (unit === TradeTrendUnit.MONTH) {
+          // 체결 전 날짜까지 하루씩 돌지 않도록 시작일을 첫 체결일로 자른다. 기간 전체가 체결 전이면 마지막 날만 남긴다.
+          const lastDay = end.getTime() - DAY_MS;
+          const floor = Math.min(
+            (await this.findFirstTradeDay())?.getTime() ?? lastDay,
+            lastDay,
+          );
+          if (start.getTime() < floor) {
+            start = new Date(floor);
+          }
+        }
         return { start, end, unit };
       }
     }
+  }
+
+  /** 첫 일봉의 날(한국 시간 00시). 체결이 없으면 null */
+  private async findFirstTradeDay(): Promise<Date | null> {
+    const first = await this.prisma.chart.findFirst({
+      where: { interval: ChartInterval.DAY },
+      orderBy: { candleTime: 'asc' },
+      select: { candleTime: true },
+    });
+    return first?.candleTime ?? null;
   }
 
   /** 범위를 단위 구간으로 나눠 구간마다 합한다. 체결이 없는 구간도 0으로 넣는다. */
