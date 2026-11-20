@@ -89,6 +89,8 @@ model User {
   revisionRequestsCreated ListingApplicationRevision[] @relation("RevisionRequestAuthor")
   priceAlerts             PriceAlert[]
   inquiries               Inquiry[]
+  assignedInquiries       Inquiry[]                    @relation("InquiryAssignee")
+  inquiryRepliesSent      InquiryReplyAttempt[]        @relation("InquiryReplyActor")
   inquiryAccessAttempt    InquiryAccessAttempt?
   adminActivityLogs       AdminActivityLog[]
   anomalies               Anomaly[]                    @relation("AnomalyUser")
@@ -102,6 +104,7 @@ model User {
 enum InquiryType {
   LOGIN_FAILED_LOCKED
   SUSPENDED
+  PHONE_UNAVAILABLE
 
   @@map("inquiry_type")
 }
@@ -109,25 +112,77 @@ enum InquiryType {
 enum InquiryStatus {
   SUBMITTED
   IN_PROGRESS
-  APPROVED
+  /// 문의 답변 처리 완료. 회원 승인·계정 해제를 뜻하지 않는다.
+  COMPLETED
 
   @@map("inquiry_status")
 }
 
 model Inquiry {
-  id           Int           @id @default(autoincrement()) @map("inquiry_id")
-  userId       Int           @map("user_id")
-  inquiryCode  String        @unique @map("inquiry_code") @db.VarChar(32)
-  inquiryType  InquiryType   @map("inquiry_type")
-  title        String        @db.VarChar(100)
-  content      String        @db.VarChar(5000)
-  status       InquiryStatus @default(SUBMITTED) @map("inquiry_status")
-  createDate   DateTime      @default(now()) @map("create_date") @db.Timestamptz(3)
-  modifiedDate DateTime      @updatedAt @map("modified_date") @db.Timestamptz(3)
-  user         User          @relation(fields: [userId], references: [id])
+  id                   Int                   @id @default(autoincrement()) @map("inquiry_id")
+  userId               Int                   @map("user_id")
+  inquiryCode          String                @unique @map("inquiry_code") @db.VarChar(32)
+  inquiryType          InquiryType           @map("inquiry_type")
+  title                String                @db.VarChar(100)
+  content              String                @db.VarChar(5000)
+  status               InquiryStatus         @default(SUBMITTED) @map("inquiry_status")
+  createDate           DateTime              @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate         DateTime              @updatedAt @map("modified_date") @db.Timestamptz(3)
+  /// 접수 당시 회신 주소. 기존 문의는 가입 이메일로 보강한다. 사용자 비로그인 접수는 후속 이슈다.
+  replyEmail           String?               @map("reply_email") @db.VarChar(255)
+  assignedAdminId      Int?                  @map("assigned_admin_id")
+  processingStartedAt  DateTime?             @map("processing_started_at") @db.Timestamptz(3)
+  replyDraft           String?               @map("reply_draft") @db.VarChar(5000)
+  replyVersion         Int                   @default(0) @map("reply_version")
+  /// 실제 메일 발송 요청 접수 시각. 콘솔 모의 발송에서는 null이다.
+  completedAt          DateTime?             @map("completed_at") @db.Timestamptz(3)
+  activeReplyAttemptId String?               @unique @map("active_reply_attempt_id") @db.Uuid
+  user                 User                  @relation(fields: [userId], references: [id])
+  assignedAdmin        User?                 @relation("InquiryAssignee", fields: [assignedAdminId], references: [id], onDelete: Restrict)
+  replyAttempts        InquiryReplyAttempt[] @relation("InquiryReplyAttempts")
+  activeReplyAttempt   InquiryReplyAttempt?  @relation("CurrentInquiryReply", fields: [activeReplyAttemptId], references: [id], onDelete: Restrict)
 
   @@index([userId, createDate, id])
+  @@index([status, createDate, id])
+  @@index([inquiryType, createDate, id])
   @@map("inquiries")
+}
+
+/// 외부 발송 결과는 완료 상태·활동 이력 반영 실패와 구분해 보존한다.
+enum InquiryReplyStatus {
+  SENDING
+  ACCEPTED
+  FAILED
+  UNKNOWN
+  SIMULATED
+
+  @@map("inquiry_reply_status")
+}
+
+model InquiryReplyAttempt {
+  id                String             @id @default(uuid()) @db.Uuid
+  inquiryId         Int                @map("inquiry_id")
+  requestId         String             @map("request_id") @db.Uuid
+  adminId           Int                @map("admin_id")
+  draftVersion      Int                @map("draft_version")
+  toEmail           String             @map("to_email") @db.VarChar(255)
+  replyText         String             @map("reply_text") @db.VarChar(5000)
+  status            InquiryReplyStatus @default(SENDING)
+  deliveryMode      String?            @map("delivery_mode") @db.VarChar(20)
+  providerMessageId String?            @map("provider_message_id") @db.VarChar(255)
+  errorCode         String?            @map("error_code") @db.VarChar(80)
+  /// 불명확한 이전 시도를 확인한 뒤 명시적으로 재발송한 경우의 사유.
+  retryReason       String?            @map("retry_reason") @db.VarChar(200)
+  createDate        DateTime           @default(now()) @map("create_date") @db.Timestamptz(3)
+  finishedAt        DateTime?          @map("finished_at") @db.Timestamptz(3)
+  finalizedAt       DateTime?          @map("finalized_at") @db.Timestamptz(3)
+  inquiry           Inquiry            @relation("InquiryReplyAttempts", fields: [inquiryId], references: [id], onDelete: Restrict)
+  admin             User               @relation("InquiryReplyActor", fields: [adminId], references: [id], onDelete: Restrict)
+  activeForInquiry  Inquiry?           @relation("CurrentInquiryReply")
+
+  @@unique([inquiryId, requestId])
+  @@index([inquiryId, createDate, id])
+  @@map("inquiry_reply_attempts")
 }
 
 /// 문의 본인 확인 전용 실패 기록. 일반 로그인 실패 횟수/잠금과 분리한다.
@@ -938,6 +993,8 @@ enum AdminActivityTarget {
   ADMIN
   /// 공지
   NOTICE
+  /// 계정·인증 문의
+  INQUIRY
   /// 이상 거래
   ANOMALY
 
@@ -946,6 +1003,9 @@ enum AdminActivityTarget {
 
 /// 관리자 활동 이력의 수행 작업. 작업 대상별로 쓸 수 있는 작업이 정해져 있다(admin-activity-logs.constants.ts).
 enum AdminActivityAction {
+  INQUIRY_START
+  INQUIRY_REPLY_DRAFT_SAVE
+  INQUIRY_REPLY_SEND
   LISTING_REVIEW_START
   LISTING_REVISION_DEADLINE_UPDATE
   LISTING_APPROVE

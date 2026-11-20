@@ -18,6 +18,7 @@
 | `USER` 회원 | `USER_STATUS_CHANGE` 회원 상태 변경, `USER_UNLOCK` 계정 잠금 해제, `POINT_GRANT` 포인트 지급, `POINT_RECALL` 포인트 회수 | 회원 user_id |
 | `ADMIN` 관리자 계정 | `ADMIN_CREATE` 관리자 계정 생성, `ADMIN_STATUS_CHANGE` 관리자 계정 상태 변경 | 관리자 user_id |
 | `NOTICE` 공지 | `NOTICE_PUBLISH` 공지 게시·예약·다시 게시, `NOTICE_UPDATE` 공지 수정(임시 저장 포함), `NOTICE_HIDE` 공지 비공개, `NOTICE_DELETE` 공지 삭제 | 공지 ID |
+| `INQUIRY` 계정·인증 문의 | `INQUIRY_START` 처리 시작, `INQUIRY_REPLY_DRAFT_SAVE` 답변 초안 저장(과거 이력 조회용), `INQUIRY_REPLY_SEND` 발송 요청·결과 | 문의 ID |
 | `ANOMALY` 이상 거래 | `ANOMALY_ACTION` 이상 거래 조치 | 이상 거래 ID |
 
 - 화면에 보이는 대상 ID(예: 상품 `PRD-018`, 회원 `USR-1024`)는 `targetId`에 대상별 접두어를 붙여 만듭니다.
@@ -105,3 +106,8 @@ await this.prisma.$transaction(async (tx) => {
 - `before`·`after`에는 바뀐 항목만 넣습니다. 화면에 그대로 보여 주기 쉬운 값으로 넣어 주세요.
 - 접속 IP·User-Agent는 컨트롤러에서 `clientInfo(request)`로 꺼내 넘깁니다.
 - 회원 포인트 지급·회수(`PATCH /api/admin/accounts/:userId/cash`)와 공지 임시 저장·게시·수정·비공개·삭제에서 활동 이력을 남깁니다. [관리자 공지 API](notices.md#관리자-공지사항)
+
+
+## 계정·인증 문의 답변 이력
+
+`targetType=INQUIRY&targetId={문의 ID}`로 조회한다. 문의 처리 시작·실제 발송/완료 처리자·발송 요청과 결과를 기록한다. 내부 초안 저장은 운영 활동 이력을 만들지 않는다. 기존 INQUIRY_REPLY_DRAFT_SAVE 행과 enum·필터는 과거 이력 조회용으로 보존한다. 다른 활성 관리자도 이어서 처리할 수 있으며 최초 발송자와 완료 반영 관리자는 각각 발송 시도와 활동 이력에 남는다. 외부 메일 발송은 DB 롤백으로 취소할 수 없으므로 발송 결과를 별도 보존하고 완료 상태·결과 이력 반영은 함께 재시도한다. `after.outcome`이 SIMULATED면 콘솔 모의 발송으로 실제 문의 완료가 아니다. UNKNOWN은 발송 여부 확인이 필요하다. 실제 접수 성공과 완료 반영은 ACCEPTED로 기록한다. 문의 처리로 회원 상태를 변경하지 않는다.
