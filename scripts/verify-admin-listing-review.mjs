@@ -731,6 +731,9 @@ try {
         side: 'SELL',
         price: 10000n,
         qty: 1n,
+        // 보유 수량을 예약하지 않는 FK 잠금 검사용 주문이다.
+        status: 'CANCELED',
+        canceledDate: new Date(),
       },
     })
     .then((result) => {
@@ -962,6 +965,294 @@ try {
   );
   await setOwnerActive();
 
+  // #88: Run the actual withdrawal endpoint against the #90 service paths.
+  const queueAccountRequests = async (accountId, first, second) => {
+    let signalLocked, release;
+    const locked = new Promise((resolve) => (signalLocked = resolve));
+    const gate = new Promise((resolve) => (release = resolve));
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await app.get(SettlementService).lockAccounts(tx, [accountId]);
+        signalLocked();
+        await gate;
+      },
+      { timeout: 15000 },
+    );
+    holder.catch(() => {});
+    const waitForRequests = async (count) => {
+      for (let attempt = 0; attempt < 150; attempt++) {
+        const [row] = await prisma.$queryRaw`
+          SELECT COUNT(*)::int AS waiting
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND wait_event_type = 'Lock'
+            AND query LIKE '%FROM accounts%'
+            AND pid <> pg_backend_pid()
+        `;
+        if (row.waiting >= count) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error(
+        'Expected ' + count + ' requests to wait for the account lock',
+      );
+    };
+    const start = (run) => {
+      const result = run();
+      result.catch(() => {});
+      return result;
+    };
+    let firstResult;
+    let secondResult;
+    try {
+      await Promise.race([locked, holder]);
+      firstResult = start(first);
+      await waitForRequests(1);
+      secondResult = start(second);
+      await waitForRequests(2);
+    } finally {
+      release();
+      await holder;
+    }
+    return Promise.all([firstResult, secondResult]);
+  };
+  const withdrawalPath = '/users/me/withdrawal';
+  const withdrawalBody = { reason: 'Withdrawal integration test' };
+  const pendingBeforeRace = await prisma.listingApplication.findMany({
+    where: {
+      userId: owner.id,
+      stock: { is: { tradeStatus: 'PENDING', isDeleted: false } },
+    },
+    select: { stockId: true },
+  });
+  for (const application of pendingBeforeRace) {
+    await trading1.closeStock(application.stockId);
+  }
+
+  const realRaceApp = await listing({ status: 'UNDER_REVIEW' });
+  const beforeRace = await prisma.account.findUniqueOrThrow({
+    where: { id: ownerAccount.id },
+  });
+  const tokensBeforeRace = await prisma.refreshToken.count({
+    where: { userId: owner.id, revokedAt: null },
+  });
+  assert.ok(tokensBeforeRace > 0);
+  const [realApproval] = await queueAccountRequests(
+    ownerAccount.id,
+    () => post(realRaceApp.id, 'approve', approval),
+    () =>
+      json(withdrawalPath, owner.token, {
+        method: 'POST',
+        body: withdrawalBody,
+        status: 409,
+        code: 'USER_WITHDRAWAL_PENDING_LISTING',
+      }),
+  );
+  assert.equal(
+    (await prisma.user.findUniqueOrThrow({ where: { id: owner.id } }))
+      .userStatus,
+    'ACTIVE',
+  );
+  assert.equal(
+    (await prisma.account.findUniqueOrThrow({ where: { id: ownerAccount.id } }))
+      .cash,
+    beforeRace.cash,
+  );
+  assert.equal(
+    await prisma.refreshToken.count({
+      where: { userId: owner.id, revokedAt: null },
+    }),
+    tokensBeforeRace,
+  );
+
+  const alert = await prisma.priceAlert.create({
+    data: {
+      userId: owner.id,
+      stockId: realApproval.stockId,
+      targetPrice: 12000n,
+    },
+  });
+  await prisma.user.update({
+    where: { id: owner.id },
+    data: {
+      phoneNumber: '01011112222',
+      twoFactorPhoneNumber: '01033334444',
+      twoFactorStatus: 'ENABLED',
+    },
+  });
+  const phoneHistory = await prisma.twoFactorHistory.create({
+    data: { userId: owner.id, action: 'ENABLED', phoneNumber: '01033334444' },
+  });
+  await prisma.trustedDevice.create({
+    data: {
+      userId: owner.id,
+      deviceIdHash: 'withdrawal-verification',
+      lastUsedDate: new Date(),
+    },
+  });
+  const [started, withdrew] = await queueAccountRequests(
+    ownerAccount.id,
+    () => trading1.openListing(realApproval.stockId, owner.id),
+    () => request(withdrawalPath, owner.token, 'POST', withdrawalBody),
+  );
+  assert.equal(withdrew.status, 204, await withdrew.text());
+  const retired = await prisma.user.findUniqueOrThrow({
+    where: { id: owner.id },
+  });
+  assert.equal(retired.userStatus, 'WITHDRAWN');
+  assert.equal(retired.loginId, 'withdrawn_' + owner.id);
+  assert.equal(retired.reason, withdrawalBody.reason);
+  assert.ok(retired.deletedDate && retired.isDeleted);
+  for (const field of [
+    'email',
+    'nickname',
+    'birthDate',
+    'phoneNumber',
+    'twoFactorPhoneNumber',
+  ]) {
+    assert.equal(retired[field], null, field);
+  }
+  const retained = await prisma.holding.findUniqueOrThrow({
+    where: {
+      accountId_stockId: {
+        accountId: ownerAccount.id,
+        stockId: realApproval.stockId,
+      },
+    },
+  });
+  assert.equal(retained.qty, 1000n);
+  assert.equal(retained.lockedQty, 0n);
+  assert.equal(
+    (await prisma.order.findUniqueOrThrow({ where: { id: started.orderId } }))
+      .status,
+    'CANCELED',
+  );
+  assert.equal(
+    (await prisma.account.findUniqueOrThrow({ where: { id: ownerAccount.id } }))
+      .cash,
+    0n,
+  );
+  assert.equal(
+    (await prisma.priceAlert.findUniqueOrThrow({ where: { id: alert.id } }))
+      .isActive,
+    false,
+  );
+  assert.equal(
+    (
+      await prisma.twoFactorHistory.findUniqueOrThrow({
+        where: { id: phoneHistory.id },
+      })
+    ).phoneNumber,
+    null,
+  );
+  assert.equal(
+    await prisma.trustedDevice.count({ where: { userId: owner.id } }),
+    0,
+  );
+  assert.equal(
+    await prisma.refreshToken.count({
+      where: { userId: owner.id, revokedAt: null },
+    }),
+    0,
+  );
+
+  await json('/users/me', owner.token, {
+    status: 401,
+    code: 'AUTH_UNAUTHORIZED',
+  });
+  const removedEmail = 'ownerlist@motu.test';
+  const lookupPath = '/auth/find-login-id/email-verifications';
+  await json(lookupPath, null, {
+    method: 'POST',
+    body: { email: removedEmail },
+    status: 404,
+    code: 'AUTH_EMAIL_NOT_REGISTERED',
+  });
+  await json(lookupPath + '/confirm', null, {
+    method: 'POST',
+    body: { email: removedEmail, code: '123456' },
+    status: 404,
+    code: 'AUTH_EMAIL_NOT_REGISTERED',
+  });
+  const adminMember = await json('/admin/users/' + owner.id, admin.token);
+  assert.equal(adminMember.nickname, '탈퇴한 회원');
+  assert.equal(adminMember.email, null);
+  const adminListing = await json(route + '/' + realRaceApp.id, admin.token);
+  assert.equal(adminListing.applicant.nickname, '탈퇴한 회원');
+  await json('/admin/accounts/' + owner.id + '/cash', admin.token, {
+    method: 'PATCH',
+    body: { amount: 100, reason: 'Withdrawal verification' },
+    status: 403,
+    code: 'ACCOUNT_WITHDRAWN',
+  });
+
+  const signup = async (loginId, nickname = loginId) => {
+    const email = loginId + '@motu.test';
+    const now = new Date();
+    await prisma.verification.create({
+      data: {
+        channel: 'EMAIL',
+        purpose: 'SIGNUP',
+        target: email,
+        codeHash: '0'.repeat(64),
+        verifiedAt: now,
+        expiresAt: new Date(now.getTime() + 60_000),
+      },
+    });
+    return json('/users', null, {
+      method: 'POST',
+      status: 201,
+      body: {
+        loginId,
+        password,
+        nickname,
+        email,
+        birthDate: '2000-01-01',
+        termsAgreed: true,
+        privacyAgreed: true,
+        marketingAgreed: false,
+      },
+    });
+  };
+  const rejoined = await signup('ownerlist', '김신청');
+  assert.notEqual(rejoined.userId, owner.id);
+  const newAccount = await prisma.account.findUniqueOrThrow({
+    where: { userId: rejoined.userId },
+  });
+  assert.notEqual(newAccount.id, ownerAccount.id);
+  assert.equal(
+    await prisma.holding.count({ where: { accountId: newAccount.id } }),
+    0,
+  );
+
+  const formerUser = await signup('withdrawnew1', 'former01');
+  const formerLogin = await json('/auth/login', null, {
+    method: 'POST',
+    body: { loginId: formerUser.loginId, password },
+  });
+  const former = { id: formerUser.userId, token: formerLogin.accessToken };
+  const formerAccount = await prisma.account.findUniqueOrThrow({
+    where: { userId: former.id },
+  });
+  const formerApplication = await listing({
+    userId: former.id,
+    status: 'UNDER_REVIEW',
+  });
+  const [firstWithdrawal] = await queueAccountRequests(
+    formerAccount.id,
+    () => request(withdrawalPath, former.token, 'POST', withdrawalBody),
+    () =>
+      post(formerApplication.id, 'approve', approval, {
+        status: 409,
+        code: 'LISTING_ISSUER_WITHDRAWN',
+      }),
+  );
+  assert.equal(firstWithdrawal.status, 204, await firstWithdrawal.text());
+  const unapproved = await prisma.listingApplication.findUniqueOrThrow({
+    where: { id: formerApplication.id },
+  });
+  assert.equal(unapproved.status, 'UNDER_REVIEW');
+  assert.equal(unapproved.stockId, null);
+
   const swagger = await (await fetch(base + '/docs-json')).json();
   for (const suffix of [
     'start-review',
@@ -995,6 +1286,10 @@ try {
         'activation-vs-close',
         'withdrawal-first-approval-lock',
         'approval-first-withdrawal-contract',
+        'approval-first-real-withdrawal-endpoint',
+        'activation-first-real-withdrawal-endpoint',
+        'withdrawal-first-real-approval-endpoint',
+        'withdrawal-privacy-and-identifier-reuse',
         'withdrawal-first-issuance-lock',
         'persisted-hold-admin-view-no-retry',
         'single-approval-reason',
