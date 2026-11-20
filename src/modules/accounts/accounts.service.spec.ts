@@ -24,19 +24,20 @@ describe('AccountsService', () => {
   const cashLedger = { create: vi.fn(), findMany: vi.fn(), count: vi.fn() };
   const pointResetHistory = { create: vi.fn() };
   const holding = { count: vi.fn() };
-  const user = { findUnique: vi.fn() };
-  const tx = { account, cashLedger, pointResetHistory };
+  const user = { findUnique: vi.fn(), findFirst: vi.fn() };
+  const tx = { account, cashLedger, pointResetHistory, user };
+  const transaction = vi.fn((arg: unknown) =>
+    typeof arg === 'function'
+      ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
+      : Promise.all(arg as Promise<unknown>[]),
+  );
   const prisma = {
     account,
     cashLedger,
     pointResetHistory,
     holding,
     user,
-    $transaction: vi.fn((arg: unknown) =>
-      typeof arg === 'function'
-        ? (arg as (client: typeof tx) => Promise<unknown>)(tx)
-        : Promise.all(arg as Promise<unknown>[]),
-    ),
+    $transaction: transaction,
   } as unknown as PrismaService;
   const adminActivityLogs = { record: vi.fn() };
   const service = new AccountsService(
@@ -55,11 +56,28 @@ describe('AccountsService', () => {
     ...overrides,
   });
 
+  it('reports ACCOUNT_WITHDRAWN if withdrawal wins the balance update', async () => {
+    account.findUnique.mockResolvedValue(accountOf());
+    account.updateMany.mockResolvedValueOnce({ count: 0 });
+    user.findFirst.mockResolvedValueOnce({ id: 1 });
+    await expect(
+      service.adjustCash(1, 100, { adminId: 4, reason: 'test' }),
+    ).rejects.toMatchObject({
+      response: { code: 'ACCOUNT_WITHDRAWN' },
+    });
+    expect(cashLedger.create).not.toHaveBeenCalled();
+    expect(adminActivityLogs.record).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     account.updateMany.mockResolvedValue({ count: 1 });
     holding.count.mockResolvedValue(0);
-    user.findUnique.mockResolvedValue({ loginId: 'motuuser' });
+    user.findUnique.mockResolvedValue({
+      loginId: 'motuuser',
+      userStatus: UserStatus.ACTIVE,
+    });
+    user.findFirst.mockResolvedValue(null);
   });
 
   describe('grantPoint', () => {
@@ -133,7 +151,7 @@ describe('AccountsService', () => {
 
       await service.expirePointsForWithdrawal(withdrawalTx, 10, now);
 
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(transaction).not.toHaveBeenCalled();
       expect(account.updateMany).toHaveBeenCalledExactlyOnceWith({
         where: {
           id: 10,
