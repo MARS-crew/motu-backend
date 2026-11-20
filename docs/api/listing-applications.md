@@ -6,6 +6,7 @@
 - `WITHDRAWN`이면 승인은 **409 `LISTING_ISSUER_WITHDRAWN`**. 상품·승인 상태·첨부 동결·승인 활동 이력을 저장하지 않는다. 로그인 잠금(`LOCKED`)·정지(`BLOCKED`)까지 탈퇴로 간주하지 않는다.
 - 거래 시작 직전 탈퇴가 확인되면 발행 주식·최초 매도 주문·호가 등록·ACTIVE 전환을 실행하지 않는다. 상품은 **PENDING 유지**하고 `listingBlockedAt`, `listingBlockedReason="신청자 탈퇴로 발행 보류"`를 저장한다. 보류 기록은 커밋한 뒤 같은 오류를 반환하므로 실패 예외로 보류 기록이 롤백되지 않는다.
 - 예약 처리에서는 `listingBlockedAt=null`인 상품만 처리한다. 다른 서버나 직접 호출도 기존 보류를 유지하며 보류 시각을 덮어쓰지 않는다. 자동 재시도·자동 해제는 없다. 관리자 신청 상세 응답의 `listingBlockedAt`, `listingBlockedReason`으로 확인한다. 승인 이력은 APPROVED로 보존한다.
+- 발행 보류 상품은 사용자 화면에 거래 대기로 남으므로, 관리자가 [ADM-PRD-05 상품 종료](stocks.md#거래-중지재개-adm-prd-04-상품-종료-adm-prd-05)에서 종료 사유·안내문을 입력하고 `POST /api/admin/stocks/{stockId}/close`로 정리한다(`PENDING → CLOSED`). 거래 종료는 되돌릴 수 없다.
 - 조회·발행 실패 로그에는 오류 원인과 stack을 남긴다. 탈퇴 보류는 일반 일시 오류와 구분한다.
 - 신규 마이그레이션: `20261119060000_add_listing_activation_hold`. 기존 상품 데이터는 보존하고 보류 필드를 null로 추가한다. `npm run db:deploy` 후 `npm run db:generate`를 적용한다.
 
