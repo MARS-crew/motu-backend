@@ -28,9 +28,11 @@ describe('AuthService', () => {
     updateMany: vi.fn(),
     create: vi.fn(),
   };
+  const adminProfile = { findUnique: vi.fn() };
   const prisma = {
     refreshToken,
     passwordResetToken,
+    adminProfile,
     $transaction: vi.fn((arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (tx: typeof authTx) => Promise<unknown>)(authTx)
@@ -137,6 +139,42 @@ describe('AuthService', () => {
         }),
       });
     });
+
+    it('회원 로그인 응답에는 임시 비밀번호 상태를 넣지 않는다', async () => {
+      const result = await service.login({
+        loginId: 'motuuser',
+        password: 'motuuser1!',
+      });
+
+      expect(result).not.toHaveProperty('passwordChangeRequired');
+      expect(adminProfile.findUnique).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['임시 비밀번호 상태', { passwordChangeRequired: true }, true],
+      ['비밀번호를 바꾼 상태', { passwordChangeRequired: false }, false],
+      ['관리자 정보가 없는 seed 관리자', null, false],
+    ])(
+      '관리자는 로그인 응답에 임시 비밀번호 상태를 알려준다 (%s)',
+      async (_, profile, expected) => {
+        findByLoginId.mockResolvedValue({ ...user, role: 'ADMIN' });
+        adminProfile.findUnique.mockResolvedValue(profile);
+
+        const result = await service.login({
+          loginId: 'motuuser',
+          password: 'motuuser1!',
+        });
+
+        expect(adminProfile.findUnique).toHaveBeenCalledWith({
+          where: { userId: 1 },
+          select: { passwordChangeRequired: true },
+        });
+        expect(result).toMatchObject({
+          verificationRequired: false,
+          passwordChangeRequired: expected,
+        });
+      },
+    );
 
     it('비밀번호가 틀리면 실패 횟수를 details로 알려준다', async () => {
       recordLoginFailure.mockResolvedValue({ failCount: 2, locked: false });

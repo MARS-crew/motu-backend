@@ -99,6 +99,7 @@ model User {
   adminActivityLogs       AdminActivityLog[]
   anomalies               Anomaly[]                    @relation("AnomalyUser")
   anomaliesHandled        Anomaly[]                    @relation("AnomalyHandler")
+  adminProfile            AdminProfile?
 
   @@map("users")
 }
@@ -1177,4 +1178,24 @@ model Anomaly {
   // 반복 주문·잔액 불일치 중복 확인
   @@index([userId, type, detectedDate])
   @@map("anomalies")
+}
+
+// ─── 관리자 계정 ─────────────────────────────────────
+
+/// 관리자 계정 정보. 로그인 정보는 users(role=ADMIN)에 두고 관리자에게만 있는 값을 둔다.
+/// 관리자 계정 생성 API로 만든 관리자만 행이 있다. seed 관리자처럼 행이 없으면 임시 비밀번호 상태가 아니다.
+model AdminProfile {
+  userId                 Int      @id @map("user_id")
+  /// 관리자명. 동명이인을 허용한다.
+  name                   String   @db.VarChar(20)
+  /// 담당 업무 (참고값). 권한과 관계없다.
+  duty                   String?  @db.VarChar(50)
+  /// 임시 비밀번호 상태. 생성 시 true, 비밀번호를 바꾸면 false. true면 비밀번호 변경 외 관리자 API를 막는다.
+  passwordChangeRequired Boolean  @default(true) @map("password_change_required")
+  createDate             DateTime @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate           DateTime @updatedAt @map("modified_date") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("admin_profiles")
 }
