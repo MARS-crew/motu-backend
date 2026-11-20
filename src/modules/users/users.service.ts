@@ -104,7 +104,7 @@ export class UsersService {
         return {
           userId: user.id,
           loginId: user.loginId,
-          nickname: user.nickname,
+          nickname: dto.nickname,
           userStatus: user.userStatus,
           role: user.role,
           cash: Number(account.cash),
@@ -140,7 +140,7 @@ export class UsersService {
     nickname: string,
   ): Promise<GetMyInfoResDto> {
     const currentUser = await this.findById(userId);
-    if (!currentUser) {
+    if (!currentUser || currentUser.userStatus === UserStatus.WITHDRAWN) {
       throw new BusinessException(UserErrors.NOT_FOUND);
     }
 
@@ -152,7 +152,7 @@ export class UsersService {
 
     try {
       const updatedUser = await this.prisma.user.update({
-        where: { id: userId },
+        where: { id: userId, userStatus: { not: UserStatus.WITHDRAWN } },
         data: { nickname },
       });
       return this.toMyInfo(updatedUser);
@@ -171,6 +171,13 @@ export class UsersService {
 
   /** 회원 정보 응답에 필요한 필드만 골라 반환한다. */
   private toMyInfo(user: User): GetMyInfoResDto {
+    if (
+      user.userStatus === UserStatus.WITHDRAWN ||
+      user.email === null ||
+      user.nickname === null
+    ) {
+      throw new BusinessException(UserErrors.NOT_FOUND);
+    }
     return {
       userId: user.id,
       loginId: user.loginId,
@@ -229,7 +236,13 @@ export class UsersService {
         VerificationPurpose.CONTACT_PHONE_CHANGE,
         target,
       );
-      await tx.user.update({ where: { id: user.id }, data: { phoneNumber } });
+      const { count } = await tx.user.updateMany({
+        where: { id: user.id, userStatus: { not: UserStatus.WITHDRAWN } },
+        data: { phoneNumber },
+      });
+      if (count === 0) {
+        throw new BusinessException(UserErrors.NOT_FOUND);
+      }
     });
     return this.getMyInfo(userId);
   }
@@ -239,7 +252,7 @@ export class UsersService {
     phoneNumber: string,
   ): Promise<User> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
+    if (!user || user.userStatus === UserStatus.WITHDRAWN) {
       throw new BusinessException(UserErrors.NOT_FOUND);
     }
     if (user.twoFactorStatus !== TwoFactorStatus.ENABLED) {
