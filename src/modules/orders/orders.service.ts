@@ -287,6 +287,7 @@ export class OrdersService {
 
     return this.toOrderRes(order);
   }
+
   /**
    * 미체결 주문을 취소하고 같은 트랜잭션에서 나머지 탈퇴 처리를 실행한다.
    * 커밋에 성공한 뒤 해당 주문을 종목별 호가창에서 제거한다.
@@ -297,6 +298,7 @@ export class OrdersService {
       tx: Prisma.TransactionClient,
       now: Date,
     ) => Promise<void>,
+    validateWithdrawal: (tx: Prisma.TransactionClient) => Promise<void>,
   ): Promise<void> {
     const where = { accountId, status: { in: OPEN_ORDER_STATUSES } };
 
@@ -312,6 +314,8 @@ export class OrdersService {
       const cancelAndFinish = async (): Promise<boolean> => {
         const canceled = await this.prisma.$transaction(async (tx) => {
           await this.settlement.lockAccounts(tx, [accountId]);
+          await validateWithdrawal(tx);
+
           const orders = await tx.order.findMany({ where });
 
           // 큐를 기다리는 동안 주문이 추가된 종목도 잠근 뒤 다시 시도한다.
@@ -359,6 +363,7 @@ export class OrdersService {
 
     throw new BusinessException(AccountErrors.CONCURRENT_UPDATE);
   }
+
   /**
    * 내 주문 목록. 최근 주문순이다.
    */
@@ -715,6 +720,7 @@ export class OrdersService {
     }
     return BigInt(orderId!);
   }
+
   /** 취소할 주문의 남은 매수 포인트·매도 수량 예약을 해제한다. */
   private async releaseOrderReservations(
     tx: Prisma.TransactionClient,
