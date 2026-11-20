@@ -10,7 +10,7 @@ import { ALLOW_PASSWORD_CHANGE_REQUIRED_KEY } from './allow-password-change-requ
 
 /**
  * 전역 Guard. 임시 비밀번호 상태의 관리자는 `@Roles(Role.ADMIN)` API를 쓸 수 없다. 비밀번호 변경만 허용한다.
- * JwtAuthGuard·RolesGuard 다음에 실행된다.
+ * AuthModule에서 JwtAuthGuard·RolesGuard 다음에 등록해 request.user가 채워진 뒤 실행된다.
  */
 @Injectable()
 export class AdminPasswordChangeGuard implements CanActivate {
