@@ -23,8 +23,8 @@
 | [차트·시세](charts.md) | 당일 거래 요약, 기간별 차트, 실시간 시세(SSE) | `modules/charts` |
 | [지정가 알림](price-alerts.md) | 지정가 알림 설정·수정·해제·목록, 도달 감지 | `modules/price-alerts` |
 | [알림](notifications.md) | 내 알림 목록·읽음·미확인 수, 체결·목표가 생성 서비스, 임시저장 만료 안내 | `modules/notifications`, `modules/listing-applications` |
-| [제한 계정 1:1 문의](inquiries.md) | 잠금·정지 계정 본인 확인, 문의 접수·문의번호 발급·본인 내역 조회 | `modules/inquiries` |
-| [상장 신청](listing-applications.md) | 임시저장·작성 중 목록, 단계별 검증·저장, 본인 상세·상태 조회 | `modules/listing-applications` |
+| [계정·인증 문의](inquiries.md) | 공개 접수 단일화·과거 본인 조회, 관리자 목록·담당자·답변 초안·이메일 발송·완료 | `modules/inquiries` |
+| [상장 신청](listing-applications.md) | 임시저장·단계 저장·본인 조회, 관리자 신청 검색·상세·서류, 검토 시작·승인·반려·보완·상품 생성 | `modules/listing-applications` |
 | [보완 요청·재제출](listing-revisions.md) | 본인 보완 요청 조회·기한 검사·증빙 재제출 | `modules/listing-applications` |
 | [거래 모니터링](anomalies.md) | 이상 거래 탐지 기준, 목록·상세, 조치(상품 거래 중지·회원 정지·이상 없음) | `modules/anomalies` |
 | [관리자 계정](admin-accounts.md) | 관리자 계정 생성, 상태 변경(정상·정지), 임시 비밀번호·관리자 비밀번호 변경 | `modules/admin-accounts` |

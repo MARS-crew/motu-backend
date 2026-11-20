@@ -11,6 +11,7 @@ import { UsersService } from '../users/users.service.js';
 import { VerificationsService } from '../verifications/verifications.service.js';
 import { AuthService, maskLoginId } from './auth.service.js';
 import { LoginResDto } from './dto/res/login-res.dto.js';
+import { UserStatus } from '../../generated/prisma/enums.js';
 
 const sha256 = (value: string) =>
   createHash('sha256').update(value).digest('hex');
@@ -30,8 +31,13 @@ describe('AuthService', () => {
   const prisma = {
     refreshToken,
     passwordResetToken,
-    $transaction: vi.fn((ops: unknown[]) => Promise.all(ops)),
+    $transaction: vi.fn((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: typeof authTx) => Promise<unknown>)(authTx)
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
   } as unknown as PrismaService;
+  const authTx = { $queryRaw: vi.fn(), refreshToken };
   const signAsync = vi.fn().mockResolvedValue('access-token');
   const jwtService = { signAsync } as unknown as JwtService;
   const config = {
@@ -106,6 +112,7 @@ describe('AuthService', () => {
     refreshToken.updateMany.mockResolvedValue({ count: 1 });
     passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
     passwordResetToken.findFirst.mockResolvedValue(null);
+    authTx.$queryRaw.mockResolvedValue([{ userStatus: UserStatus.ACTIVE }]);
   });
 
   describe('login', () => {

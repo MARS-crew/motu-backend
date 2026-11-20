@@ -8,6 +8,7 @@ import {
   Prisma,
   Trade,
   TradeStatus,
+  UserStatus,
 } from '../../generated/prisma/client.js';
 import { AccountErrors } from '../accounts/accounts.errors.js';
 import { ChartsService } from '../charts/charts.service.js';
@@ -35,9 +36,12 @@ import {
 import { OrderErrors } from './orders.errors.js';
 import { calculateBuyLockAmount, validateOrderRules } from './orders.policy.js';
 
+const OPEN_ORDER_STATUSES = [OrderStatus.ACCEPTED, OrderStatus.PARTIAL];
+const WITHDRAWAL_MAX_ATTEMPTS = 3;
+
 /** 목록 필터별로 포함하는 주문 상태. ALL은 거르지 않는다. */
 const LIST_STATUSES: Record<OrderListStatus, OrderStatus[] | undefined> = {
-  [OrderListStatus.OPEN]: [OrderStatus.ACCEPTED, OrderStatus.PARTIAL],
+  [OrderListStatus.OPEN]: OPEN_ORDER_STATUSES,
   [OrderListStatus.DONE]: [OrderStatus.FILLED, OrderStatus.CANCELED],
   [OrderListStatus.ALL]: undefined,
 };
@@ -63,6 +67,7 @@ interface LockedAccountRow {
   account_id: number;
   cash: bigint;
   locked_cash: bigint;
+  user_status: UserStatus;
 }
 
 /** SELECT ... FOR UPDATE로 잠근 보유 행 */
@@ -71,6 +76,7 @@ interface LockedHoldingRow {
   account_id: number;
   qty: bigint;
   locked_qty: bigint;
+  user_status: UserStatus;
 }
 
 @Injectable()
@@ -257,28 +263,7 @@ export class OrdersService {
             throw new BusinessException(OrderErrors.NOT_CANCELABLE);
           }
 
-          if (current.side === OrderSide.BUY) {
-            // 포인트 지급·리셋의 버전 검사에 걸리도록 version도 올린다.
-            await tx.account.update({
-              where: { id: current.accountId },
-              data: {
-                lockedCash: { decrement: current.lockedAmount },
-                version: { increment: 1 },
-              },
-            });
-          } else {
-            await tx.holding.update({
-              where: {
-                accountId_stockId: {
-                  accountId: current.accountId,
-                  stockId: current.stockId,
-                },
-              },
-              data: {
-                lockedQty: { decrement: current.qty - current.filledQty },
-              },
-            });
-          }
+          await this.releaseOrderReservations(tx, current.accountId, [current]);
 
           const updated = await tx.order.update({
             where: { id: current.id },
@@ -301,6 +286,82 @@ export class OrdersService {
     });
 
     return this.toOrderRes(order);
+  }
+
+  /**
+   * 미체결 주문을 취소하고 같은 트랜잭션에서 나머지 탈퇴 처리를 실행한다.
+   * 커밋에 성공한 뒤 해당 주문을 종목별 호가창에서 제거한다.
+   */
+  async cancelOpenOrdersForWithdrawal(
+    accountId: number,
+    finishWithdrawal: (
+      tx: Prisma.TransactionClient,
+      now: Date,
+    ) => Promise<void>,
+    validateWithdrawal: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): Promise<void> {
+    const where = { accountId, status: { in: OPEN_ORDER_STATUSES } };
+
+    for (let attempt = 0; attempt < WITHDRAWAL_MAX_ATTEMPTS; attempt++) {
+      const stocks = await this.prisma.order.findMany({
+        where,
+        select: { stockId: true },
+        distinct: ['stockId'],
+        orderBy: { stockId: 'asc' },
+      });
+      const stockIds = new Set(stocks.map(({ stockId }) => stockId));
+
+      const cancelAndFinish = async (): Promise<boolean> => {
+        const canceled = await this.prisma.$transaction(async (tx) => {
+          await this.settlement.lockAccounts(tx, [accountId]);
+          await validateWithdrawal(tx);
+
+          const orders = await tx.order.findMany({ where });
+
+          // 큐를 기다리는 동안 주문이 추가된 종목도 잠근 뒤 다시 시도한다.
+          if (orders.some(({ stockId }) => !stockIds.has(stockId))) {
+            return null;
+          }
+
+          const now = new Date();
+          if (orders.length > 0) {
+            await this.releaseOrderReservations(tx, accountId, orders);
+            await tx.order.updateMany({
+              where,
+              data: {
+                status: OrderStatus.CANCELED,
+                lockedAmount: 0n,
+                canceledDate: now,
+              },
+            });
+          }
+
+          await finishWithdrawal(tx, now);
+          return orders;
+        }, TRADING_TX_OPTIONS);
+
+        if (canceled === null) {
+          return false;
+        }
+        for (const { stockId, id } of canceled) {
+          this.matching.removeOrder(stockId, id);
+        }
+        return true;
+      };
+
+      // 여러 종목의 큐는 종목 ID가 작은 순서로 잠근다.
+      const run = stocks.reduceRight(
+        (next, { stockId }) =>
+          () =>
+            this.matching.runExclusive(stockId, next),
+        cancelAndFinish,
+      );
+      if (await run()) {
+        return;
+      }
+    }
+
+    throw new BusinessException(AccountErrors.CONCURRENT_UPDATE);
   }
 
   /**
@@ -517,15 +578,18 @@ export class OrdersService {
 
     // 같은 계좌의 주문·포인트 지급·리셋이 동시에 들어와도 사용 가능 포인트를 한 번씩만 쓰도록 행을 잠근다.
     const [account] = await tx.$queryRaw<LockedAccountRow[]>`
-      SELECT account_id, cash, locked_cash
-      FROM accounts
-      WHERE user_id = ${userId}
-      FOR UPDATE
+      SELECT a.account_id, a.cash, a.locked_cash, u.user_status::text AS user_status
+      FROM accounts a
+             JOIN users u ON u.user_id = a.user_id
+      WHERE a.user_id = ${userId}
+        FOR UPDATE OF a
     `;
     if (!account) {
       throw new BusinessException(AccountErrors.NOT_FOUND);
     }
-
+    if (account.user_status === UserStatus.WITHDRAWN) {
+      throw new BusinessException(AccountErrors.WITHDRAWN);
+    }
     const availableCash = account.cash - account.locked_cash;
     if (availableCash < lockAmount) {
       throw new BusinessException(OrderErrors.INSUFFICIENT_CASH, undefined, {
@@ -557,12 +621,18 @@ export class OrdersService {
   ): Promise<LockResult> {
     // 같은 상품의 매도 주문이 동시에 들어와도 매도 가능 수량을 한 번씩만 쓰도록 행을 잠근다.
     const [holding] = await tx.$queryRaw<LockedHoldingRow[]>`
-      SELECT h.holding_id, h.account_id, h.qty, h.locked_qty
+      SELECT h.holding_id, h.account_id, h.qty, h.locked_qty,
+             u.user_status::text AS user_status
       FROM holdings h
-      JOIN accounts a ON a.account_id = h.account_id
+             JOIN accounts a ON a.account_id = h.account_id
+             JOIN users u ON u.user_id = a.user_id
       WHERE a.user_id = ${userId} AND h.stock_id = ${stockId}
-      FOR UPDATE OF h
+        FOR UPDATE OF h
     `;
+
+    if (holding?.user_status === UserStatus.WITHDRAWN) {
+      throw new BusinessException(AccountErrors.WITHDRAWN);
+    }
 
     const sellableQty = holding ? holding.qty - holding.locked_qty : 0n;
     if (!holding || sellableQty < qty) {
@@ -649,5 +719,46 @@ export class OrdersService {
       throw new BusinessException(OrderErrors.INVALID_CURSOR);
     }
     return BigInt(orderId!);
+  }
+
+  /** 취소할 주문의 남은 매수 포인트·매도 수량 예약을 해제한다. */
+  private async releaseOrderReservations(
+    tx: Prisma.TransactionClient,
+    accountId: number,
+    orders: Order[],
+  ): Promise<void> {
+    let reservedCash = 0n;
+    let hasBuyOrder = false;
+    const reservedQtyByStock = new Map<number, bigint>();
+
+    for (const order of orders) {
+      if (order.side === OrderSide.BUY) {
+        reservedCash += order.lockedAmount;
+        hasBuyOrder = true;
+      } else {
+        const reservedQty = reservedQtyByStock.get(order.stockId) ?? 0n;
+        reservedQtyByStock.set(
+          order.stockId,
+          reservedQty + (order.qty - order.filledQty),
+        );
+      }
+    }
+
+    if (hasBuyOrder) {
+      await tx.account.update({
+        where: { id: accountId },
+        data: {
+          lockedCash: { decrement: reservedCash },
+          version: { increment: 1 },
+        },
+      });
+    }
+
+    for (const [stockId, reservedQty] of reservedQtyByStock) {
+      await tx.holding.update({
+        where: { accountId_stockId: { accountId, stockId } },
+        data: { lockedQty: { decrement: reservedQty } },
+      });
+    }
   }
 }

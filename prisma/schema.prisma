@@ -17,6 +17,7 @@ enum UserStatus {
   ACTIVE
   LOCKED
   BLOCKED
+  WITHDRAWN
 
   @@map("user_status")
 }
@@ -44,17 +45,20 @@ model User {
   loginId               String          @unique @map("login_id") @db.VarChar(20)
   /// argon2 해시
   password              String          @db.VarChar(255)
-  email                 String          @unique @db.VarChar(255)
+  email                 String?         @unique @db.VarChar(255)
   /// 연락처. SMS 인증 전에는 2차 보안 번호로 쓰지 않는다.
   phoneNumber           String?         @map("phone_number") @db.VarChar(11)
-  nickname              String          @unique @db.VarChar(10)
-  birthDate             DateTime        @map("birth_date") @db.Date
+  nickname              String?         @unique @db.VarChar(10)
+  birthDate             DateTime?       @map("birth_date") @db.Date
   termsAgreed           Boolean         @map("terms_agreed")
   privacyAgreed         Boolean         @map("privacy_agreed")
   marketingAgreed       Boolean         @map("marketing_agreed")
   nightPushEnabled      Boolean         @default(true) @map("night_push_enabled")
   isPushEnabled         Boolean         @default(true) @map("is_push_enabled")
   userStatus            UserStatus      @default(ACTIVE) @map("user_status")
+  reason                String?         @db.VarChar(50)
+  deletedDate           DateTime?       @map("deleted_date") @db.Timestamptz(3)
+  isDeleted             Boolean         @default(false) @map("is_deleted")
   role                  Role            @default(USER)
   /// 연속 로그인 실패 횟수. 로그인 성공 시 0으로 초기화한다.
   loginFailCount        Int             @default(0) @map("login_fail_count")
@@ -89,6 +93,8 @@ model User {
   revisionRequestsCreated ListingApplicationRevision[] @relation("RevisionRequestAuthor")
   priceAlerts             PriceAlert[]
   inquiries               Inquiry[]
+  assignedInquiries       Inquiry[]                    @relation("InquiryAssignee")
+  inquiryRepliesSent      InquiryReplyAttempt[]        @relation("InquiryReplyActor")
   inquiryAccessAttempt    InquiryAccessAttempt?
   adminActivityLogs       AdminActivityLog[]
   anomalies               Anomaly[]                    @relation("AnomalyUser")
@@ -98,11 +104,21 @@ model User {
   @@map("users")
 }
 
-// ─── 제한 계정 1:1 문의 ────────────────────────────────
+// ─── 계정·인증 문의 (일반 마이페이지 문의와 별도) ───────────────
+
+enum InquirySource {
+  /// 기존 문의 전용 토큰으로 본인 확인한 제한 계정 문의
+  RESTRICTED_ACCOUNT
+  /// USR-AUTH-10 비로그인 접수. 회신 주소로 회원을 연결하지 않는다.
+  PUBLIC_ACCOUNT_AUTH
+
+  @@map("inquiry_source")
+}
 
 enum InquiryType {
   LOGIN_FAILED_LOCKED
   SUSPENDED
+  PHONE_UNAVAILABLE
 
   @@map("inquiry_type")
 }
@@ -110,25 +126,89 @@ enum InquiryType {
 enum InquiryStatus {
   SUBMITTED
   IN_PROGRESS
-  APPROVED
+  /// 문의 답변 처리 완료. 회원 승인·계정 해제를 뜻하지 않는다.
+  COMPLETED
 
   @@map("inquiry_status")
 }
 
 model Inquiry {
-  id           Int           @id @default(autoincrement()) @map("inquiry_id")
-  userId       Int           @map("user_id")
-  inquiryCode  String        @unique @map("inquiry_code") @db.VarChar(32)
-  inquiryType  InquiryType   @map("inquiry_type")
-  title        String        @db.VarChar(100)
-  content      String        @db.VarChar(5000)
-  status       InquiryStatus @default(SUBMITTED) @map("inquiry_status")
-  createDate   DateTime      @default(now()) @map("create_date") @db.Timestamptz(3)
-  modifiedDate DateTime      @updatedAt @map("modified_date") @db.Timestamptz(3)
-  user         User          @relation(fields: [userId], references: [id])
+  id                   Int                   @id @default(autoincrement()) @map("inquiry_id")
+  /// 비로그인 접수는 null. 이메일만으로 회원을 추정·연결하지 않는다.
+  userId               Int?                  @map("user_id")
+  source               InquirySource         @default(RESTRICTED_ACCOUNT)
+  inquiryCode          String                @unique @map("inquiry_code") @db.VarChar(32)
+  inquiryType          InquiryType           @map("inquiry_type")
+  title                String                @db.VarChar(100)
+  content              String                @db.VarChar(5000)
+  status               InquiryStatus         @default(SUBMITTED) @map("inquiry_status")
+  createDate           DateTime              @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate         DateTime              @updatedAt @map("modified_date") @db.Timestamptz(3)
+  /// 접수 당시 회신 주소. 비로그인은 직접 입력한 주소, 기존 본인 확인 문의는 가입 이메일이다.
+  replyEmail           String?               @map("reply_email") @db.VarChar(255)
+  assignedAdminId      Int?                  @map("assigned_admin_id")
+  processingStartedAt  DateTime?             @map("processing_started_at") @db.Timestamptz(3)
+  replyDraft           String?               @map("reply_draft") @db.VarChar(5000)
+  replyVersion         Int                   @default(0) @map("reply_version")
+  /// 실제 메일 발송 요청 접수 시각. 콘솔 모의 발송에서는 null이다.
+  completedAt          DateTime?             @map("completed_at") @db.Timestamptz(3)
+  activeReplyAttemptId String?               @unique @map("active_reply_attempt_id") @db.Uuid
+  user                 User?                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  assignedAdmin        User?                 @relation("InquiryAssignee", fields: [assignedAdminId], references: [id], onDelete: Restrict)
+  replyAttempts        InquiryReplyAttempt[] @relation("InquiryReplyAttempts")
+  activeReplyAttempt   InquiryReplyAttempt?  @relation("CurrentInquiryReply", fields: [activeReplyAttemptId], references: [id], onDelete: Restrict)
 
   @@index([userId, createDate, id])
+  @@index([status, createDate, id])
+  @@index([inquiryType, createDate, id])
   @@map("inquiries")
+}
+
+/// 공개 문의 접수 제한. 원문 IP·이메일 대신 목적별 HMAC 키만 저장한다.
+model InquirySubmissionLimit {
+  key       String   @id @db.VarChar(64)
+  count     Int
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("inquiry_submission_limits")
+}
+
+/// 외부 발송 결과는 완료 상태·활동 이력 반영 실패와 구분해 보존한다.
+enum InquiryReplyStatus {
+  SENDING
+  ACCEPTED
+  FAILED
+  UNKNOWN
+  SIMULATED
+
+  @@map("inquiry_reply_status")
+}
+
+model InquiryReplyAttempt {
+  id                String             @id @default(uuid()) @db.Uuid
+  inquiryId         Int                @map("inquiry_id")
+  requestId         String             @map("request_id") @db.Uuid
+  adminId           Int                @map("admin_id")
+  draftVersion      Int                @map("draft_version")
+  toEmail           String             @map("to_email") @db.VarChar(255)
+  replyText         String             @map("reply_text") @db.VarChar(5000)
+  status            InquiryReplyStatus @default(SENDING)
+  deliveryMode      String?            @map("delivery_mode") @db.VarChar(20)
+  providerMessageId String?            @map("provider_message_id") @db.VarChar(255)
+  errorCode         String?            @map("error_code") @db.VarChar(80)
+  /// 불명확한 이전 시도를 확인한 뒤 명시적으로 재발송한 경우의 사유.
+  retryReason       String?            @map("retry_reason") @db.VarChar(200)
+  createDate        DateTime           @default(now()) @map("create_date") @db.Timestamptz(3)
+  finishedAt        DateTime?          @map("finished_at") @db.Timestamptz(3)
+  finalizedAt       DateTime?          @map("finalized_at") @db.Timestamptz(3)
+  inquiry           Inquiry            @relation("InquiryReplyAttempts", fields: [inquiryId], references: [id], onDelete: Restrict)
+  admin             User               @relation("InquiryReplyActor", fields: [adminId], references: [id], onDelete: Restrict)
+  activeForInquiry  Inquiry?           @relation("CurrentInquiryReply")
+
+  @@unique([inquiryId, requestId])
+  @@index([inquiryId, createDate, id])
+  @@map("inquiry_reply_attempts")
 }
 
 /// 문의 본인 확인 전용 실패 기록. 일반 로그인 실패 횟수/잠금과 분리한다.
@@ -153,6 +233,8 @@ enum CashLedgerType {
   RESET
   /// 관리자 포인트 조정
   ADJUST
+  /// 회원 탈퇴로 포인트 소멸
+  WITHDRAWAL
 
   @@map("cash_ledger_type")
 }
@@ -400,62 +482,70 @@ enum TradeStatus {
 
 /// 상장된 상품(종목). 상장 신청이 승인되면 만들어진다. 상세 화면에 보여줄 신청 정보도 함께 둔다.
 model Stock {
-  id                Int         @id @default(autoincrement()) @map("stock_id")
-  stockCode         String      @unique @map("stock_code") @db.VarChar(20)
-  sectorCode        Int         @map("sector_code")
-  name              String      @map("stock_name") @db.VarChar(30)
+  id                  Int         @id @default(autoincrement()) @map("stock_id")
+  stockCode           String      @unique @map("stock_code") @db.VarChar(20)
+  sectorCode          Int         @map("sector_code")
+  name                String      @map("stock_name") @db.VarChar(30)
   /// 한 줄 소개
-  summary           String      @db.VarChar(60)
+  summary             String      @db.VarChar(60)
   /// 상세 설명
-  description       String?     @db.VarChar(500)
-  logoImageUrl      String?     @map("logo_image_url") @db.VarChar(500)
-  mainImageUrl      String      @map("main_image_url") @db.VarChar(500)
-  officialUrl       String?     @map("official_url") @db.VarChar(500)
-  operatorName      String      @map("operator_name") @db.VarChar(50)
+  description         String?     @db.VarChar(500)
+  logoImageUrl        String?     @map("logo_image_url") @db.VarChar(500)
+  mainImageUrl        String      @map("main_image_url") @db.VarChar(500)
+  officialUrl         String?     @map("official_url") @db.VarChar(2048)
+  operatorName        String      @map("operator_name") @db.VarChar(50)
   /// 상장 주식 수 (상장 신청의 총 발행 수량)
-  listedShares      BigInt      @map("listed_shares")
+  listedShares        BigInt      @map("listed_shares")
   /// 기준가 (최종 상장가). 체결이 없으면 현재가로 쓴다.
-  basePrice         BigInt      @map("base_price")
+  basePrice           BigInt      @map("base_price")
   /// 호가 단위. 주문 가격은 이 값의 배수여야 한다.
-  priceTickSize     BigInt      @map("price_tick_size")
+  priceTickSize       BigInt      @map("price_tick_size")
   /// 최소 주문 가격
-  minOrderPrice     BigInt      @map("min_order_price")
+  minOrderPrice       BigInt      @map("min_order_price")
   /// 최소 주문 수량
-  minOrderQty       BigInt      @map("min_order_qty")
-  listingDate       DateTime    @map("listing_date") @db.Timestamptz(3)
-  tradeStatus       TradeStatus @map("trade_status")
+  minOrderQty         BigInt      @map("min_order_qty")
+  /// 확정 상장일(KST 달력 날짜). 기존 상품은 null.
+  approvedListingDate DateTime?   @map("approved_listing_date") @db.Date
+  /// 거래 시작일시. 기존 상품 API와 주문 처리의 의미를 유지한다.
+  listingDate         DateTime    @map("listing_date") @db.Timestamptz(3)
+  tradeStatus         TradeStatus @map("trade_status")
   /// 사용자 화면 공개 여부 (노출 상태). 비공개 상품은 사용자 상품 목록·검색·신규 상장·최근 본 종목·관심상품에 나오지 않는다.
-  isPublic          Boolean     @default(true) @map("is_public")
+  isPublic            Boolean     @default(true) @map("is_public")
   /// 거래 중지·종료 시 사용자 상품 상세에 보여줄 안내문. 거래를 재개하면 지운다.
-  statusNotice      String?     @map("status_notice") @db.VarChar(200)
+  statusNotice        String?     @map("status_notice") @db.VarChar(200)
   /// 주요 서비스 지표 (상장 신청에서 입력한 값, 없으면 null)
   /// 월간 활성 사용자 수
-  mau               BigInt?
+  mau                 BigInt?
   /// 일간 활성 사용자 수
-  dau               BigInt?
+  dau                 BigInt?
   /// 연간 매출 (원, 최근 완료 회계연도)
-  revenue           BigInt?
+  revenue             BigInt?
   /// 거래액 (원, 최근 12개월 결제 완료액 - 취소·환불)
-  transactionVolume BigInt?     @map("transaction_volume")
+  transactionVolume   BigInt?     @map("transaction_volume")
   /// 지표 집계 시작일
-  metricsStartDate  DateTime?   @map("metrics_start_date") @db.Date
+  metricsStartDate    DateTime?   @map("metrics_start_date") @db.Date
   /// 지표 집계 종료일
-  metricsEndDate    DateTime?   @map("metrics_end_date") @db.Date
-  isDeleted         Boolean     @default(false) @map("is_deleted")
-  deletedDate       DateTime?   @map("deleted_date") @db.Timestamptz(3)
-  createDate        DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
-  modifiedDate      DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
+  metricsEndDate      DateTime?   @map("metrics_end_date") @db.Date
+  isDeleted           Boolean     @default(false) @map("is_deleted")
+  deletedDate         DateTime?   @map("deleted_date") @db.Timestamptz(3)
+  createDate          DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate        DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  sector        Sector        @relation(fields: [sectorCode], references: [code])
-  viewHistories ViewHistory[]
-  wishlists     Wishlist[]
-  holdings      Holding[]
-  orders        Order[]
-  trades        Trade[]
-  charts        Chart[]
-  priceAlerts   PriceAlert[]
-  notices       Notice[]
-  anomalies     Anomaly[]
+  sector             Sector              @relation(fields: [sectorCode], references: [code])
+  viewHistories      ViewHistory[]
+  wishlists          Wishlist[]
+  holdings           Holding[]
+  orders             Order[]
+  trades             Trade[]
+  charts             Chart[]
+  priceAlerts        PriceAlert[]
+  notices            Notice[]
+  listingApplication ListingApplication?
+  anomalies          Anomaly[]
+
+  /// 발행 보류 시 PENDING을 유지하고 예약 재시도에서 제외한다. 관리자 확인용이다.
+  listingBlockedAt     DateTime? @map("listing_blocked_at") @db.Timestamptz(3)
+  listingBlockedReason String?   @map("listing_blocked_reason") @db.VarChar(255)
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -834,8 +924,12 @@ model ListingApplication {
   applicationNumber     String?                      @unique @map("application_number") @db.VarChar(30)
   /// 후속 최종 제출 API가 기록한다. 임시저장에서는 null을 유지한다.
   submittedAt           DateTime?                    @map("submitted_at") @db.Timestamptz(3)
-  /// 후속 관리자 심사 API가 기록하는 최근 의견과 보완 기한.
+  /// 관리자 심사 API가 기록하는 최근 의견과 보완 기한.
   reviewComment         String?                      @map("review_comment")
+  /// 승인 당시 최종 입력값. 신청자의 희망 입력값은 draftData에 보존한다.
+  approvalData          Json?                        @map("approval_data")
+  stockId               Int?                         @unique @map("stock_id")
+  stock                 Stock?                       @relation(fields: [stockId], references: [id], onDelete: Restrict)
   revisionDeadline      DateTime?                    @map("revision_deadline") @db.Timestamptz(3)
   status                ListingApplicationStatus     @default(DRAFT)
   serviceName           String?                      @map("service_name") @db.VarChar(30)
@@ -894,6 +988,7 @@ model ListingApplicationRevision {
   id                   Int                   @id @default(autoincrement()) @map("revision_id")
   applicationId        Int                   @map("application_id")
   requestedById        Int                   @map("requested_by_id")
+  requestItems         String[]              @default([]) @map("request_items")
   requestContent       String                @map("request_content") @db.VarChar(2000)
   deadline             DateTime              @db.Timestamptz(3)
   /// 관리자 기한 연장 이력. 최초 지정 시점도 기록한다.
@@ -926,6 +1021,8 @@ enum AdminActivityTarget {
   ADMIN
   /// 공지
   NOTICE
+  /// 계정·인증 문의
+  INQUIRY
   /// 이상 거래
   ANOMALY
 
@@ -934,6 +1031,11 @@ enum AdminActivityTarget {
 
 /// 관리자 활동 이력의 수행 작업. 작업 대상별로 쓸 수 있는 작업이 정해져 있다(admin-activity-logs.constants.ts).
 enum AdminActivityAction {
+  INQUIRY_START
+  INQUIRY_REPLY_DRAFT_SAVE
+  INQUIRY_REPLY_SEND
+  LISTING_REVIEW_START
+  LISTING_REVISION_DEADLINE_UPDATE
   LISTING_APPROVE
   LISTING_REVISION_REQUEST
   LISTING_REJECT

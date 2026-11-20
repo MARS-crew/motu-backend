@@ -71,6 +71,7 @@ describe('TwoFactorService', () => {
     vi.clearAllMocks();
     user.findUnique.mockResolvedValue(member());
     user.update.mockResolvedValue({});
+    user.updateMany.mockResolvedValue({ count: 1 });
     verifications.confirmSmsCode.mockResolvedValue(undefined);
     verifications.sendSmsCode.mockResolvedValue({
       expiresAt: new Date(),
@@ -176,8 +177,8 @@ describe('TwoFactorService', () => {
         VerificationPurpose.TWO_FACTOR_SETUP,
         `1:${PHONE}`,
       );
-      expect(user.update).toHaveBeenCalledWith({
-        where: { id: 1 },
+      expect(user.updateMany).toHaveBeenCalledWith({
+        where: { id: 1, userStatus: { not: 'WITHDRAWN' } },
         data: expect.objectContaining({
           twoFactorStatus: TwoFactorStatus.ENABLED,
           twoFactorPhoneNumber: PHONE,

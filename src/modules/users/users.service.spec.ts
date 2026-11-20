@@ -12,7 +12,7 @@ import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { UsersService } from './users.service.js';
 
 describe('UsersService', () => {
-  const tx = { user: { create: vi.fn(), update: vi.fn() } };
+  const tx = { user: { create: vi.fn(), updateMany: vi.fn() } };
   const countUsers = vi.fn();
   const createInitialAccount = vi.fn();
   const sendEmailCode = vi.fn();
@@ -62,6 +62,7 @@ describe('UsersService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     countUsers.mockResolvedValue(0);
+    tx.user.updateMany.mockResolvedValue({ count: 1 });
     tx.user.create.mockImplementation(({ data }) =>
       Promise.resolve({ id: 1, userStatus: 'ACTIVE', role: 'USER', ...data }),
     );
@@ -128,6 +129,102 @@ describe('UsersService', () => {
       response: { code: 'EMAIL_DUPLICATED' },
     });
     expect(sendEmailCode).not.toHaveBeenCalled();
+  });
+
+  describe('닉네임 변경', () => {
+    const user = {
+      id: 6,
+      loginId: 'motuuser',
+      nickname: '모투테스터',
+      email: 'user@motu.test',
+      phoneNumber: null,
+      role: 'USER',
+      userStatus: 'ACTIVE',
+      twoFactorStatus: TwoFactorStatus.NOT_SET,
+    };
+    const nickname = '새닉네임';
+
+    it('사용 가능한 닉네임으로 변경하고 회원 정보를 반환한다', async () => {
+      findUniqueUser.mockResolvedValueOnce(user);
+      updateUser.mockResolvedValueOnce({ ...user, nickname });
+
+      await expect(service.changeNickname(user.id, nickname)).resolves.toEqual({
+        userId: user.id,
+        loginId: user.loginId,
+        nickname,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        role: user.role,
+        userStatus: user.userStatus,
+        twoFactorStatus: user.twoFactorStatus,
+      });
+      expect(countUsers).toHaveBeenCalledWith({ where: { nickname } });
+      expect(updateUser).toHaveBeenCalledWith({
+        where: { id: user.id, userStatus: { not: 'WITHDRAWN' } },
+        data: { nickname },
+      });
+    });
+
+    it('현재 닉네임이면 읽어 온 회원 정보를 반환한다', async () => {
+      findUniqueUser.mockResolvedValueOnce(user);
+
+      await expect(
+        service.changeNickname(user.id, user.nickname),
+      ).resolves.toMatchObject({
+        userId: user.id,
+        nickname: user.nickname,
+      });
+      expect(countUsers).not.toHaveBeenCalled();
+      expect(updateUser).not.toHaveBeenCalled();
+    });
+
+    it('다른 회원이 사용 중인 닉네임이면 저장 전에 409를 반환한다', async () => {
+      findUniqueUser.mockResolvedValueOnce(user);
+      countUsers.mockResolvedValueOnce(1);
+
+      await expect(
+        service.changeNickname(user.id, nickname),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'NICKNAME_DUPLICATED' },
+      });
+      expect(updateUser).not.toHaveBeenCalled();
+    });
+
+    it('다른 회원이 먼저 저장해 P2002가 발생하면 409를 반환한다', async () => {
+      findUniqueUser.mockResolvedValueOnce(user);
+      updateUser.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: {
+            driverAdapterError: {
+              cause: { constraint: { index: 'users_nickname_key' } },
+            },
+          },
+        }),
+      );
+
+      await expect(
+        service.changeNickname(user.id, nickname),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'NICKNAME_DUPLICATED' },
+      });
+    });
+
+    it('회원이 없으면 저장 전에 404를 반환한다', async () => {
+      findUniqueUser.mockResolvedValueOnce(null);
+
+      await expect(
+        service.changeNickname(user.id, nickname),
+      ).rejects.toMatchObject({
+        status: 404,
+        response: { code: 'USER_NOT_FOUND' },
+      });
+      expect(countUsers).not.toHaveBeenCalled();
+      expect(updateUser).not.toHaveBeenCalled();
+    });
   });
 
   describe('recordLoginFailure', () => {
@@ -236,8 +333,8 @@ describe('UsersService', () => {
         VerificationPurpose.CONTACT_PHONE_CHANGE,
         '6:01045678901',
       );
-      expect(tx.user.update).toHaveBeenCalledWith({
-        where: { id: 6 },
+      expect(tx.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 6, userStatus: { not: 'WITHDRAWN' } },
         data: { phoneNumber: '01045678901' },
       });
       expect(result).toMatchObject({
@@ -255,7 +352,7 @@ describe('UsersService', () => {
       await expect(
         service.changeContactPhone(6, '01045678901', '000000'),
       ).rejects.toThrow('VERIFICATION_CODE_MISMATCH');
-      expect(tx.user.update).not.toHaveBeenCalled();
+      expect(tx.user.updateMany).not.toHaveBeenCalled();
     });
   });
 });

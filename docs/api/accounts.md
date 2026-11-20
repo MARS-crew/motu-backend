@@ -94,6 +94,9 @@
 | 포인트 지급·회수 | `PATCH /api/admin/accounts/:userId/cash` | `amount` (양수 지급, 음수 회수, ±100,000,000 이내, 0 불가), `reason` (처리 사유 1~200자, 필수) | `amount`, `cashBefore`, `cashAfter` |
 | 대기시간 초기화 | `DELETE /api/admin/accounts/:userId/cooldowns/:type` | `type`: `grant`(24시간) / `reset`(7일) | 204 |
 
+- 403 `ACCOUNT_WITHDRAWN`: 탈퇴 회원의 계좌에는 포인트를 지급하거나 회수할 수 없습니다.
+- 409 `ACCOUNT_CONCURRENT_UPDATE`: 다른 요청이 계좌 상태를 변경했습니다.
+
 | 에러 | 상황 |
 |------|------|
 | 404 `ACCOUNT_NOT_FOUND` | 없는 회원 |

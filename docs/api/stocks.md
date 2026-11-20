@@ -212,3 +212,9 @@
 | 404 `STOCK_NOT_FOUND` | 없거나 삭제된 상품 | |
 | 400 `ANOMALY_TARGET_MISMATCH` / 409 `ANOMALY_ALREADY_RESOLVED` | `anomalyId`가 이 상품의 이상 거래가 아님 / 이미 처리완료 (주문 취소 전에 막음) | 이상 거래 상세를 다시 불러옵니다. |
 
+
+## 상장 심사 승인 상품 연결
+
+상장 심사 승인으로 생성된 상품은 `PENDING`이고, 확정 거래 시작일시에 기존 발행·최초 매도 주문 로직으로 `ACTIVE`가 된다. 상세 규칙은 [상장 심사](listing-applications.md#승인-입력값과-상품-생성-규칙)를 참고한다. 기존 사용자·관리자 상품 API의 `listingDate` 의미는 거래 시작일시로 유지한다. 확정 상장일은 별도 `approvedListingDate`(KST 날짜)이며 관리자 상품 상세에 추가된다. 기존 상품의 값은 null이다.
+
+승인 상품의 로고·대표 이미지 URL은 `/api/stocks/listing-images/{신청서 ID}/logo` 또는 `/main`이다. 공개 상품만 로그인 없이 조회할 수 있으며 증빙자료는 공개하지 않는다.

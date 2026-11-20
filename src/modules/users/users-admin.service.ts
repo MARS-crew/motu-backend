@@ -22,12 +22,14 @@ import {
   AdminUserItemResDto,
   GetAdminUsersResDto,
 } from './dto/res/get-admin-users-res.dto.js';
+import { WITHDRAWN_NICKNAME } from './users.constants.js';
 import { UserErrors } from './users.errors.js';
 
 const STATUS_LABELS: Record<UserStatus, string> = {
   [UserStatus.ACTIVE]: '정상',
   [UserStatus.LOCKED]: '잠금',
   [UserStatus.BLOCKED]: '정지',
+  [UserStatus.WITHDRAWN]: '탈퇴',
 };
 
 /** 관리자 처리를 남길 때 함께 받는 값 */
@@ -92,7 +94,7 @@ export class UsersAdminService {
 
     return Object.assign(this.toItem(user), {
       security: {
-        emailVerified: true,
+        emailVerified: user.email !== null,
         twoFactorStatus: user.twoFactorStatus,
         twoFactorPhoneNumber: user.twoFactorPhoneNumber
           ? maskPhoneNumber(user.twoFactorPhoneNumber)
@@ -120,6 +122,12 @@ export class UsersAdminService {
     anomalyId?: number,
   ): Promise<ChangeUserStatusResDto> {
     const user = await this.findUser(userId);
+    if (
+      user.userStatus === UserStatus.WITHDRAWN ||
+      status === UserStatus.WITHDRAWN
+    ) {
+      throw new BusinessException(UserErrors.WITHDRAWN_STATUS_IMMUTABLE);
+    }
     if (user.userStatus === status) {
       throw new BusinessException(UserErrors.STATUS_UNCHANGED);
     }
@@ -246,8 +254,8 @@ export class UsersAdminService {
     return {
       userId: user.id,
       loginId: user.loginId,
-      nickname: user.nickname,
-      email: maskEmail(user.email),
+      nickname: user.nickname ?? WITHDRAWN_NICKNAME,
+      email: user.email === null ? null : maskEmail(user.email),
       createDate: user.createDate,
       userStatus: user.userStatus,
       lastLoginDate: user.lastLoginDate,

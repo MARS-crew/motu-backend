@@ -1,7 +1,10 @@
 import { Logger } from '@nestjs/common';
-import { BusinessException } from '../exceptions/business.exception.js';
-import { MailErrors } from './mail.errors.js';
-import { Mail, MailSender } from './mail-sender.js';
+import {
+  Mail,
+  MailSender,
+  TrackedMailError,
+  type TrackedMailResult,
+} from './mail-sender.js';
 
 const BREVO_SEND_URL = 'https://api.brevo.com/v3/smtp/email';
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -23,24 +26,37 @@ export class BrevoMailSender extends MailSender {
     super();
   }
 
-  /** 발송하지 못하면 원인은 로그에 남기고 503 MAIL_SEND_FAILED로 알린다. */
   async send(mail: Mail): Promise<void> {
+    await this.sendTracked(mail);
+  }
+
+  /** Brevo의 2xx는 발송 요청 접수다. 실제 수신함 도착을 보증하지 않는다. */
+  async sendTracked(mail: Mail): Promise<TrackedMailResult> {
     let response: Response;
     try {
       response = await this.request(mail);
-    } catch (error) {
-      this.logger.error(
-        'Brevo 메일 발송 요청 실패',
-        error instanceof Error ? error.stack : String(error),
-      );
-      throw new BusinessException(MailErrors.SEND_FAILED);
+    } catch {
+      this.logger.error('Brevo 메일 발송 결과 확인 불가');
+      throw new TrackedMailError('UNKNOWN');
     }
-
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      this.logger.error(`Brevo 메일 발송 실패: ${response.status} ${body}`);
-      throw new BusinessException(MailErrors.SEND_FAILED);
+      // 타임아웃·서버 오류는 발송 여부가 불명확할 수 있다. 응답 본문에 개인정보를 남기지 않는다.
+      this.logger.error(`Brevo 메일 발송 실패: HTTP ${response.status}`);
+      throw new TrackedMailError(
+        response.status >= 500 || response.status === 408
+          ? 'UNKNOWN'
+          : 'FAILED',
+      );
     }
+    const body: unknown = await response.json().catch(() => null);
+    const id =
+      body && typeof body === 'object' && 'messageId' in body
+        ? body.messageId
+        : null;
+    return {
+      mode: 'BREVO',
+      messageId: typeof id === 'string' ? id.slice(0, 255) : null,
+    };
   }
 
   private request(mail: Mail): Promise<Response> {

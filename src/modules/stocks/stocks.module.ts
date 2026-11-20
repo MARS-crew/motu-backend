@@ -9,6 +9,7 @@ import { StocksAdminService } from './stocks-admin.service.js';
 import { StocksController } from './stocks.controller.js';
 import { StocksService } from './stocks.service.js';
 import { WishlistsController } from './wishlists.controller.js';
+import { StockCodesService } from './stock-codes.service.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { WishlistsController } from './wishlists.controller.js';
     AnomaliesModule,
   ],
   controllers: [StocksController, WishlistsController, StocksAdminController],
-  providers: [StocksService, StocksAdminService],
+  providers: [StocksService, StocksAdminService, StockCodesService],
+  exports: [StockCodesService],
 })
 export class StocksModule {}
