@@ -18,6 +18,7 @@ enum UserStatus {
   LOCKED
   BLOCKED
   WITHDRAWN
+
   @@map("user_status")
 }
 
@@ -44,11 +45,11 @@ model User {
   loginId               String          @unique @map("login_id") @db.VarChar(20)
   /// argon2 해시
   password              String          @db.VarChar(255)
-  email                 String          @unique @db.VarChar(255)
+  email                 String?         @unique @db.VarChar(255)
   /// 연락처. SMS 인증 전에는 2차 보안 번호로 쓰지 않는다.
   phoneNumber           String?         @map("phone_number") @db.VarChar(11)
-  nickname              String          @unique @db.VarChar(10)
-  birthDate             DateTime        @map("birth_date") @db.Date
+  nickname              String?         @unique @db.VarChar(10)
+  birthDate             DateTime?       @map("birth_date") @db.Date
   termsAgreed           Boolean         @map("terms_agreed")
   privacyAgreed         Boolean         @map("privacy_agreed")
   marketingAgreed       Boolean         @map("marketing_agreed")
@@ -212,6 +213,7 @@ enum CashLedgerType {
   ADJUST
   /// 회원 탈퇴로 포인트 소멸
   WITHDRAWAL
+
   @@map("cash_ledger_type")
 }
 
@@ -520,8 +522,8 @@ model Stock {
   anomalies          Anomaly[]
 
   /// 발행 보류 시 PENDING을 유지하고 예약 재시도에서 제외한다. 관리자 확인용이다.
-  listingBlockedAt DateTime? @map("listing_blocked_at") @db.Timestamptz(3)
-  listingBlockedReason String? @map("listing_blocked_reason") @db.VarChar(255)
+  listingBlockedAt     DateTime? @map("listing_blocked_at") @db.Timestamptz(3)
+  listingBlockedReason String?   @map("listing_blocked_reason") @db.VarChar(255)
 
   @@index([sectorCode])
   @@index([listingDate])
