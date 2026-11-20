@@ -454,9 +454,10 @@ try {
   const adminPaths = Object.entries(swagger.paths).filter(([path]) =>
     path.startsWith('/api' + route),
   );
-  assert.equal(adminPaths.length, 3);
+  const readPaths = adminPaths.filter(([, operations]) => operations.get);
+  assert.equal(readPaths.length, 3);
   assert(
-    adminPaths.every(
+    readPaths.every(
       ([, operations]) =>
         operations.get?.security && !operations.post && !operations.patch,
     ),

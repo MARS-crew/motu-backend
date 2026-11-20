@@ -1,3 +1,4 @@
+import type { ListingApprovalResDto } from './dto/res/listing-review-res.dto.js';
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
@@ -127,8 +128,13 @@ export class ListingApplicationsAdminService {
     ]);
     return {
       ...this.summary(application, sectorNames),
+      stockId: application.stockId,
+      approval:
+        application.approvalData as unknown as ListingApprovalResDto | null,
       reviewComment: application.reviewComment,
       revisionDeadline: application.revisionDeadline,
+      listingBlockedAt: application.stock?.listingBlockedAt ?? null,
+      listingBlockedReason: application.stock?.listingBlockedReason ?? null,
       data,
       attachments: {
         logo: this.withAdminPaths(id, attachments.logo),
@@ -137,6 +143,12 @@ export class ListingApplicationsAdminService {
       },
       revisions: application.revisions.map((revision) => ({
         id: revision.id,
+        requestItems: revision.requestItems,
+        deadlineHistory: revision.deadlineHistory,
+        previousEvidence: this.withAdminPaths(
+          id,
+          this.previousEvidence(revision.previousData),
+        ),
         requestContent: revision.requestContent,
         deadline: revision.deadline,
         createDate: revision.createDate,
@@ -157,9 +169,10 @@ export class ListingApplicationsAdminService {
       current.evidence,
       current.mainImage,
       current.logo,
-      ...application.revisions.map((revision) =>
+      ...application.revisions.flatMap((revision) => [
         this.revisionEvidence(revision),
-      ),
+        this.previousEvidence(revision.previousData),
+      ]),
     ];
     const collection = collections.find((candidate) =>
       candidate?.attachments.some(
@@ -187,12 +200,20 @@ export class ListingApplicationsAdminService {
       where: { ...reviewableWhere, id },
       select: {
         ...listSelect,
+        stockId: true,
+        approvalData: true,
+        stock: {
+          select: { listingBlockedAt: true, listingBlockedReason: true },
+        },
         reviewComment: true,
         revisionDeadline: true,
         revisions: {
           orderBy: { id: 'desc' },
           select: {
             id: true,
+            requestItems: true,
+            deadlineHistory: true,
+            previousData: true,
             requestContent: true,
             deadline: true,
             createDate: true,
@@ -241,6 +262,17 @@ export class ListingApplicationsAdminService {
         nickname: user.nickname,
       },
     } satisfies AdminListingApplicationItemResDto;
+  }
+
+  private previousEvidence(value: Prisma.JsonValue): CollectionResDto | null {
+    const previous = value as {
+      _attachments?: { evidence?: CollectionResDto };
+    } | null;
+    const evidence = previous?._attachments?.evidence;
+    return evidence?.purpose === AttachmentPurpose.EVIDENCE &&
+      Array.isArray(evidence.attachments)
+      ? evidence
+      : null;
   }
 
   private revisionEvidence(revision: {

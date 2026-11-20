@@ -28,6 +28,12 @@ export class AdminStockMetricsResDto {
 }
 
 export class GetAdminStockResDto extends AdminStockItemResDto {
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: '확정 상장일(KST 날짜). 기존 상품은 null',
+  })
+  approvedListingDate: string | null;
   @ApiProperty({ description: '한 줄 소개', example: 'SaaS 기업 성장성 기반' })
   summary: string;
 
