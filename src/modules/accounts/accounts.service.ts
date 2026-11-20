@@ -77,10 +77,12 @@ export class AccountsService {
       },
     });
   }
+
   async getAccountId(userId: number): Promise<number> {
     const { id } = await this.findAccount(userId);
     return id;
   }
+
   /** 미체결 주문을 취소한 트랜잭션에서 잔여 포인트를 소멸시킨다. */
   async expirePointsForWithdrawal(
     tx: Prisma.TransactionClient,
@@ -291,15 +293,19 @@ export class AccountsService {
     adjustment: { adminId: number; reason: string; client?: ClientInfo },
   ): Promise<AdjustCashResDto> {
     const account = await this.findAccount(userId);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { loginId: true, userStatus: true },
+    });
+    if (user?.userStatus === UserStatus.WITHDRAWN) {
+      throw new BusinessException(AccountErrors.WITHDRAWN);
+    }
+
     const delta = BigInt(amount);
     const cashAfter = account.cash + delta;
     if (cashAfter < account.lockedCash) {
       throw new BusinessException(AccountErrors.INSUFFICIENT_CASH);
     }
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { loginId: true },
-    });
 
     const isGrant = delta > 0n;
     await this.updateCash(account, {
@@ -392,7 +398,16 @@ export class AccountsService {
       },
     });
     if (count === 0) {
-      throw new BusinessException(AccountErrors.CONCURRENT_UPDATE);
+      const withdrawn = await tx.user.findFirst({
+        where: {
+          userStatus: UserStatus.WITHDRAWN,
+          account: { is: { id: account.id } },
+        },
+        select: { id: true },
+      });
+      throw new BusinessException(
+        withdrawn ? AccountErrors.WITHDRAWN : AccountErrors.CONCURRENT_UPDATE,
+      );
     }
 
     const amount = change.cashAfter - account.cash;
