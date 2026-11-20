@@ -1,3 +1,4 @@
+import type { ListingApprovalResDto } from './dto/res/listing-review-res.dto.js';
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
@@ -236,6 +237,9 @@ export class ListingApplicationsService {
       statusLabel: LISTING_STATUS_LABELS[status],
       applicationNumber: item.applicationNumber,
       submittedAt: item.submittedAt ?? null,
+      stockId: item.stockId ?? null,
+      approval:
+        (item.approvalData as unknown as ListingApprovalResDto | null) ?? null,
       reviewComment: item.reviewComment ?? null,
       revisionDeadline: item.revisionDeadline ?? null,
       isEditable: status === ListingApplicationStatus.DRAFT,

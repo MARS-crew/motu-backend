@@ -1,3 +1,4 @@
+import { ListingApprovalResDto } from './listing-review-res.dto.js';
 import { ApiProperty } from '@nestjs/swagger';
 import { ListingApplicationStatus } from '../../../../generated/prisma/client.js';
 import { CollectionResDto } from '../../../files/dto/res/attachment-res.dto.js';
@@ -19,6 +20,9 @@ export class ListingApplicationStatusResDto {
   submittedAt: Date | null;
   @ApiProperty({ type: String, nullable: true }) reviewComment: string | null;
   @ApiProperty({ type: Date, nullable: true }) revisionDeadline: Date | null;
+  @ApiProperty({ type: Number, nullable: true }) stockId: number | null;
+  @ApiProperty({ type: ListingApprovalResDto, nullable: true })
+  approval: ListingApprovalResDto | null;
   @ApiProperty() isEditable: boolean;
   @ApiProperty({
     type: Date,

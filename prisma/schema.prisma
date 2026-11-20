@@ -454,62 +454,70 @@ enum TradeStatus {
 
 /// 상장된 상품(종목). 상장 신청이 승인되면 만들어진다. 상세 화면에 보여줄 신청 정보도 함께 둔다.
 model Stock {
-  id                Int         @id @default(autoincrement()) @map("stock_id")
-  stockCode         String      @unique @map("stock_code") @db.VarChar(20)
-  sectorCode        Int         @map("sector_code")
-  name              String      @map("stock_name") @db.VarChar(30)
+  id                  Int         @id @default(autoincrement()) @map("stock_id")
+  stockCode           String      @unique @map("stock_code") @db.VarChar(20)
+  sectorCode          Int         @map("sector_code")
+  name                String      @map("stock_name") @db.VarChar(30)
   /// 한 줄 소개
-  summary           String      @db.VarChar(60)
+  summary             String      @db.VarChar(60)
   /// 상세 설명
-  description       String?     @db.VarChar(500)
-  logoImageUrl      String?     @map("logo_image_url") @db.VarChar(500)
-  mainImageUrl      String      @map("main_image_url") @db.VarChar(500)
-  officialUrl       String?     @map("official_url") @db.VarChar(500)
-  operatorName      String      @map("operator_name") @db.VarChar(50)
+  description         String?     @db.VarChar(500)
+  logoImageUrl        String?     @map("logo_image_url") @db.VarChar(500)
+  mainImageUrl        String      @map("main_image_url") @db.VarChar(500)
+  officialUrl         String?     @map("official_url") @db.VarChar(2048)
+  operatorName        String      @map("operator_name") @db.VarChar(50)
   /// 상장 주식 수 (상장 신청의 총 발행 수량)
-  listedShares      BigInt      @map("listed_shares")
+  listedShares        BigInt      @map("listed_shares")
   /// 기준가 (최종 상장가). 체결이 없으면 현재가로 쓴다.
-  basePrice         BigInt      @map("base_price")
+  basePrice           BigInt      @map("base_price")
   /// 호가 단위. 주문 가격은 이 값의 배수여야 한다.
-  priceTickSize     BigInt      @map("price_tick_size")
+  priceTickSize       BigInt      @map("price_tick_size")
   /// 최소 주문 가격
-  minOrderPrice     BigInt      @map("min_order_price")
+  minOrderPrice       BigInt      @map("min_order_price")
   /// 최소 주문 수량
-  minOrderQty       BigInt      @map("min_order_qty")
-  listingDate       DateTime    @map("listing_date") @db.Timestamptz(3)
-  tradeStatus       TradeStatus @map("trade_status")
+  minOrderQty         BigInt      @map("min_order_qty")
+  /// 확정 상장일(KST 달력 날짜). 기존 상품은 null.
+  approvedListingDate DateTime?   @map("approved_listing_date") @db.Date
+  /// 거래 시작일시. 기존 상품 API와 주문 처리의 의미를 유지한다.
+  listingDate         DateTime    @map("listing_date") @db.Timestamptz(3)
+  tradeStatus         TradeStatus @map("trade_status")
   /// 사용자 화면 공개 여부 (노출 상태). 비공개 상품은 사용자 상품 목록·검색·신규 상장·최근 본 종목·관심상품에 나오지 않는다.
-  isPublic          Boolean     @default(true) @map("is_public")
+  isPublic            Boolean     @default(true) @map("is_public")
   /// 거래 중지·종료 시 사용자 상품 상세에 보여줄 안내문. 거래를 재개하면 지운다.
-  statusNotice      String?     @map("status_notice") @db.VarChar(200)
+  statusNotice        String?     @map("status_notice") @db.VarChar(200)
   /// 주요 서비스 지표 (상장 신청에서 입력한 값, 없으면 null)
   /// 월간 활성 사용자 수
-  mau               BigInt?
+  mau                 BigInt?
   /// 일간 활성 사용자 수
-  dau               BigInt?
+  dau                 BigInt?
   /// 연간 매출 (원, 최근 완료 회계연도)
-  revenue           BigInt?
+  revenue             BigInt?
   /// 거래액 (원, 최근 12개월 결제 완료액 - 취소·환불)
-  transactionVolume BigInt?     @map("transaction_volume")
+  transactionVolume   BigInt?     @map("transaction_volume")
   /// 지표 집계 시작일
-  metricsStartDate  DateTime?   @map("metrics_start_date") @db.Date
+  metricsStartDate    DateTime?   @map("metrics_start_date") @db.Date
   /// 지표 집계 종료일
-  metricsEndDate    DateTime?   @map("metrics_end_date") @db.Date
-  isDeleted         Boolean     @default(false) @map("is_deleted")
-  deletedDate       DateTime?   @map("deleted_date") @db.Timestamptz(3)
-  createDate        DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
-  modifiedDate      DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
+  metricsEndDate      DateTime?   @map("metrics_end_date") @db.Date
+  isDeleted           Boolean     @default(false) @map("is_deleted")
+  deletedDate         DateTime?   @map("deleted_date") @db.Timestamptz(3)
+  createDate          DateTime    @default(now()) @map("create_date") @db.Timestamptz(3)
+  modifiedDate        DateTime    @updatedAt @map("modified_date") @db.Timestamptz(3)
 
-  sector        Sector        @relation(fields: [sectorCode], references: [code])
-  viewHistories ViewHistory[]
-  wishlists     Wishlist[]
-  holdings      Holding[]
-  orders        Order[]
-  trades        Trade[]
-  charts        Chart[]
-  priceAlerts   PriceAlert[]
-  notices       Notice[]
-  anomalies     Anomaly[]
+  sector             Sector              @relation(fields: [sectorCode], references: [code])
+  viewHistories      ViewHistory[]
+  wishlists          Wishlist[]
+  holdings           Holding[]
+  orders             Order[]
+  trades             Trade[]
+  charts             Chart[]
+  priceAlerts        PriceAlert[]
+  notices            Notice[]
+  listingApplication ListingApplication?
+  anomalies          Anomaly[]
+
+  /// 발행 보류 시 PENDING을 유지하고 예약 재시도에서 제외한다. 관리자 확인용이다.
+  listingBlockedAt DateTime? @map("listing_blocked_at") @db.Timestamptz(3)
+  listingBlockedReason String? @map("listing_blocked_reason") @db.VarChar(255)
 
   @@index([sectorCode])
   @@index([listingDate])
@@ -888,8 +896,12 @@ model ListingApplication {
   applicationNumber     String?                      @unique @map("application_number") @db.VarChar(30)
   /// 후속 최종 제출 API가 기록한다. 임시저장에서는 null을 유지한다.
   submittedAt           DateTime?                    @map("submitted_at") @db.Timestamptz(3)
-  /// 후속 관리자 심사 API가 기록하는 최근 의견과 보완 기한.
+  /// 관리자 심사 API가 기록하는 최근 의견과 보완 기한.
   reviewComment         String?                      @map("review_comment")
+  /// 승인 당시 최종 입력값. 신청자의 희망 입력값은 draftData에 보존한다.
+  approvalData          Json?                        @map("approval_data")
+  stockId               Int?                         @unique @map("stock_id")
+  stock                 Stock?                       @relation(fields: [stockId], references: [id], onDelete: Restrict)
   revisionDeadline      DateTime?                    @map("revision_deadline") @db.Timestamptz(3)
   status                ListingApplicationStatus     @default(DRAFT)
   serviceName           String?                      @map("service_name") @db.VarChar(30)
@@ -948,6 +960,7 @@ model ListingApplicationRevision {
   id                   Int                   @id @default(autoincrement()) @map("revision_id")
   applicationId        Int                   @map("application_id")
   requestedById        Int                   @map("requested_by_id")
+  requestItems         String[]              @default([]) @map("request_items")
   requestContent       String                @map("request_content") @db.VarChar(2000)
   deadline             DateTime              @db.Timestamptz(3)
   /// 관리자 기한 연장 이력. 최초 지정 시점도 기록한다.
@@ -993,6 +1006,8 @@ enum AdminActivityAction {
   INQUIRY_START
   INQUIRY_REPLY_DRAFT_SAVE
   INQUIRY_REPLY_SEND
+  LISTING_REVIEW_START
+  LISTING_REVISION_DEADLINE_UPDATE
   LISTING_APPROVE
   LISTING_REVISION_REQUEST
   LISTING_REJECT
