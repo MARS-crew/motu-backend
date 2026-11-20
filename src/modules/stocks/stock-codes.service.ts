@@ -12,8 +12,9 @@ export class StockCodesService {
       SELECT COALESCE(MAX(SUBSTRING(stock_code FROM 5)::bigint), 0) + 1 AS next
       FROM stocks WHERE stock_code ~ '^MOTU[0-9]{1,16}$'
     `;
-    if (!row || row.next > 9999999999999999n)
+    if (!row || row.next > 9999999999999999n) {
       throw new BusinessException(StockErrors.CODE_EXHAUSTED);
+    }
     return `MOTU${row.next.toString().padStart(4, '0')}`;
   }
 }
