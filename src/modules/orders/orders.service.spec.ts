@@ -986,6 +986,34 @@ describe('OrdersService', () => {
       },
     ];
 
+    it('계좌 잠금 뒤 탈퇴 검사에 실패하면 주문과 계좌를 변경하지 않는다', async () => {
+      order.findMany.mockResolvedValueOnce([{ stockId: 1 }]);
+      const blocked = new Error('승인된 거래 대기 상품이 있음');
+      const validateWithdrawal = vi.fn(async () => {
+        expect(settlement.lockAccounts).toHaveBeenCalledExactlyOnceWith(tx, [
+          ACCOUNT_ID,
+        ]);
+        throw blocked;
+      });
+      const finishWithdrawal = vi.fn();
+
+      await expect(
+        service.cancelOpenOrdersForWithdrawal(
+          ACCOUNT_ID,
+          finishWithdrawal,
+          validateWithdrawal,
+        ),
+      ).rejects.toBe(blocked);
+
+      expect(validateWithdrawal).toHaveBeenCalledExactlyOnceWith(tx);
+      expect(tx.order.findMany).not.toHaveBeenCalled();
+      expect(tx.account.update).not.toHaveBeenCalled();
+      expect(tx.holding.update).not.toHaveBeenCalled();
+      expect(tx.order.updateMany).not.toHaveBeenCalled();
+      expect(finishWithdrawal).not.toHaveBeenCalled();
+      expect(matching.removeOrder).not.toHaveBeenCalled();
+    });
+
     it('새 종목의 주문을 다시 확인하고 남은 예약만 해제한다', async () => {
       order.findMany
         .mockResolvedValueOnce([{ stockId: 1 }])
@@ -998,7 +1026,11 @@ describe('OrdersService', () => {
         expect(matching.removeOrder).not.toHaveBeenCalled();
       });
 
-      await service.cancelOpenOrdersForWithdrawal(ACCOUNT_ID, finishWithdrawal);
+      await service.cancelOpenOrdersForWithdrawal(
+        ACCOUNT_ID,
+        finishWithdrawal,
+        async () => {},
+      );
 
       expect(transaction).toHaveBeenCalledTimes(2);
       expect(
@@ -1044,7 +1076,11 @@ describe('OrdersService', () => {
       const finishWithdrawal = vi.fn(async () => {});
 
       await expect(
-        service.cancelOpenOrdersForWithdrawal(ACCOUNT_ID, finishWithdrawal),
+        service.cancelOpenOrdersForWithdrawal(
+          ACCOUNT_ID,
+          finishWithdrawal,
+          async () => {},
+        ),
       ).rejects.toThrow('커밋 실패');
 
       expect(finishWithdrawal).toHaveBeenCalledOnce();
@@ -1056,7 +1092,11 @@ describe('OrdersService', () => {
       tx.order.findMany.mockResolvedValueOnce([]);
       const finishWithdrawal = vi.fn(async () => {});
 
-      await service.cancelOpenOrdersForWithdrawal(ACCOUNT_ID, finishWithdrawal);
+      await service.cancelOpenOrdersForWithdrawal(
+        ACCOUNT_ID,
+        finishWithdrawal,
+        async () => {},
+      );
 
       expect(finishWithdrawal).toHaveBeenCalledExactlyOnceWith(
         tx,
