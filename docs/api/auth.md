@@ -10,7 +10,7 @@
 | API | `POST /api/auth/login` |
 | 로그인 | 불필요 |
 | 요청 | `loginId`, `password`, `deviceId`(선택, [새 기기 확인](#새-기기-확인)) |
-| 응답 | `verificationRequired: false`, `accessToken`, `accessTokenExpiresIn`(초), `refreshToken`, `user { userId, loginId, nickname, role }` |
+| 응답 | `verificationRequired: false`, `accessToken`, `accessTokenExpiresIn`(초), `refreshToken`, `passwordChangeRequired`(관리자만), `user { userId, loginId, nickname, role }` |
 | 응답 (새 기기) | `verificationRequired: true`, `loginToken`, `loginTokenExpiresIn`(초), `method`(`EMAIL`/`SMS`), `maskedTarget` → [새 기기 확인](#새-기기-확인)으로 |
 
 | 에러 | 상황 | 화면 처리 |
@@ -21,6 +21,7 @@
 | 403 `AUTH_ACCOUNT_BLOCKED` | 정지된 계정 | 정지 안내 (문의하기 안내) |
 
 - 로그인에 성공하면 실패 횟수는 0으로 초기화됩니다. 새 기기 확인이 필요하면 확인을 마칠 때 초기화합니다.
+- 관리자 로그인이면 `passwordChangeRequired`를 함께 내려줍니다. `true`면 임시 비밀번호 상태이므로 바로 [관리자 비밀번호 변경](admin-accounts.md) 화면으로 보냅니다. 회원 로그인에는 이 필드가 없습니다.
 - 잠긴 계정은 비밀번호 재설정으로 풀리지 않습니다.
 - 잠금·정지 계정은 일반 로그인 대신 [제한 계정 1:1 문의](inquiries.md)의 본인 확인 API로 문의 전용 토큰을 받아 문의를 접수할 수 있습니다. 일반 로그인 토큰을 발급하거나 계정을 해제하지 않습니다.
 

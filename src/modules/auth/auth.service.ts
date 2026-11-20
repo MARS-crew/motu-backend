@@ -10,6 +10,7 @@ import { EnvironmentVariables } from '../../config/env.validation.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
 import { MailErrors } from '../../common/mail/mail.errors.js';
 import {
+  Role,
   User,
   UserStatus,
   VerificationChannel,
@@ -127,6 +128,9 @@ export class AuthService {
       accessToken,
       accessTokenExpiresIn,
       refreshToken,
+      ...(user.role === Role.ADMIN && {
+        passwordChangeRequired: await this.isPasswordChangeRequired(user.id),
+      }),
       user: {
         userId: user.id,
         loginId: user.loginId,
@@ -134,6 +138,15 @@ export class AuthService {
         role: user.role,
       },
     };
+  }
+
+  /** 관리자 계정이 임시 비밀번호 상태인지. 관리자 정보가 없는 계정(seed 관리자)은 false다. */
+  private async isPasswordChangeRequired(userId: number): Promise<boolean> {
+    const profile = await this.prisma.adminProfile.findUnique({
+      where: { userId },
+      select: { passwordChangeRequired: true },
+    });
+    return profile?.passwordChangeRequired ?? false;
   }
 
   /**
