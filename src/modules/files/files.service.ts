@@ -216,7 +216,8 @@ export class FilesService {
     tx: Prisma.TransactionClient,
   ) {
     const collection = await this.lock(tx, userId, id);
-    this.assertMutable(collection);
+    // 보완 요청·재제출·최종 승인이 같은 저장 자료를 보존할 수 있다.
+    if (collection.frozenAt) return;
     await tx.attachmentCollection.update({
       where: { id },
       data: { frozenAt: new Date() },

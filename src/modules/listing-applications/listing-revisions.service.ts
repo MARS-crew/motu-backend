@@ -190,6 +190,8 @@ export class ListingRevisionsService {
       !revision.resubmittedAt && now >= revision.deadline;
     return {
       id: revision.id,
+      requestItems: revision.requestItems,
+      deadlineHistory: revision.deadlineHistory,
       requestContent: revision.requestContent,
       deadline: revision.deadline,
       isDeadlinePassed,

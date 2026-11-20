@@ -19,6 +19,7 @@ const ISSUER_ACCOUNT_ID = 3;
 
 describe('StockTradingService', () => {
   const tx = {
+    $queryRaw: vi.fn().mockResolvedValue([]),
     stock: { findFirst: vi.fn(), update: vi.fn() },
     account: { findUnique: vi.fn(), update: vi.fn() },
     holding: { create: vi.fn(), update: vi.fn() },
@@ -67,6 +68,13 @@ describe('StockTradingService', () => {
         basePrice: 5_000n,
       });
       tx.account.findUnique.mockResolvedValue({ id: ISSUER_ACCOUNT_ID });
+      tx.$queryRaw.mockImplementation((sql: TemplateStringsArray) =>
+        Promise.resolve(
+          sql.join('').includes('FROM users')
+            ? [{ status: 'ACTIVE' }]
+            : [{ account_id: ISSUER_ACCOUNT_ID }],
+        ),
+      );
       tx.order.create.mockImplementation(({ data }) =>
         Promise.resolve({
           id: 500n,
@@ -87,6 +95,7 @@ describe('StockTradingService', () => {
       );
       expect(tx.account.findUnique).toHaveBeenCalledWith({
         where: { userId: ISSUER_USER_ID },
+        select: { id: true },
       });
       expect(tx.holding.create).toHaveBeenCalledWith({
         data: {
@@ -127,6 +136,30 @@ describe('StockTradingService', () => {
       expect(matching.apply.mock.invocationCallOrder[0]).toBeGreaterThan(
         tx.stock.update.mock.invocationCallOrder[0],
       );
+    });
+
+    it('탈퇴 신청자는 보류를 커밋하고 발행·매도 주문·호가 반영을 실행하지 않는다', async () => {
+      tx.$queryRaw.mockImplementation((sql: TemplateStringsArray) =>
+        Promise.resolve(
+          sql.join('').includes('FROM users')
+            ? [{ status: 'WITHDRAWN' }]
+            : [{ account_id: ISSUER_ACCOUNT_ID }],
+        ),
+      );
+      const error = await errorOf(
+        service.openListing(STOCK_ID, ISSUER_USER_ID),
+      );
+      expect(error.error).toBe(MatchingErrors.ISSUER_WITHDRAWN);
+      expect(tx.stock.update).toHaveBeenCalledWith({
+        where: { id: STOCK_ID },
+        data: {
+          listingBlockedAt: expect.any(Date),
+          listingBlockedReason: '신청자 탈퇴로 발행 보류',
+        },
+      });
+      expect(tx.holding.create).not.toHaveBeenCalled();
+      expect(tx.order.create).not.toHaveBeenCalled();
+      expect(matching.apply).not.toHaveBeenCalled();
     });
 
     it('거래 대기 상태가 아니면 상장할 수 없다', async () => {

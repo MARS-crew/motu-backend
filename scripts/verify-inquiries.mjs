@@ -576,11 +576,17 @@ try {
     ].every((path) => schema.paths[path]),
     'Swagger 접수·본인 확인·목록·상세 등록',
   );
+  const adminOperations = Object.entries(schema.paths)
+    .filter(([path]) => path.startsWith('/api/admin/inquiries'))
+    .flatMap(([, operations]) =>
+      ['get', 'post', 'patch'].flatMap((method) =>
+        operations[method] ? [operations[method]] : [],
+      ),
+    );
   check(
-    !Object.keys(schema.paths).some((path) =>
-      path.startsWith('/api/admin/inquiries'),
-    ),
-    '관리자 문의 변경 API 미노출',
+    adminOperations.length === 5 &&
+      adminOperations.every((operation) => operation.security?.length),
+    '관리자 문의 API는 일반 공개 접수와 분리해 인증 표시',
   );
   check((await prisma.inquiry.count()) === 15, '예상 문의만 저장');
   // DTO를 거치지 않는 서비스 호출과 DB 직접 저장도 검증한다.

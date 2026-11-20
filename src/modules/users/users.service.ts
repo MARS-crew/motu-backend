@@ -122,11 +122,55 @@ export class UsersService {
     }
   }
 
+  /** 마이페이지에 표시할 회원 정보를 조회한다. */
   async getMyInfo(userId: number): Promise<GetMyInfoResDto> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new BusinessException(UserErrors.NOT_FOUND);
     }
+    return this.toMyInfo(user);
+  }
+
+  /**
+   * 로그인한 회원의 닉네임을 바꾸고 바뀐 회원 정보를 반환한다.
+   * 다른 회원이 사용 중인 닉네임이면 중복 오류를 반환한다.
+   */
+  async changeNickname(
+    userId: number,
+    nickname: string,
+  ): Promise<GetMyInfoResDto> {
+    const currentUser = await this.findById(userId);
+    if (!currentUser) {
+      throw new BusinessException(UserErrors.NOT_FOUND);
+    }
+
+    if (currentUser.nickname === nickname) {
+      return this.toMyInfo(currentUser);
+    }
+
+    await this.assertNotDuplicated('nickname', nickname);
+
+    try {
+      const updatedUser = await this.prisma.user.update({
+        where: { id: userId },
+        data: { nickname },
+      });
+      return this.toMyInfo(updatedUser);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new BusinessException(this.findDuplicatedError(error));
+        }
+        if (error.code === 'P2025') {
+          throw new BusinessException(UserErrors.NOT_FOUND);
+        }
+      }
+      throw error;
+    }
+  }
+
+  /** 회원 정보 응답에 필요한 필드만 골라 반환한다. */
+  private toMyInfo(user: User): GetMyInfoResDto {
     return {
       userId: user.id,
       loginId: user.loginId,
