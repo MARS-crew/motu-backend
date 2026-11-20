@@ -4,8 +4,8 @@ import { JwtService, TokenExpiredError } from '@nestjs/jwt';
 import type { AuthenticatedRequest } from '../../common/auth/auth-user.type.js';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { EnvironmentVariables } from '../../config/env.validation.js';
-import { UsersService } from '../users/users.service.js';
 import { UserStatus } from '../../generated/prisma/client.js';
+import { UsersService } from '../users/users.service.js';
 import { InquiryErrors as Errors } from './inquiries.errors.js';
 import {
   INQUIRY_TOKEN_AUDIENCE,
