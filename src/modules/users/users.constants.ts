@@ -26,3 +26,5 @@ export const MAX_LOGIN_FAIL_COUNT = 5;
 
 export const ADMIN_USER_PAGE_SIZE = 10;
 export const ADMIN_USER_MAX_PAGE_SIZE = 50;
+
+export const WITHDRAWN_NICKNAME = '탈퇴한 회원';
