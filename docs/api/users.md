@@ -79,13 +79,14 @@
 | 로그인 | 필요 (일반 회원만, 관리자는 403) |
 | 인증번호 발송 | `POST /api/users/me/email-verifications` `{ email }` → `expiresAt`(5분), `resendAvailableAt`(30초) |
 | 인증 확인 | `POST /api/users/me/email-verifications/confirm` `{ email, code }` → `verified: true`, `editableUntil`(30분 뒤) |
-| 수정 | `PATCH /api/users/me` `{ password?, nickname?, birthDate? }` → 바뀐 [내 정보](#내-정보) + `reloginRequired` |
+| 수정 | `PATCH /api/users/me` `{ password?, birthDate? }` → 바뀐 [내 정보](#내-정보) + `reloginRequired` |
 
 1. USR-MY-02에서 입력한 이메일이 **가입 이메일과 같을 때만** 인증번호를 보냅니다. 회원가입용 `POST /api/users/email-verifications`는 쓰지 않습니다.
 2. 인증 확인에 성공하면 [회원정보 수정하기]를 활성화하고 USR-MY-03으로 이동합니다. 아이디·이메일·생년월일 기본값은 [내 정보](#내-정보)에서 가져옵니다.
-3. USR-MY-03에서 **바꾼 항목만** 보냅니다. 인증 결과는 `editableUntil`까지 **한 번** 쓸 수 있고, 저장에 성공하면 다시 수정할 때 새로 인증합니다. 저장에 실패하면(중복 닉네임·같은 비밀번호 등) 인증 결과는 그대로라 다시 저장할 수 있습니다.
+3. USR-MY-03에서 **바꾼 항목만** 보냅니다. 인증 결과는 `editableUntil`까지 **한 번** 쓸 수 있고, 저장에 성공하면 다시 수정할 때 새로 인증합니다. 저장에 실패하면(같은 비밀번호 등) 인증 결과는 그대로라 다시 저장할 수 있습니다.
 4. 비밀번호 확인 일치 검사는 프론트에서 합니다. 비밀번호를 바꾸면 비밀번호 재설정과 같게 **모든 기기에서 로그아웃**되고 새 기기 확인 기록도 지워집니다. 응답의 `reloginRequired`가 `true`면 저장된 토큰을 지우고 로그인 화면으로 보냅니다.
-5. 연락처는 이 API로 바꾸지 않고 [연락처 변경](#연락처-변경)을 씁니다.
+5. 가입 시 정한 닉네임은 변경할 수 없습니다.
+6. 연락처는 이 API로 바꾸지 않고 [연락처 변경](#연락처-변경)을 씁니다.
 
 | 에러 | 상황 | 화면 처리 |
 |------|------|------|
@@ -96,27 +97,8 @@
 | 400 `VERIFICATION_REQUIRED` | 인증하지 않았거나 `editableUntil`이 지났거나 이미 한 번 저장함 | USR-MY-02로 돌아가 다시 인증 |
 | 400 `USER_NOTHING_TO_UPDATE` | 바꿀 항목 없이 저장 | 저장 버튼 비활성화로 막기 |
 | 400 `USER_SAME_PASSWORD` | 현재 비밀번호와 같은 새 비밀번호 | "현재 비밀번호와 다른 비밀번호를 입력해 주세요." |
-| 400 `BAD_REQUEST` | 비밀번호·닉네임 형식, 생년월일 형식·미래 날짜 | 입력칸 아래 안내 (`details`) |
-| 409 `NICKNAME_DUPLICATED` | 다른 회원이 쓰는 닉네임 | 입력칸 아래 안내 |
+| 400 `BAD_REQUEST` | 비밀번호 형식, 생년월일 형식·미래 날짜 | 입력칸 아래 안내 (`details`) |
 | 503 `MAIL_SEND_FAILED` | 메일 발송 실패 | "인증번호 발송에 실패했습니다. 다시 시도해 주세요." |
-
-## 닉네임 변경
-
-| 항목 | 내용 |
-|------|------|
-| API | `PATCH /api/users/me/nickname` |
-| 로그인 | 필요 |
-| 요청 | `{ "nickname": "모투고수" }` |
-| 응답 | `200` 및 변경된 [내 정보](#내-정보) |
-
-| 에러 | 상황 |
-|------|------|
-| 400 `BAD_REQUEST` | 닉네임이 한글·영문·숫자 2~10자 규칙을 충족하지 않음 |
-| 409 `NICKNAME_DUPLICATED` | 다른 회원이 사용 중인 닉네임 |
-| 404 `USER_NOT_FOUND` | 회원 정보가 존재하지 않음 |
-
-- 현재 닉네임을 그대로 보내면 `200`을 반환합니다.
-- 저장 성공 후 응답의 `data.nickname`으로 화면을 갱신합니다.
 
 ## 연락처 변경
 
@@ -135,6 +117,7 @@
 | 에러 | 상황 | 화면 처리 |
 |------|------|------|
 | 403 `USER_CONTACT_TWO_FACTOR_REQUIRED` | 2차 보안 미설정·해제 | "2차 보안 설정 후 이용해 주세요." 후 2차 보안 설정으로 이동 |
+| 409 `USER_STATUS_CONFLICT` | 처리 중 연락처 상태가 바뀜 | 내 정보를 다시 조회 |
 | 409 `USER_SAME_PHONE_NUMBER` | 현재 연락처와 같은 번호 | 입력칸 아래 안내 |
 | 400 `BAD_REQUEST` | 휴대폰 번호·인증번호 형식 오류 | 입력칸 아래 안내 |
 | 429 `VERIFICATION_RESEND_TOO_SOON` | 30초 안에 다시 발송 | `details.resendAvailableAt`까지 버튼 비활성화 |
