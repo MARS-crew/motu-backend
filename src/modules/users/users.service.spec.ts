@@ -131,6 +131,59 @@ describe('UsersService', () => {
     expect(sendEmailCode).not.toHaveBeenCalled();
   });
 
+  describe('내 정보 조회', () => {
+    const user = {
+      id: 6,
+      loginId: 'motuuser',
+      nickname: '모투테스터',
+      email: 'user@motu.test',
+      phoneNumber: null,
+      role: 'USER',
+      userStatus: 'ACTIVE',
+      twoFactorStatus: TwoFactorStatus.NOT_SET,
+      adminProfile: null,
+    };
+
+    it('회원은 닉네임을 반환한다', async () => {
+      findUniqueUser.mockResolvedValueOnce(user);
+
+      await expect(service.getMyInfo(user.id)).resolves.toMatchObject({
+        nickname: '모투테스터',
+      });
+      expect(findUniqueUser).toHaveBeenCalledWith({
+        where: { id: user.id },
+        include: { adminProfile: { select: { name: true } } },
+      });
+    });
+
+    it('생성 API로 만든 관리자는 닉네임이 없어도 관리자명을 반환한다', async () => {
+      findUniqueUser.mockResolvedValueOnce({
+        ...user,
+        role: 'ADMIN',
+        nickname: null,
+        adminProfile: { name: '김관리' },
+      });
+
+      await expect(service.getMyInfo(user.id)).resolves.toMatchObject({
+        nickname: '김관리',
+        role: 'ADMIN',
+      });
+    });
+
+    it('탈퇴 회원은 404를 반환한다', async () => {
+      findUniqueUser.mockResolvedValueOnce({
+        ...user,
+        nickname: null,
+        email: null,
+        userStatus: 'WITHDRAWN',
+      });
+
+      await expect(service.getMyInfo(user.id)).rejects.toMatchObject({
+        response: { code: 'USER_NOT_FOUND' },
+      });
+    });
+  });
+
   describe('닉네임 변경', () => {
     const user = {
       id: 6,

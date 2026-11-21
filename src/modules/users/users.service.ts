@@ -5,9 +5,11 @@ import {
   ErrorDefinition,
 } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { adminDisplayName } from '../../common/utils/admin-display-name.js';
 import { maskPhoneNumber } from '../../common/utils/masking.js';
 import {
   Prisma,
+  Role,
   TwoFactorStatus,
   User,
   UserStatus,
@@ -124,7 +126,10 @@ export class UsersService {
 
   /** 마이페이지에 표시할 회원 정보를 조회한다. */
   async getMyInfo(userId: number): Promise<GetMyInfoResDto> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { adminProfile: { select: { name: true } } },
+    });
     if (!user) {
       throw new BusinessException(UserErrors.NOT_FOUND);
     }
@@ -169,19 +174,26 @@ export class UsersService {
     }
   }
 
-  /** 회원 정보 응답에 필요한 필드만 골라 반환한다. */
-  private toMyInfo(user: User): GetMyInfoResDto {
+  /**
+   * 회원 정보 응답에 필요한 필드만 골라 반환한다.
+   * 관리자는 닉네임 대신 관리자명을 쓴다. 관리자 계정 생성 API로 만든 관리자는 닉네임이 없다.
+   */
+  private toMyInfo(
+    user: User & { adminProfile?: { name: string } | null },
+  ): GetMyInfoResDto {
+    const nickname =
+      user.role === Role.ADMIN ? adminDisplayName(user) : user.nickname;
     if (
       user.userStatus === UserStatus.WITHDRAWN ||
       user.email === null ||
-      user.nickname === null
+      nickname === null
     ) {
       throw new BusinessException(UserErrors.NOT_FOUND);
     }
     return {
       userId: user.id,
       loginId: user.loginId,
-      nickname: user.nickname,
+      nickname,
       email: user.email,
       phoneNumber: user.phoneNumber,
       role: user.role,

@@ -7,6 +7,7 @@ import {
   type TrackedMailResult,
 } from '../../common/mail/mail-sender.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { adminDisplayName } from '../../common/utils/admin-display-name.js';
 import type { ClientInfo } from '../../common/utils/client-info.js';
 import {
   AdminActivityAction as Action,
@@ -39,7 +40,12 @@ export interface InquiryAdminActor {
   adminId: number;
   client?: ClientInfo;
 }
-const actorSelect = { id: true, loginId: true, nickname: true };
+const actorSelect = {
+  id: true,
+  loginId: true,
+  nickname: true,
+  adminProfile: { select: { name: true } },
+} satisfies Prisma.UserSelect;
 const itemSelect = {
   id: true,
   source: true,
@@ -500,7 +506,7 @@ export class InquiriesAdminService {
         ? {
             userId: item.assignedAdmin.id,
             loginId: item.assignedAdmin.loginId,
-            nickname: item.assignedAdmin.nickname,
+            nickname: adminDisplayName(item.assignedAdmin),
           }
         : null,
       createDate: item.createDate,

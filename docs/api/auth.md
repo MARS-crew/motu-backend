@@ -10,7 +10,7 @@
 | API | `POST /api/auth/login` |
 | 로그인 | 불필요 |
 | 요청 | `loginId`, `password`, `deviceId`(선택, [새 기기 확인](#새-기기-확인)) |
-| 응답 | `verificationRequired: false`, `accessToken`, `accessTokenExpiresIn`(초), `refreshToken`, `passwordChangeRequired`(관리자만), `user { userId, loginId, nickname, role }` |
+| 응답 | `verificationRequired: false`, `accessToken`, `accessTokenExpiresIn`(초), `refreshToken`, `passwordChangeRequired`(관리자만), `user { userId, loginId, nickname, role }`. 관리자의 `nickname`은 관리자명(없으면 닉네임, 그것도 없으면 아이디) |
 | 응답 (새 기기) | `verificationRequired: true`, `loginToken`, `loginTokenExpiresIn`(초), `method`(`EMAIL`/`SMS`), `maskedTarget` → [새 기기 확인](#새-기기-확인)으로 |
 
 | 에러 | 상황 | 화면 처리 |

@@ -151,8 +151,16 @@ describe('AuthService', () => {
     });
 
     it.each([
-      ['임시 비밀번호 상태', { passwordChangeRequired: true }, true],
-      ['비밀번호를 바꾼 상태', { passwordChangeRequired: false }, false],
+      [
+        '임시 비밀번호 상태',
+        { name: '김관리', passwordChangeRequired: true },
+        true,
+      ],
+      [
+        '비밀번호를 바꾼 상태',
+        { name: '김관리', passwordChangeRequired: false },
+        false,
+      ],
       ['관리자 정보가 없는 seed 관리자', null, false],
     ])(
       '관리자는 로그인 응답에 임시 비밀번호 상태를 알려준다 (%s)',
@@ -167,12 +175,36 @@ describe('AuthService', () => {
 
         expect(adminProfile.findUnique).toHaveBeenCalledWith({
           where: { userId: 1 },
-          select: { passwordChangeRequired: true },
+          select: { name: true, passwordChangeRequired: true },
         });
         expect(result).toMatchObject({
           verificationRequired: false,
           passwordChangeRequired: expected,
         });
+      },
+    );
+
+    it.each([
+      [
+        '생성 API로 만든 관리자는 관리자명',
+        null,
+        { name: '김관리', passwordChangeRequired: false },
+        '김관리',
+      ],
+      ['관리자 정보가 없는 seed 관리자는 닉네임', '운영자', null, '운영자'],
+      ['닉네임과 관리자 정보가 모두 없으면 아이디', null, null, 'motuuser'],
+    ])(
+      '관리자 로그인 응답의 표시 이름 (%s)',
+      async (_, nickname, profile, expected) => {
+        findByLoginId.mockResolvedValue({ ...user, role: 'ADMIN', nickname });
+        adminProfile.findUnique.mockResolvedValue(profile);
+
+        const result = await service.login({
+          loginId: 'motuuser',
+          password: 'motuuser1!',
+        });
+
+        expect(result).toMatchObject({ user: { nickname: expected } });
       },
     );
 
