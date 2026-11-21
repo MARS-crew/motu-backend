@@ -19,6 +19,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { AuthUser } from '../../common/auth/auth-user.type.js';
@@ -34,13 +35,16 @@ import { ConfirmEmailVerificationReqDto } from './dto/req/confirm-email-verifica
 import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { SendContactPhoneVerificationReqDto } from './dto/req/send-contact-phone-verification-req.dto.js';
 import { SendEmailVerificationReqDto } from './dto/req/send-email-verification-req.dto.js';
+import { UpdateMyInfoReqDto } from './dto/req/update-my-info-req.dto.js';
 import { WithdrawUserReqDto } from './dto/req/withdraw-user-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
 import { ConfirmEmailVerificationResDto } from './dto/res/confirm-email-verification-res.dto.js';
+import { ConfirmProfileEmailVerificationResDto } from './dto/res/confirm-profile-email-verification-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
 import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
 import { SendContactPhoneVerificationResDto } from './dto/res/send-contact-phone-verification-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
+import { UpdateMyInfoResDto } from './dto/res/update-my-info-res.dto.js';
 import { UsersWithdrawalService } from './users-withdrawal.service.js';
 import { UsersService } from './users.service.js';
 
@@ -58,6 +62,73 @@ export class UsersController {
   @ApiOkResponse({ type: GetMyInfoResDto })
   getMyInfo(@CurrentUser() user: AuthUser): Promise<GetMyInfoResDto> {
     return this.usersService.getMyInfo(user.userId);
+  }
+
+  @Post('me/email-verifications')
+  @Roles(Role.USER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '회원정보 수정 이메일 인증번호 발송',
+    description:
+      '마이페이지 회원정보 수정 전 인증(USR-MY-02). 입력한 이메일이 가입 이메일과 같을 때만 인증번호를 보낸다. 재발송은 30초 후 가능하다.',
+  })
+  @ApiCreatedResponse({ type: SendEmailVerificationResDto })
+  @ApiBadRequestResponse({ description: 'BAD_REQUEST / USER_EMAIL_MISMATCH' })
+  @ApiTooManyRequestsResponse({ description: 'VERIFICATION_RESEND_TOO_SOON' })
+  sendProfileEmailCode(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SendEmailVerificationReqDto,
+  ): Promise<SendEmailVerificationResDto> {
+    return this.usersService.sendProfileEmailCode(user.userId, dto.email);
+  }
+
+  @Post('me/email-verifications/confirm')
+  @Roles(Role.USER)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '회원정보 수정 이메일 인증 확인',
+    description:
+      '인증번호가 맞으면 editableUntil까지 회원정보 수정(PATCH /api/users/me)을 한 번 할 수 있다.',
+  })
+  @ApiOkResponse({ type: ConfirmProfileEmailVerificationResDto })
+  @ApiBadRequestResponse({
+    description:
+      'BAD_REQUEST / USER_EMAIL_MISMATCH / VERIFICATION_CODE_MISMATCH / VERIFICATION_EXPIRED',
+  })
+  @ApiNotFoundResponse({ description: 'VERIFICATION_NOT_FOUND' })
+  @ApiTooManyRequestsResponse({ description: 'VERIFICATION_ATTEMPTS_EXCEEDED' })
+  confirmProfileEmailCode(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ConfirmEmailVerificationReqDto,
+  ): Promise<ConfirmProfileEmailVerificationResDto> {
+    return this.usersService.confirmProfileEmailCode(
+      user.userId,
+      dto.email,
+      dto.code,
+    );
+  }
+
+  @Patch('me')
+  @Roles(Role.USER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '회원정보 수정',
+    description:
+      '가입 이메일 인증 후 비밀번호·닉네임·생년월일을 바꾼다(USR-MY-03). 바꿀 항목만 보낸다. 인증 결과는 한 번만 쓰인다. 비밀번호를 바꾸면 모든 기기에서 로그아웃되고 reloginRequired가 true다.',
+  })
+  @ApiOkResponse({ type: UpdateMyInfoResDto })
+  @ApiBadRequestResponse({
+    description:
+      'BAD_REQUEST / USER_NOTHING_TO_UPDATE / USER_SAME_PASSWORD / VERIFICATION_REQUIRED',
+  })
+  @ApiConflictResponse({ description: 'NICKNAME_DUPLICATED' })
+  @ApiNotFoundResponse({ description: 'USER_NOT_FOUND' })
+  updateMyInfo(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateMyInfoReqDto,
+  ): Promise<UpdateMyInfoResDto> {
+    return this.usersService.updateMyInfo(user.userId, dto);
   }
 
   @Post('me/withdrawal')

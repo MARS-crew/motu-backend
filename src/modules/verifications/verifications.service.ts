@@ -29,7 +29,7 @@ const RESEND_COOLDOWN_MS = 30 * 1000;
 const REUSE_MIN_REMAINING_MS = 60 * 1000;
 const MAX_ATTEMPTS = 5;
 /** 인증 완료 후 회원가입 등 다음 단계를 마쳐야 하는 시간 */
-const VERIFIED_TTL_MS = 30 * 60 * 1000;
+export const VERIFIED_TTL_MS = 30 * 60 * 1000;
 
 /** 메일 제목·SMS 문구에 넣을 인증 목적 */
 const PURPOSE_LABELS: Record<VerificationPurpose, string> = {
@@ -39,6 +39,7 @@ const PURPOSE_LABELS: Record<VerificationPurpose, string> = {
   [VerificationPurpose.TWO_FACTOR_SETUP]: '2차 보안 휴대폰 등록',
   [VerificationPurpose.TWO_FACTOR]: '2차 보안',
   [VerificationPurpose.CONTACT_PHONE_CHANGE]: '연락처 변경',
+  [VerificationPurpose.PROFILE_UPDATE]: '회원정보 수정',
 };
 
 export interface SentVerification {

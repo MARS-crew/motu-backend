@@ -1,4 +1,4 @@
-import { verify } from 'argon2';
+import { hash, verify } from 'argon2';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import {
   Prisma,
@@ -12,7 +12,11 @@ import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { UsersService } from './users.service.js';
 
 describe('UsersService', () => {
-  const tx = { user: { create: vi.fn(), updateMany: vi.fn() } };
+  const tx = {
+    user: { create: vi.fn(), updateMany: vi.fn() },
+    refreshToken: { updateMany: vi.fn() },
+    trustedDevice: { deleteMany: vi.fn() },
+  };
   const countUsers = vi.fn();
   const createInitialAccount = vi.fn();
   const sendEmailCode = vi.fn();
@@ -22,6 +26,7 @@ describe('UsersService', () => {
   const findUniqueUser = vi.fn();
   const sendSmsCode = vi.fn();
   const confirmSmsCode = vi.fn();
+  const confirmEmailCode = vi.fn();
   const invalidateOthers = vi.fn();
   const prisma = {
     user: {
@@ -40,6 +45,7 @@ describe('UsersService', () => {
     consumeVerified,
     sendSmsCode,
     confirmSmsCode,
+    confirmEmailCode,
     invalidateOthers,
   } as unknown as VerificationsService;
   const service = new UsersService(
@@ -206,6 +212,7 @@ describe('UsersService', () => {
         loginId: user.loginId,
         nickname,
         email: user.email,
+        birthDate: null,
         phoneNumber: user.phoneNumber,
         role: user.role,
         userStatus: user.userStatus,
@@ -406,6 +413,224 @@ describe('UsersService', () => {
         service.changeContactPhone(6, '01045678901', '000000'),
       ).rejects.toThrow('VERIFICATION_CODE_MISMATCH');
       expect(tx.user.updateMany).not.toHaveBeenCalled();
+    });
+  });
+  describe('회원정보 수정 이메일 인증', () => {
+    const user = {
+      id: 6,
+      loginId: 'motuuser',
+      nickname: '모투테스터',
+      email: 'user@motu.test',
+      birthDate: new Date('2000-01-01'),
+      phoneNumber: null,
+      role: 'USER',
+      userStatus: 'ACTIVE',
+      twoFactorStatus: TwoFactorStatus.NOT_SET,
+    };
+    const sent = {
+      expiresAt: new Date('2026-11-21T03:05:00Z'),
+      resendAvailableAt: new Date('2026-11-21T03:00:30Z'),
+    };
+
+    it('가입 이메일이면 회원별 구분 값으로 인증번호를 보낸다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+      sendEmailCode.mockResolvedValue(sent);
+
+      await expect(
+        service.sendProfileEmailCode(user.id, user.email),
+      ).resolves.toEqual(sent);
+      expect(sendEmailCode).toHaveBeenCalledWith(
+        VerificationPurpose.PROFILE_UPDATE,
+        user.email,
+        `${user.id}:${user.email}`,
+      );
+    });
+
+    it('가입 이메일과 다르면 보내지 않는다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+
+      await expect(
+        service.sendProfileEmailCode(user.id, 'other@motu.test'),
+      ).rejects.toMatchObject({ response: { code: 'USER_EMAIL_MISMATCH' } });
+      expect(sendEmailCode).not.toHaveBeenCalled();
+    });
+
+    it('탈퇴 회원은 보내지 않는다', async () => {
+      findUniqueUser.mockResolvedValue({
+        ...user,
+        email: null,
+        userStatus: 'WITHDRAWN',
+      });
+
+      await expect(
+        service.sendProfileEmailCode(user.id, user.email),
+      ).rejects.toMatchObject({ response: { code: 'USER_NOT_FOUND' } });
+      expect(sendEmailCode).not.toHaveBeenCalled();
+    });
+
+    it('인증번호가 맞으면 수정 가능 시각을 알려준다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+      const before = Date.now();
+
+      const result = await service.confirmProfileEmailCode(
+        user.id,
+        user.email,
+        '123456',
+      );
+
+      expect(confirmEmailCode).toHaveBeenCalledWith(
+        VerificationPurpose.PROFILE_UPDATE,
+        `${user.id}:${user.email}`,
+        '123456',
+      );
+      expect(result.verified).toBe(true);
+      expect(result.editableUntil.getTime()).toBeGreaterThanOrEqual(
+        before + 30 * 60 * 1000,
+      );
+    });
+  });
+
+  describe('회원정보 수정', () => {
+    let user: Record<string, unknown>;
+
+    beforeAll(async () => {
+      user = {
+        id: 6,
+        loginId: 'motuuser',
+        password: await hash('motuuser1!'),
+        nickname: '모투테스터',
+        email: 'user@motu.test',
+        birthDate: new Date('2000-01-01'),
+        phoneNumber: null,
+        role: 'USER',
+        userStatus: 'ACTIVE',
+        twoFactorStatus: TwoFactorStatus.NOT_SET,
+      };
+    });
+
+    beforeEach(() => {
+      tx.user.updateMany.mockResolvedValue({ count: 1 });
+      countUsers.mockResolvedValue(0);
+    });
+
+    it('바꿀 항목이 없으면 거부한다', async () => {
+      await expect(service.updateMyInfo(6, {})).rejects.toMatchObject({
+        response: { code: 'USER_NOTHING_TO_UPDATE' },
+      });
+      expect(findUniqueUser).not.toHaveBeenCalled();
+    });
+
+    it('닉네임·생년월일을 바꾸고 인증 결과를 사용 처리한다', async () => {
+      findUniqueUser.mockResolvedValueOnce(user).mockResolvedValueOnce({
+        ...user,
+        nickname: '새닉네임',
+        birthDate: new Date('1999-12-31'),
+      });
+
+      const result = await service.updateMyInfo(6, {
+        nickname: '새닉네임',
+        birthDate: '1999-12-31',
+      });
+
+      expect(consumeVerified).toHaveBeenCalledWith(
+        tx,
+        VerificationChannel.EMAIL,
+        VerificationPurpose.PROFILE_UPDATE,
+        '6:user@motu.test',
+      );
+      expect(tx.user.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 6,
+          email: 'user@motu.test',
+          userStatus: { not: 'WITHDRAWN' },
+        },
+        data: { nickname: '새닉네임', birthDate: new Date('1999-12-31') },
+      });
+      expect(tx.refreshToken.updateMany).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        nickname: '새닉네임',
+        birthDate: '1999-12-31',
+        reloginRequired: false,
+      });
+    });
+
+    it('비밀번호를 바꾸면 모든 기기에서 로그아웃하고 신뢰 기기를 지운다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+
+      const result = await service.updateMyInfo(6, { password: 'motunew1!' });
+
+      const { data } = tx.user.updateMany.mock.calls[0][0] as {
+        data: { password: string };
+      };
+      expect(await verify(data.password, 'motunew1!')).toBe(true);
+      expect(tx.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 6, revokedAt: null },
+        data: { revokedAt: expect.any(Date) as Date },
+      });
+      expect(tx.trustedDevice.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 6 },
+      });
+      expect(result.reloginRequired).toBe(true);
+    });
+
+    it('현재 비밀번호와 같으면 거부한다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+
+      await expect(
+        service.updateMyInfo(6, { password: 'motuuser1!' }),
+      ).rejects.toMatchObject({ response: { code: 'USER_SAME_PASSWORD' } });
+      expect(consumeVerified).not.toHaveBeenCalled();
+    });
+
+    it('현재와 같은 닉네임은 중복 확인 없이 그대로 둔다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+
+      await service.updateMyInfo(6, {
+        nickname: '모투테스터',
+        birthDate: '2000-01-02',
+      });
+
+      expect(countUsers).not.toHaveBeenCalled();
+      expect(tx.user.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { birthDate: new Date('2000-01-02') },
+        }),
+      );
+    });
+
+    it('다른 회원이 쓰는 닉네임이면 저장 전에 409를 반환한다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+      countUsers.mockResolvedValue(1);
+
+      await expect(
+        service.updateMyInfo(6, { nickname: '사용중' }),
+      ).rejects.toMatchObject({ response: { code: 'NICKNAME_DUPLICATED' } });
+      expect(consumeVerified).not.toHaveBeenCalled();
+    });
+
+    it('이메일 인증을 하지 않았으면 바꾸지 않는다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+      consumeVerified.mockRejectedValueOnce(new Error('VERIFICATION_REQUIRED'));
+
+      await expect(
+        service.updateMyInfo(6, { birthDate: '2000-01-02' }),
+      ).rejects.toThrow('VERIFICATION_REQUIRED');
+      expect(tx.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('동시에 같은 닉네임이 저장되면 409로 바꾼다', async () => {
+      findUniqueUser.mockResolvedValue(user);
+      tx.user.updateMany.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('dup', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: { target: ['nickname'] },
+        }),
+      );
+
+      await expect(
+        service.updateMyInfo(6, { nickname: '새닉네임' }),
+      ).rejects.toMatchObject({ response: { code: 'NICKNAME_DUPLICATED' } });
     });
   });
 });

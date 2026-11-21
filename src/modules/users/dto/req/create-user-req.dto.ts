@@ -22,7 +22,7 @@ import {
 } from '../../users.constants.js';
 
 /** 오늘(한국 시간) 이후 날짜를 막는다. 값은 YYYY-MM-DD 문자열이라 문자열로 비교한다. */
-const IsNotFutureDate = (message: string) =>
+export const IsNotFutureDate = (message: string) =>
   ValidateBy(
     {
       name: 'isNotFutureDate',

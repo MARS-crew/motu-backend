@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { hash } from 'argon2';
+import { hash, verify } from 'argon2';
 import {
   BusinessException,
   ErrorDefinition,
@@ -17,13 +17,19 @@ import {
   VerificationPurpose,
 } from '../../generated/prisma/client.js';
 import { AccountsService } from '../accounts/accounts.service.js';
-import { VerificationsService } from '../verifications/verifications.service.js';
+import {
+  VERIFIED_TTL_MS,
+  VerificationsService,
+} from '../verifications/verifications.service.js';
 import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
+import { UpdateMyInfoReqDto } from './dto/req/update-my-info-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
+import { ConfirmProfileEmailVerificationResDto } from './dto/res/confirm-profile-email-verification-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
 import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
 import { SendContactPhoneVerificationResDto } from './dto/res/send-contact-phone-verification-res.dto.js';
 import { SendEmailVerificationResDto } from './dto/res/send-email-verification-res.dto.js';
+import { UpdateMyInfoResDto } from './dto/res/update-my-info-res.dto.js';
 import { MAX_LOGIN_FAIL_COUNT } from './users.constants.js';
 import { UserErrors } from './users.errors.js';
 
@@ -195,11 +201,144 @@ export class UsersService {
       loginId: user.loginId,
       nickname,
       email: user.email,
+      birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null,
       phoneNumber: user.phoneNumber,
       role: user.role,
       userStatus: user.userStatus,
       twoFactorStatus: user.twoFactorStatus,
     };
+  }
+
+  /**
+   * 회원정보 수정(USR-MY-02) 전 가입 이메일로 인증번호를 보낸다.
+   * 입력한 이메일이 가입 이메일과 달라도 발송하지 않는다.
+   */
+  async sendProfileEmailCode(
+    userId: number,
+    email: string,
+  ): Promise<SendEmailVerificationResDto> {
+    const user = await this.findProfileUpdateUser(userId, email);
+    return this.verificationsService.sendEmailCode(
+      VerificationPurpose.PROFILE_UPDATE,
+      email,
+      profileEmailTarget(user.id, email),
+    );
+  }
+
+  /** 인증번호가 맞으면 정해진 시간 안에 회원정보를 한 번 수정할 수 있다. */
+  async confirmProfileEmailCode(
+    userId: number,
+    email: string,
+    code: string,
+  ): Promise<ConfirmProfileEmailVerificationResDto> {
+    const user = await this.findProfileUpdateUser(userId, email);
+    await this.verificationsService.confirmEmailCode(
+      VerificationPurpose.PROFILE_UPDATE,
+      profileEmailTarget(user.id, email),
+      code,
+    );
+    return {
+      verified: true,
+      editableUntil: new Date(Date.now() + VERIFIED_TTL_MS),
+    };
+  }
+
+  /**
+   * 가입 이메일 인증을 마친 회원의 비밀번호·닉네임·생년월일을 바꾼다(USR-MY-03).
+   * 인증 결과는 이 수정에 한 번 쓰인다. 비밀번호를 바꾸면 모든 기기에서 로그아웃하고 신뢰 기기를 지운다.
+   */
+  async updateMyInfo(
+    userId: number,
+    dto: UpdateMyInfoReqDto,
+  ): Promise<UpdateMyInfoResDto> {
+    if (
+      dto.password === undefined &&
+      dto.nickname === undefined &&
+      dto.birthDate === undefined
+    ) {
+      throw new BusinessException(UserErrors.NOTHING_TO_UPDATE);
+    }
+    const user = await this.findById(userId);
+    if (!user || user.userStatus === UserStatus.WITHDRAWN || !user.email) {
+      throw new BusinessException(UserErrors.NOT_FOUND);
+    }
+    if (
+      dto.password !== undefined &&
+      (await verify(user.password, dto.password))
+    ) {
+      throw new BusinessException(UserErrors.SAME_PASSWORD);
+    }
+    const nicknameChanged =
+      dto.nickname !== undefined && dto.nickname !== user.nickname;
+    if (nicknameChanged) {
+      await this.assertNotDuplicated('nickname', dto.nickname!);
+    }
+    const password =
+      dto.password === undefined ? undefined : await hash(dto.password);
+    const email = user.email;
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.verificationsService.consumeVerified(
+          tx,
+          VerificationChannel.EMAIL,
+          VerificationPurpose.PROFILE_UPDATE,
+          profileEmailTarget(user.id, email),
+        );
+        const { count } = await tx.user.updateMany({
+          // 인증한 이메일이 그대로인 회원만 바꾼다.
+          where: {
+            id: user.id,
+            email,
+            userStatus: { not: UserStatus.WITHDRAWN },
+          },
+          data: {
+            ...(password && { password }),
+            ...(nicknameChanged && { nickname: dto.nickname }),
+            ...(dto.birthDate && { birthDate: new Date(dto.birthDate) }),
+          },
+        });
+        if (count === 0) {
+          throw new BusinessException(UserErrors.NOT_FOUND);
+        }
+        if (password) {
+          const now = new Date();
+          await tx.refreshToken.updateMany({
+            where: { userId: user.id, revokedAt: null },
+            data: { revokedAt: now },
+          });
+          await tx.trustedDevice.deleteMany({ where: { userId: user.id } });
+        }
+      });
+    } catch (error) {
+      // 중복 확인과 저장 사이에 다른 회원이 같은 닉네임을 먼저 저장한 경우
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new BusinessException(this.findDuplicatedError(error));
+      }
+      throw error;
+    }
+
+    return Object.assign(await this.getMyInfo(user.id), {
+      reloginRequired: password !== undefined,
+    });
+  }
+
+  /** 회원정보 수정을 할 수 있는 회원인지, 입력한 이메일이 가입 이메일인지 확인한다. */
+  private async findProfileUpdateUser(
+    userId: number,
+    email: string,
+  ): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user || user.userStatus === UserStatus.WITHDRAWN || !user.email) {
+      throw new BusinessException(UserErrors.NOT_FOUND);
+    }
+    if (user.email !== email) {
+      throw new BusinessException(UserErrors.EMAIL_MISMATCH);
+    }
+    return user;
   }
 
   /**
@@ -360,4 +499,9 @@ function toColumnName(field: UniqueField): string {
 /** 회원마다 따로 인증하도록 인증번호 대상을 회원 ID와 번호로 만든다. */
 function contactPhoneTarget(userId: number, phoneNumber: string): string {
   return `${userId}:${phoneNumber}`;
+}
+
+/** 회원정보 수정 인증번호를 회원별로 구분하는 값 */
+function profileEmailTarget(userId: number, email: string): string {
+  return `${userId}:${email}`;
 }

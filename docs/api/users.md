@@ -65,11 +65,40 @@
 | API | `GET /api/users/me` |
 | 로그인 | 필요 |
 | 화면 | USR-MY-01 마이페이지 (`[2차 개발]모투화면설계서.pptx`) |
-| 응답 | `userId`, `loginId`, `nickname`, `email`, `phoneNumber`(연락처, null 가능), `role`, `userStatus`, `twoFactorStatus` |
+| 응답 | `userId`, `loginId`, `nickname`, `email`, `birthDate`(`YYYY-MM-DD`, 관리자는 null), `phoneNumber`(연락처, null 가능), `role`, `userStatus`, `twoFactorStatus` |
 
 - 관리자는 `nickname`에 관리자명을 내려줍니다. 관리자 계정 생성 API로 만든 관리자는 닉네임이 없고, 관리자명이 없는 seed 관리자는 닉네임을 씁니다.
 - 마이페이지 회원 기본 정보 영역에 닉네임·이메일·연락처(가운데 가림은 프론트)를 표시합니다.
 - `twoFactorStatus`로 2차 보안 영역을 그립니다. `ENABLED`면 "2차 보안 설정 완료"와 [2차 보안 관리], `NOT_SET`·`DISABLED`면 [2차 보안 설정하기]입니다. 등록 번호·설정일시는 [2차 보안 상태](two-factor.md)에서 가져옵니다.
+
+## 회원정보 수정
+
+| 항목 | 내용 |
+|------|------|
+| 화면 | USR-MY-02 회원정보 수정 인증 → USR-MY-03 회원정보 수정 (`[2차 개발]모투화면설계서.pptx`) |
+| 로그인 | 필요 (일반 회원만, 관리자는 403) |
+| 인증번호 발송 | `POST /api/users/me/email-verifications` `{ email }` → `expiresAt`(5분), `resendAvailableAt`(30초) |
+| 인증 확인 | `POST /api/users/me/email-verifications/confirm` `{ email, code }` → `verified: true`, `editableUntil`(30분 뒤) |
+| 수정 | `PATCH /api/users/me` `{ password?, nickname?, birthDate? }` → 바뀐 [내 정보](#내-정보) + `reloginRequired` |
+
+1. USR-MY-02에서 입력한 이메일이 **가입 이메일과 같을 때만** 인증번호를 보냅니다. 회원가입용 `POST /api/users/email-verifications`는 쓰지 않습니다.
+2. 인증 확인에 성공하면 [회원정보 수정하기]를 활성화하고 USR-MY-03으로 이동합니다. 아이디·이메일·생년월일 기본값은 [내 정보](#내-정보)에서 가져옵니다.
+3. USR-MY-03에서 **바꾼 항목만** 보냅니다. 인증 결과는 `editableUntil`까지 **한 번** 쓸 수 있고, 저장에 성공하면 다시 수정할 때 새로 인증합니다. 저장에 실패하면(중복 닉네임·같은 비밀번호 등) 인증 결과는 그대로라 다시 저장할 수 있습니다.
+4. 비밀번호 확인 일치 검사는 프론트에서 합니다. 비밀번호를 바꾸면 비밀번호 재설정과 같게 **모든 기기에서 로그아웃**되고 새 기기 확인 기록도 지워집니다. 응답의 `reloginRequired`가 `true`면 저장된 토큰을 지우고 로그인 화면으로 보냅니다.
+5. 연락처는 이 API로 바꾸지 않고 [연락처 변경](#연락처-변경)을 씁니다.
+
+| 에러 | 상황 | 화면 처리 |
+|------|------|------|
+| 400 `USER_EMAIL_MISMATCH` | 입력한 이메일이 가입 이메일과 다름 | "가입한 이메일과 일치하지 않습니다." |
+| 429 `VERIFICATION_RESEND_TOO_SOON` | 30초 안에 다시 발송 | `details.resendAvailableAt`까지 버튼 비활성화 |
+| 400 `VERIFICATION_CODE_MISMATCH` | 인증번호 불일치 | `details.remainingAttempts`와 함께 안내 |
+| 400 `VERIFICATION_EXPIRED` / 404 `VERIFICATION_NOT_FOUND` / 429 `VERIFICATION_ATTEMPTS_EXCEEDED` | 만료·발송 전·5회 오입력 | 인증번호를 다시 받게 안내 |
+| 400 `VERIFICATION_REQUIRED` | 인증하지 않았거나 `editableUntil`이 지났거나 이미 한 번 저장함 | USR-MY-02로 돌아가 다시 인증 |
+| 400 `USER_NOTHING_TO_UPDATE` | 바꿀 항목 없이 저장 | 저장 버튼 비활성화로 막기 |
+| 400 `USER_SAME_PASSWORD` | 현재 비밀번호와 같은 새 비밀번호 | "현재 비밀번호와 다른 비밀번호를 입력해 주세요." |
+| 400 `BAD_REQUEST` | 비밀번호·닉네임 형식, 생년월일 형식·미래 날짜 | 입력칸 아래 안내 (`details`) |
+| 409 `NICKNAME_DUPLICATED` | 다른 회원이 쓰는 닉네임 | 입력칸 아래 안내 |
+| 503 `MAIL_SEND_FAILED` | 메일 발송 실패 | "인증번호 발송에 실패했습니다. 다시 시도해 주세요." |
 
 ## 닉네임 변경
 

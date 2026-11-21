@@ -308,6 +308,8 @@ enum VerificationPurpose {
   TWO_FACTOR
   /// 마이페이지 연락처(휴대폰) 변경
   CONTACT_PHONE_CHANGE
+  /// 마이페이지 회원정보 수정 전 가입 이메일 인증
+  PROFILE_UPDATE
 
   @@map("verification_purpose")
 }
