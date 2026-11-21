@@ -16,6 +16,8 @@ import {
 import { INITIAL_CASH } from '../src/modules/accounts/accounts.constants.js';
 import { LISTING_DRAFT_LIFETIME_MS } from '../src/modules/listing-applications/listing-applications.constants.js';
 import { normalizeListingUrl } from '../src/modules/listing-applications/listing-applications.validation.js';
+import { seedCases } from './seed-cases.js';
+import { seedDashboard } from './seed-dashboard.js';
 import { marketSeedSql } from './seed-market.js';
 
 /**
@@ -171,6 +173,12 @@ async function main(): Promise<void> {
     await createTestUsers();
     await createUserActivity();
     await createMarketActivity();
+    await seedDashboard(prisma, await hash(seedUsers[1].password));
+    await seedCases(
+      prisma,
+      await hash(seedUsers[1].password),
+      await hash(seedUsers[0].password),
+    );
   }
 }
 
