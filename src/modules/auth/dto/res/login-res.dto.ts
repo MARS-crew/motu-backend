@@ -9,7 +9,10 @@ export class LoginUserResDto {
   @ApiProperty({ example: 'motuuser' })
   loginId: string;
 
-  @ApiProperty({ example: '모투테스터' })
+  @ApiProperty({
+    description: '회원은 닉네임, 관리자는 관리자명(없으면 닉네임·아이디)',
+    example: '모투테스터',
+  })
   nickname: string;
 
   @ApiProperty({ enum: Role, example: Role.USER })
