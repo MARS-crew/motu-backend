@@ -8,7 +8,11 @@ import {
 export class InquiryAdminActorResDto {
   @ApiProperty() userId: number;
   @ApiProperty() loginId: string;
-  @ApiProperty() nickname: string;
+  @ApiProperty({
+    description:
+      '관리자 표시 이름. 관리자명, 없으면 닉네임, 그것도 없으면 아이디',
+  })
+  nickname: string;
 }
 export class AdminInquiryItemResDto {
   @ApiProperty() id: number;
