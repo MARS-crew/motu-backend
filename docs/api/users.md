@@ -67,6 +67,7 @@
 | 화면 | USR-MY-01 마이페이지 (`[2차 개발]모투화면설계서.pptx`) |
 | 응답 | `userId`, `loginId`, `nickname`, `email`, `phoneNumber`(연락처, null 가능), `role`, `userStatus`, `twoFactorStatus` |
 
+- 관리자는 `nickname`에 관리자명을 내려줍니다. 관리자 계정 생성 API로 만든 관리자는 닉네임이 없고, 관리자명이 없는 seed 관리자는 닉네임을 씁니다.
 - 마이페이지 회원 기본 정보 영역에 닉네임·이메일·연락처(가운데 가림은 프론트)를 표시합니다.
 - `twoFactorStatus`로 2차 보안 영역을 그립니다. `ENABLED`면 "2차 보안 설정 완료"와 [2차 보안 관리], `NOT_SET`·`DISABLED`면 [2차 보안 설정하기]입니다. 등록 번호·설정일시는 [2차 보안 상태](two-factor.md)에서 가져옵니다.
 
