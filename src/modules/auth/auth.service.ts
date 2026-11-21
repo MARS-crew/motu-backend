@@ -6,6 +6,7 @@ import { verify } from 'argon2';
 import { AuthUser } from '../../common/auth/auth-user.type.js';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { adminDisplayName } from '../../common/utils/admin-display-name.js';
 import { EnvironmentVariables } from '../../config/env.validation.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
 import { MailErrors } from '../../common/mail/mail.errors.js';
@@ -122,6 +123,8 @@ export class AuthService {
     await this.usersService.recordLoginSuccess(user.id);
     const { accessToken, accessTokenExpiresIn, refreshToken } =
       await this.issueTokens({ userId: user.id, role: user.role });
+    const adminProfile =
+      user.role === Role.ADMIN ? await this.findAdminProfile(user.id) : null;
 
     return {
       verificationRequired: false,
@@ -129,24 +132,28 @@ export class AuthService {
       accessTokenExpiresIn,
       refreshToken,
       ...(user.role === Role.ADMIN && {
-        passwordChangeRequired: await this.isPasswordChangeRequired(user.id),
+        passwordChangeRequired: adminProfile?.passwordChangeRequired ?? false,
       }),
       user: {
         userId: user.id,
         loginId: user.loginId,
-        nickname: user.nickname ?? user.loginId,
+        nickname:
+          user.role === Role.ADMIN
+            ? adminDisplayName({ ...user, adminProfile })
+            : (user.nickname ?? user.loginId),
         role: user.role,
       },
     };
   }
 
-  /** 관리자 계정이 임시 비밀번호 상태인지. 관리자 정보가 없는 계정(seed 관리자)은 false다. */
-  private async isPasswordChangeRequired(userId: number): Promise<boolean> {
-    const profile = await this.prisma.adminProfile.findUnique({
+  /** 관리자명과 임시 비밀번호 상태. 관리자 정보가 없는 계정(seed 관리자)은 null이다. */
+  private findAdminProfile(
+    userId: number,
+  ): Promise<{ name: string; passwordChangeRequired: boolean } | null> {
+    return this.prisma.adminProfile.findUnique({
       where: { userId },
-      select: { passwordChangeRequired: true },
+      select: { name: true, passwordChangeRequired: true },
     });
-    return profile?.passwordChangeRequired ?? false;
   }
 
   /**
