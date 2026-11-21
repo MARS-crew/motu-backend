@@ -24,6 +24,7 @@ import {
 import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { UpdateMyInfoReqDto } from './dto/req/update-my-info-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
+import { ConfirmContactPhoneVerificationResDto } from './dto/res/confirm-contact-phone-verification-res.dto.js';
 import { ConfirmProfileEmailVerificationResDto } from './dto/res/confirm-profile-email-verification-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
 import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
@@ -143,44 +144,6 @@ export class UsersService {
   }
 
   /**
-   * 로그인한 회원의 닉네임을 바꾸고 바뀐 회원 정보를 반환한다.
-   * 다른 회원이 사용 중인 닉네임이면 중복 오류를 반환한다.
-   */
-  async changeNickname(
-    userId: number,
-    nickname: string,
-  ): Promise<GetMyInfoResDto> {
-    const currentUser = await this.findById(userId);
-    if (!currentUser || currentUser.userStatus === UserStatus.WITHDRAWN) {
-      throw new BusinessException(UserErrors.NOT_FOUND);
-    }
-
-    if (currentUser.nickname === nickname) {
-      return this.toMyInfo(currentUser);
-    }
-
-    await this.assertNotDuplicated('nickname', nickname);
-
-    try {
-      const updatedUser = await this.prisma.user.update({
-        where: { id: userId, userStatus: { not: UserStatus.WITHDRAWN } },
-        data: { nickname },
-      });
-      return this.toMyInfo(updatedUser);
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2002') {
-          throw new BusinessException(this.findDuplicatedError(error));
-        }
-        if (error.code === 'P2025') {
-          throw new BusinessException(UserErrors.NOT_FOUND);
-        }
-      }
-      throw error;
-    }
-  }
-
-  /**
    * 회원 정보 응답에 필요한 필드만 골라 반환한다.
    * 관리자는 닉네임 대신 관리자명을 쓴다. 관리자 계정 생성 API로 만든 관리자는 닉네임이 없다.
    */
@@ -244,18 +207,14 @@ export class UsersService {
   }
 
   /**
-   * 가입 이메일 인증을 마친 회원의 비밀번호·닉네임·생년월일을 바꾼다(USR-MY-03).
+   * 가입 이메일 인증을 마친 회원의 비밀번호·생년월일을 바꾼다(USR-MY-03).
    * 인증 결과는 이 수정에 한 번 쓰인다. 비밀번호를 바꾸면 모든 기기에서 로그아웃하고 신뢰 기기를 지운다.
    */
   async updateMyInfo(
     userId: number,
     dto: UpdateMyInfoReqDto,
   ): Promise<UpdateMyInfoResDto> {
-    if (
-      dto.password === undefined &&
-      dto.nickname === undefined &&
-      dto.birthDate === undefined
-    ) {
+    if (dto.password === undefined && dto.birthDate === undefined) {
       throw new BusinessException(UserErrors.NOTHING_TO_UPDATE);
     }
     const user = await this.findById(userId);
@@ -268,58 +227,45 @@ export class UsersService {
     ) {
       throw new BusinessException(UserErrors.SAME_PASSWORD);
     }
-    const nicknameChanged =
-      dto.nickname !== undefined && dto.nickname !== user.nickname;
-    if (nicknameChanged) {
-      await this.assertNotDuplicated('nickname', dto.nickname!);
-    }
     const password =
       dto.password === undefined ? undefined : await hash(dto.password);
     const email = user.email;
 
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        await this.verificationsService.consumeVerified(
-          tx,
-          VerificationChannel.EMAIL,
-          VerificationPurpose.PROFILE_UPDATE,
-          profileEmailTarget(user.id, email),
-        );
-        const { count } = await tx.user.updateMany({
-          // 인증한 이메일이 그대로인 회원만 바꾼다.
-          where: {
-            id: user.id,
-            email,
-            userStatus: { not: UserStatus.WITHDRAWN },
-          },
-          data: {
-            ...(password && { password }),
-            ...(nicknameChanged && { nickname: dto.nickname }),
-            ...(dto.birthDate && { birthDate: new Date(dto.birthDate) }),
-          },
-        });
-        if (count === 0) {
-          throw new BusinessException(UserErrors.NOT_FOUND);
-        }
-        if (password) {
-          const now = new Date();
-          await tx.refreshToken.updateMany({
-            where: { userId: user.id, revokedAt: null },
-            data: { revokedAt: now },
-          });
-          await tx.trustedDevice.deleteMany({ where: { userId: user.id } });
-        }
+    await this.prisma.$transaction(async (tx) => {
+      await this.verificationsService.consumeVerified(
+        tx,
+        VerificationChannel.EMAIL,
+        VerificationPurpose.PROFILE_UPDATE,
+        profileEmailTarget(user.id, email),
+      );
+      const { count } = await tx.user.updateMany({
+        // 인증한 이메일이 그대로인 회원만 바꾼다.
+        where: {
+          id: user.id,
+          email,
+          userStatus: { not: UserStatus.WITHDRAWN },
+        },
+        data: {
+          ...(password && { password }),
+          ...(dto.birthDate && { birthDate: new Date(dto.birthDate) }),
+        },
       });
-    } catch (error) {
-      // 중복 확인과 저장 사이에 다른 회원이 같은 닉네임을 먼저 저장한 경우
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new BusinessException(this.findDuplicatedError(error));
+      if (count === 0) {
+        throw new BusinessException(UserErrors.NOT_FOUND);
       }
-      throw error;
-    }
+      if (password) {
+        const now = new Date();
+        await tx.refreshToken.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        await tx.passwordResetToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: now },
+        });
+        await tx.trustedDevice.deleteMany({ where: { userId: user.id } });
+      }
+    });
 
     return Object.assign(await this.getMyInfo(user.id), {
       reloginRequired: password !== undefined,
@@ -365,21 +311,28 @@ export class UsersService {
     return { maskedPhoneNumber: maskPhoneNumber(phoneNumber), ...sent };
   }
 
-  /**
-   * 인증번호가 맞으면 연락처를 그 번호로 바꾼다. 2차 보안 번호는 바꾸지 않는다.
-   */
-  async changeContactPhone(
+  /** SMS 인증번호를 확인한다. 연락처는 회원이 변경 요청을 보낼 때 저장한다. */
+  async confirmContactPhoneCode(
     userId: number,
     phoneNumber: string,
     code: string,
+  ): Promise<ConfirmContactPhoneVerificationResDto> {
+    const user = await this.findContactChangeUser(userId, phoneNumber);
+    await this.verificationsService.confirmSmsCode(
+      VerificationPurpose.CONTACT_PHONE_CHANGE,
+      contactPhoneTarget(user.id, phoneNumber),
+      code,
+    );
+    return { verified: true };
+  }
+
+  /** 가입 연락처 변경과 SMS 인증 결과 사용 처리를 한 트랜잭션에서 수행한다. */
+  async changeContactPhone(
+    userId: number,
+    phoneNumber: string,
   ): Promise<GetMyInfoResDto> {
     const user = await this.findContactChangeUser(userId, phoneNumber);
     const target = contactPhoneTarget(user.id, phoneNumber);
-    await this.verificationsService.confirmSmsCode(
-      VerificationPurpose.CONTACT_PHONE_CHANGE,
-      target,
-      code,
-    );
     await this.prisma.$transaction(async (tx) => {
       await this.verificationsService.consumeVerified(
         tx,
@@ -388,11 +341,17 @@ export class UsersService {
         target,
       );
       const { count } = await tx.user.updateMany({
-        where: { id: user.id, userStatus: { not: UserStatus.WITHDRAWN } },
+        where: {
+          id: userId,
+          userStatus: UserStatus.ACTIVE,
+          twoFactorStatus: TwoFactorStatus.ENABLED,
+          phoneNumber: user.phoneNumber,
+        },
         data: { phoneNumber },
       });
       if (count === 0) {
-        throw new BusinessException(UserErrors.NOT_FOUND);
+        await this.findContactChangeUser(userId, phoneNumber, tx);
+        throw new BusinessException(UserErrors.STATUS_CONFLICT);
       }
     });
     return this.getMyInfo(userId);
@@ -401,9 +360,10 @@ export class UsersService {
   private async findContactChangeUser(
     userId: number,
     phoneNumber: string,
+    client: Prisma.TransactionClient = this.prisma,
   ): Promise<User> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user || user.userStatus === UserStatus.WITHDRAWN) {
+    const user = await client.user.findUnique({ where: { id: userId } });
+    if (!user || user.userStatus !== UserStatus.ACTIVE) {
       throw new BusinessException(UserErrors.NOT_FOUND);
     }
     if (user.twoFactorStatus !== TwoFactorStatus.ENABLED) {
