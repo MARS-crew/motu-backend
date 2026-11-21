@@ -265,7 +265,19 @@ describe('UsersService', () => {
         ).rejects.toMatchObject({
           response: { code: 'USER_CONTACT_TWO_FACTOR_REQUIRED' },
         });
+        await expect(
+          service.confirmContactPhoneCode(6, '01045678901', '135790'),
+        ).rejects.toMatchObject({
+          response: { code: 'USER_CONTACT_TWO_FACTOR_REQUIRED' },
+        });
+        await expect(
+          service.changeContactPhone(6, '01045678901'),
+        ).rejects.toMatchObject({
+          response: { code: 'USER_CONTACT_TWO_FACTOR_REQUIRED' },
+        });
         expect(sendSmsCode).not.toHaveBeenCalled();
+        expect(confirmSmsCode).not.toHaveBeenCalled();
+        expect(consumeVerified).not.toHaveBeenCalled();
       },
     );
 
@@ -277,22 +289,40 @@ describe('UsersService', () => {
       ).rejects.toMatchObject({ response: { code: 'USER_SAME_PHONE_NUMBER' } });
     });
 
-    it('인증번호가 맞으면 연락처만 바꾸고 바뀐 내 정보를 내려준다', async () => {
-      findUniqueUser
-        .mockResolvedValueOnce(userOf())
-        .mockResolvedValueOnce(userOf({ phoneNumber: '01045678901' }));
+    it('확인 단계에서는 연락처를 저장하거나 인증을 소비하지 않는다', async () => {
+      findUniqueUser.mockResolvedValueOnce(userOf());
 
-      const result = await service.changeContactPhone(
-        6,
-        '01045678901',
-        '135790',
-      );
+      await expect(
+        service.confirmContactPhoneCode(6, '01045678901', '135790'),
+      ).resolves.toEqual({ verified: true });
 
       expect(confirmSmsCode).toHaveBeenCalledWith(
         VerificationPurpose.CONTACT_PHONE_CHANGE,
         '6:01045678901',
         '135790',
       );
+      expect(consumeVerified).not.toHaveBeenCalled();
+      expect(tx.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('저장할 때 인증 완료 결과가 없으면 연락처를 변경하지 않는다', async () => {
+      findUniqueUser.mockResolvedValueOnce(userOf());
+      consumeVerified.mockRejectedValueOnce(new Error('VERIFICATION_REQUIRED'));
+
+      await expect(
+        service.changeContactPhone(6, '01045678901'),
+      ).rejects.toThrow('VERIFICATION_REQUIRED');
+      expect(tx.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('인증한 번호를 저장하면 연락처만 바꾸고 바뀐 내 정보를 내려준다', async () => {
+      findUniqueUser
+        .mockResolvedValueOnce(userOf())
+        .mockResolvedValueOnce(userOf({ phoneNumber: '01045678901' }));
+
+      const result = await service.changeContactPhone(6, '01045678901');
+
+      expect(confirmSmsCode).not.toHaveBeenCalled();
       expect(consumeVerified).toHaveBeenCalledWith(
         tx,
         VerificationChannel.SMS,
@@ -322,7 +352,7 @@ describe('UsersService', () => {
       );
 
       await expect(
-        service.changeContactPhone(6, '01045678901', '135790'),
+        service.changeContactPhone(6, '01045678901'),
       ).rejects.toMatchObject({
         status: 403,
         response: { code: 'USER_CONTACT_TWO_FACTOR_REQUIRED' },
@@ -336,7 +366,7 @@ describe('UsersService', () => {
       );
 
       await expect(
-        service.changeContactPhone(6, '01045678901', '000000'),
+        service.confirmContactPhoneCode(6, '01045678901', '000000'),
       ).rejects.toThrow('VERIFICATION_CODE_MISMATCH');
       expect(tx.user.updateMany).not.toHaveBeenCalled();
     });
