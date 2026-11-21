@@ -107,7 +107,7 @@ HTTP·마이그레이션 검증은 localhost 일회용 DB만 사용하고 종료
 
 상태 표시명은 접수·처리 중·처리 완료다. **처리 완료는 `COMPLETED`이며 회원 계정 승인·잠금 해제를 뜻하지 않는다.** 사용자 문의 목록·상세와 관리자 목록·상세·발송 응답은 모두 같은 상태값을 사용한다. 관리자 목록의 `status=APPROVED`는 더 이상 허용하지 않고 400을 반환한다.
 
-상세 응답은 문의 내용, `replyEmail`, `replyDraft`, `replyVersion`, `assignedAdmin`, `processingStartedAt`, `completedAt`, `canEdit`, `latestReplyAttempt`, `replyAttempts`, `activityLogPath`를 제공한다. 발송 이력은 `attemptPage`(기본 1)·`attemptSize`(기본 10, 최대 50)로 페이지를 나누며 `replyAttempts.items/page/size/totalCount`를 반환한다. 처리 중 문의는 최초 담당자와 관계없이 활성 관리자라면 저장·발송할 수 있다. `canEdit`는 관리자별 소유권이 아니라 문의 상태와 발송 진행 여부를 표시한다. 상세 조회는 상태를 변경하지 않는다.
+상세 응답은 문의 내용, `replyEmail`, `replyDraft`, `replyVersion`, `assignedAdmin`, `processingStartedAt`, `completedAt`, `canEdit`, `latestReplyAttempt`, `replyAttempts`, `activityLogPath`를 제공한다. 발송 이력은 `attemptPage`(기본 1)·`attemptSize`(기본 10, 최대 50)로 페이지를 나누며 `replyAttempts.items/page/size/totalCount`를 반환한다. 처리 중 문의는 최초 담당자와 관계없이 활성 관리자라면 저장·발송할 수 있다. `canEdit`는 관리자별 소유권이 아니라 문의 상태와 발송 진행 여부를 표시한다. 상세 조회는 상태를 변경하지 않는다. 목록·상세의 `assignedAdmin.nickname`은 관리자 표시 이름으로, 관리자명(없으면 닉네임, 그것도 없으면 아이디)이다.
 
 ### 완료 상태 변경과 배포 시 주의
 
