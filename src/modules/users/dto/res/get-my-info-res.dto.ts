@@ -21,6 +21,14 @@ export class GetMyInfoResDto {
   @ApiProperty({ example: 'user@motu.test' })
   email: string;
 
+  @ApiProperty({
+    description: '생년월일 (YYYY-MM-DD). 관리자 계정은 null',
+    example: '2000-01-01',
+    nullable: true,
+    type: String,
+  })
+  birthDate: string | null;
+
   @ApiPropertyOptional({
     description: '연락처 (하이픈 없음)',
     example: '01012345678',
