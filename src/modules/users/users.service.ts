@@ -24,6 +24,7 @@ import {
 import { CreateUserReqDto } from './dto/req/create-user-req.dto.js';
 import { UpdateMyInfoReqDto } from './dto/req/update-my-info-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
+import { ConfirmContactPhoneVerificationResDto } from './dto/res/confirm-contact-phone-verification-res.dto.js';
 import { ConfirmProfileEmailVerificationResDto } from './dto/res/confirm-profile-email-verification-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
 import { GetMyInfoResDto } from './dto/res/get-my-info-res.dto.js';
@@ -310,21 +311,28 @@ export class UsersService {
     return { maskedPhoneNumber: maskPhoneNumber(phoneNumber), ...sent };
   }
 
-  /**
-   * 인증번호가 맞으면 연락처를 그 번호로 바꾼다. 2차 보안 번호는 바꾸지 않는다.
-   */
-  async changeContactPhone(
+  /** SMS 인증번호를 확인한다. 연락처는 회원이 변경 요청을 보낼 때 저장한다. */
+  async confirmContactPhoneCode(
     userId: number,
     phoneNumber: string,
     code: string,
+  ): Promise<ConfirmContactPhoneVerificationResDto> {
+    const user = await this.findContactChangeUser(userId, phoneNumber);
+    await this.verificationsService.confirmSmsCode(
+      VerificationPurpose.CONTACT_PHONE_CHANGE,
+      contactPhoneTarget(user.id, phoneNumber),
+      code,
+    );
+    return { verified: true };
+  }
+
+  /** 가입 연락처 변경과 SMS 인증 결과 사용 처리를 한 트랜잭션에서 수행한다. */
+  async changeContactPhone(
+    userId: number,
+    phoneNumber: string,
   ): Promise<GetMyInfoResDto> {
     const user = await this.findContactChangeUser(userId, phoneNumber);
     const target = contactPhoneTarget(user.id, phoneNumber);
-    await this.verificationsService.confirmSmsCode(
-      VerificationPurpose.CONTACT_PHONE_CHANGE,
-      target,
-      code,
-    );
     await this.prisma.$transaction(async (tx) => {
       await this.verificationsService.consumeVerified(
         tx,
