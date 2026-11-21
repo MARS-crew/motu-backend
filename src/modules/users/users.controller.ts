@@ -27,7 +27,6 @@ import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { Public } from '../../common/auth/public.decorator.js';
 import { Roles } from '../../common/auth/roles.decorator.js';
 import { Role } from '../../generated/prisma/client.js';
-import { ChangeNicknameReqDto } from './dto/req/change-nickname-req.dto.js';
 import { CheckLoginIdReqDto } from './dto/req/check-login-id-req.dto.js';
 import { CheckNicknameReqDto } from './dto/req/check-nickname-req.dto.js';
 import { ConfirmContactPhoneVerificationReqDto } from './dto/req/confirm-contact-phone-verification-req.dto.js';
@@ -115,14 +114,13 @@ export class UsersController {
   @ApiOperation({
     summary: '회원정보 수정',
     description:
-      '가입 이메일 인증 후 비밀번호·닉네임·생년월일을 바꾼다(USR-MY-03). 바꿀 항목만 보낸다. 인증 결과는 한 번만 쓰인다. 비밀번호를 바꾸면 모든 기기에서 로그아웃되고 reloginRequired가 true다.',
+      '가입 이메일 인증 후 비밀번호·생년월일을 바꾼다(USR-MY-03). 바꿀 항목만 보낸다. 인증 결과는 한 번만 쓰인다. 비밀번호를 바꾸면 모든 기기에서 로그아웃되고 reloginRequired가 true다.',
   })
   @ApiOkResponse({ type: UpdateMyInfoResDto })
   @ApiBadRequestResponse({
     description:
       'BAD_REQUEST / USER_NOTHING_TO_UPDATE / USER_SAME_PASSWORD / VERIFICATION_REQUIRED',
   })
-  @ApiConflictResponse({ description: 'NICKNAME_DUPLICATED' })
   @ApiNotFoundResponse({ description: 'USER_NOT_FOUND' })
   updateMyInfo(
     @CurrentUser() user: AuthUser,
@@ -187,7 +185,9 @@ export class UsersController {
   })
   @ApiOkResponse({ type: GetMyInfoResDto })
   @ApiForbiddenResponse({ description: 'USER_CONTACT_TWO_FACTOR_REQUIRED' })
-  @ApiConflictResponse({ description: 'USER_SAME_PHONE_NUMBER' })
+  @ApiConflictResponse({
+    description: 'USER_SAME_PHONE_NUMBER / USER_STATUS_CONFLICT',
+  })
   changeContactPhone(
     @CurrentUser() user: AuthUser,
     @Body() dto: ConfirmContactPhoneVerificationReqDto,
@@ -197,20 +197,6 @@ export class UsersController {
       dto.phoneNumber,
       dto.code,
     );
-  }
-
-  @Patch('me/nickname')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: '내 닉네임 변경' })
-  @ApiOkResponse({ type: GetMyInfoResDto })
-  @ApiBadRequestResponse({ description: 'BAD_REQUEST' })
-  @ApiConflictResponse({ description: 'NICKNAME_DUPLICATED' })
-  @ApiNotFoundResponse({ description: 'USER_NOT_FOUND' })
-  changeNickname(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: ChangeNicknameReqDto,
-  ): Promise<GetMyInfoResDto> {
-    return this.usersService.changeNickname(user.userId, dto.nickname);
   }
 
   @Public()
