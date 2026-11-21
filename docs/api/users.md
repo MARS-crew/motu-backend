@@ -107,16 +107,19 @@
 | 화면 | USR-MY-03-01 연락처 변경 (`[2차 개발]모투화면설계서.pptx`) |
 | 로그인 | 필요 |
 | 발송 | `POST /api/users/me/phone-verifications` `{ phoneNumber }` → `maskedPhoneNumber`, `expiresAt`(5분), `resendAvailableAt`(30초) |
-| 확인·변경 | `POST /api/users/me/phone-verifications/confirm` `{ phoneNumber, code }` → 바뀐 [내 정보](#내-정보) |
+| 확인 | `POST /api/users/me/phone-verifications/confirm` `{ phoneNumber, code }` → `verified: true` |
+| 변경 | `PATCH /api/users/me/phone-number` `{ phoneNumber }` → 바뀐 [내 정보](#내-정보) |
 
 - **2차 보안을 설정한 회원만** 바꿀 수 있습니다. 화면 진입 전에 `twoFactorStatus`가 `ENABLED`가 아니면 "2차 보안 설정 후 이용해 주세요." 토스트를 띄우고 2차 보안 설정 화면으로 보냅니다. (API도 403으로 막습니다.)
 - 새 번호로 SMS 인증번호를 보냅니다. 휴대폰 번호는 하이픈이 있어도 됩니다. 인증번호 규칙(5분 유효, 30초 후 재발송, 5회 오입력 시 새 인증번호 필요)은 [인증번호 공통 규칙](auth.md)과 같습니다.
 - 다른 번호로 다시 보내면 이전 번호로 받은 인증번호는 쓸 수 없습니다. 확인할 때는 인증번호를 받은 번호를 그대로 보냅니다.
+- 인증 확인 후 화면에서 [연락처 변경하기]를 활성화합니다. 사용자가 버튼을 누르면 인증한 번호로 `PATCH /api/users/me/phone-number`를 요청합니다. 인증 결과는 확인 후 30분 안에 한 번 쓸 수 있습니다. 연락처 변경에 성공하면 새 [내 정보](#내-정보)를 사용합니다.
 - 연락처는 **2차 보안 번호와 별개**입니다. 연락처를 바꿔도 2차 보안 번호는 그대로이고, 2차 보안 번호는 [2차 보안](two-factor.md)에서 바꿉니다.
 
 | 에러 | 상황 | 화면 처리 |
 |------|------|------|
 | 403 `USER_CONTACT_TWO_FACTOR_REQUIRED` | 2차 보안 미설정·해제 | "2차 보안 설정 후 이용해 주세요." 후 2차 보안 설정으로 이동 |
+| 400 `VERIFICATION_REQUIRED` | 저장 전에 인증하지 않았거나 인증 결과가 만료·사용·무효 처리됨 | 인증번호를 다시 받게 안내 |
 | 409 `USER_STATUS_CONFLICT` | 처리 중 연락처 상태가 바뀜 | 내 정보를 다시 조회 |
 | 409 `USER_SAME_PHONE_NUMBER` | 현재 연락처와 같은 번호 | 입력칸 아래 안내 |
 | 400 `BAD_REQUEST` | 휴대폰 번호·인증번호 형식 오류 | 입력칸 아래 안내 |
