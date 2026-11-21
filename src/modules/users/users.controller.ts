@@ -27,6 +27,7 @@ import { CurrentUser } from '../../common/auth/current-user.decorator.js';
 import { Public } from '../../common/auth/public.decorator.js';
 import { Roles } from '../../common/auth/roles.decorator.js';
 import { Role } from '../../generated/prisma/client.js';
+import { ChangeContactPhoneReqDto } from './dto/req/change-contact-phone-req.dto.js';
 import { CheckLoginIdReqDto } from './dto/req/check-login-id-req.dto.js';
 import { CheckNicknameReqDto } from './dto/req/check-nickname-req.dto.js';
 import { ConfirmContactPhoneVerificationReqDto } from './dto/req/confirm-contact-phone-verification-req.dto.js';
@@ -37,6 +38,7 @@ import { SendEmailVerificationReqDto } from './dto/req/send-email-verification-r
 import { UpdateMyInfoReqDto } from './dto/req/update-my-info-req.dto.js';
 import { WithdrawUserReqDto } from './dto/req/withdraw-user-req.dto.js';
 import { CheckAvailabilityResDto } from './dto/res/check-availability-res.dto.js';
+import { ConfirmContactPhoneVerificationResDto } from './dto/res/confirm-contact-phone-verification-res.dto.js';
 import { ConfirmEmailVerificationResDto } from './dto/res/confirm-email-verification-res.dto.js';
 import { ConfirmProfileEmailVerificationResDto } from './dto/res/confirm-profile-email-verification-res.dto.js';
 import { CreateUserResDto } from './dto/res/create-user-res.dto.js';
@@ -179,24 +181,50 @@ export class UsersController {
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: '연락처 변경 인증 확인 및 변경',
+    summary: '연락처 변경 인증번호 확인',
+    description: '새 번호로 받은 인증번호를 확인하고 인증 결과를 반환한다.',
+  })
+  @ApiOkResponse({ type: ConfirmContactPhoneVerificationResDto })
+  @ApiBadRequestResponse({
     description:
-      '인증번호가 맞으면 연락처를 바꾸고 바뀐 내 정보를 내려준다. 2차 보안 번호는 바뀌지 않는다.',
+      'BAD_REQUEST / VERIFICATION_CODE_MISMATCH / VERIFICATION_EXPIRED',
+  })
+  @ApiForbiddenResponse({ description: 'USER_CONTACT_TWO_FACTOR_REQUIRED' })
+  @ApiNotFoundResponse({
+    description: 'USER_NOT_FOUND / VERIFICATION_NOT_FOUND',
+  })
+  @ApiConflictResponse({ description: 'USER_SAME_PHONE_NUMBER' })
+  @ApiTooManyRequestsResponse({ description: 'VERIFICATION_ATTEMPTS_EXCEEDED' })
+  confirmContactPhoneCode(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ConfirmContactPhoneVerificationReqDto,
+  ): Promise<ConfirmContactPhoneVerificationResDto> {
+    return this.usersService.confirmContactPhoneCode(
+      user.userId,
+      dto.phoneNumber,
+      dto.code,
+    );
+  }
+
+  @Patch('me/phone-number')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '인증된 연락처로 변경',
+    description:
+      '인증이 완료된 번호로 연락처를 변경한다. 인증 결과는 저장에 한 번 사용한다. 2차 보안용 번호는 별도로 관리한다.',
   })
   @ApiOkResponse({ type: GetMyInfoResDto })
+  @ApiBadRequestResponse({ description: 'BAD_REQUEST / VERIFICATION_REQUIRED' })
   @ApiForbiddenResponse({ description: 'USER_CONTACT_TWO_FACTOR_REQUIRED' })
+  @ApiNotFoundResponse({ description: 'USER_NOT_FOUND' })
   @ApiConflictResponse({
     description: 'USER_SAME_PHONE_NUMBER / USER_STATUS_CONFLICT',
   })
   changeContactPhone(
     @CurrentUser() user: AuthUser,
-    @Body() dto: ConfirmContactPhoneVerificationReqDto,
+    @Body() dto: ChangeContactPhoneReqDto,
   ): Promise<GetMyInfoResDto> {
-    return this.usersService.changeContactPhone(
-      user.userId,
-      dto.phoneNumber,
-      dto.code,
-    );
+    return this.usersService.changeContactPhone(user.userId, dto.phoneNumber);
   }
 
   @Public()
