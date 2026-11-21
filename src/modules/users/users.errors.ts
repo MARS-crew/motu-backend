@@ -17,6 +17,23 @@ export const UserErrors = {
     message: '이미 가입된 이메일입니다.',
     status: HttpStatus.CONFLICT,
   },
+  /** 회원정보 수정 인증에서 입력한 이메일이 가입 이메일과 다름 */
+  EMAIL_MISMATCH: {
+    code: 'USER_EMAIL_MISMATCH',
+    message: '가입한 이메일과 일치하지 않습니다.',
+    status: HttpStatus.BAD_REQUEST,
+  },
+  SAME_PASSWORD: {
+    code: 'USER_SAME_PASSWORD',
+    message: '현재 비밀번호와 다른 비밀번호를 입력해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
+  /** 회원정보 수정 요청에 바꿀 항목이 없음 */
+  NOTHING_TO_UPDATE: {
+    code: 'USER_NOTHING_TO_UPDATE',
+    message: '수정할 정보를 입력해 주세요.',
+    status: HttpStatus.BAD_REQUEST,
+  },
   NOT_FOUND: {
     code: 'USER_NOT_FOUND',
     message: '존재하지 않는 사용자입니다.',
