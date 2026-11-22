@@ -15,7 +15,7 @@ export class ListingApplicationStatusResDto {
   @ApiProperty({
     type: Date,
     nullable: true,
-    description: '후속 제출 기능이 기록한 실제 접수일',
+    description: '최초 최종 제출이 기록한 접수일. 보완 재제출에서도 유지',
   })
   submittedAt: Date | null;
   @ApiProperty({ type: String, nullable: true }) reviewComment: string | null;
