@@ -924,7 +924,7 @@ model ListingApplication {
   id                    Int                          @id @default(autoincrement()) @map("application_id")
   userId                Int                          @map("user_id")
   applicationNumber     String?                      @unique @map("application_number") @db.VarChar(30)
-  /// 후속 최종 제출 API가 기록한다. 임시저장에서는 null을 유지한다.
+  /// 최초 최종 제출 API가 기록한다. 임시저장에서는 null, 재제출에서도 최초 접수일을 유지한다.
   submittedAt           DateTime?                    @map("submitted_at") @db.Timestamptz(3)
   /// 관리자 심사 API가 기록하는 최근 의견과 보완 기한.
   reviewComment         String?                      @map("review_comment")
@@ -939,7 +939,7 @@ model ListingApplication {
   /// 진행 중 URL의 부분 UNIQUE 인덱스는 마이그레이션 SQL에서 관리한다.
   normalizedOfficialUrl String?                      @map("normalized_official_url") @db.VarChar(2048)
   currentStep           Int                          @default(1) @map("current_step")
-  /// 미완성 입력값. 최종 제출용 필수값 검증은 별도 단계에서 수행한다.
+  /// 작성 중 입력값. 최종 제출 시 전체 검증 후 보존하며, 승인 확정값은 approvalData에 별도 기록한다.
   draftData             Json                         @default("{}") @map("draft_data")
   lastSavedAt           DateTime                     @default(now()) @map("last_saved_at") @db.Timestamptz(3)
   expiresAt             DateTime                     @map("expires_at") @db.Timestamptz(3)
