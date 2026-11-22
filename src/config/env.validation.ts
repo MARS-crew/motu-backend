@@ -77,9 +77,17 @@ export class EnvironmentVariables {
   @Min(1)
   JWT_REFRESH_EXPIRES_IN_DAYS: number = 14;
 
-  /** 비밀번호 재설정 메일에 넣을 화면 주소. 뒤에 `?token=...`이 붙는다. */
+  /**
+   * 비밀번호 재설정 메일에 넣을 링크. 뒤에 `?token=...`이 붙는다.
+   * 메일 앱이 링크로 인식하도록 http(s) 주소를 쓴다. 이 서버의 `/api/auth/password-reset/open`이 앱 딥링크로 넘겨준다.
+   */
   @IsUrl({ require_tld: false })
-  PASSWORD_RESET_URL: string = 'http://localhost:5173/password-reset';
+  PASSWORD_RESET_URL: string =
+    'http://localhost:3000/api/auth/password-reset/open';
+
+  /** 재설정 링크를 열었을 때 이동할 앱 딥링크. 뒤에 `?token=...`이 붙는다. */
+  @Matches(/^[a-z][a-z0-9+.-]*:\/\/\S+$/i)
+  PASSWORD_RESET_APP_URL: string = 'motu://new-password';
 
   /** Brevo API 키. 비우면 메일을 보내지 않고 서버 로그에 출력한다. 운영 환경에서는 필수. */
   @ValidateIf(usesBrevo)
