@@ -38,6 +38,7 @@ describe('단계별 첨부와 카테고리 확인', () => {
   it('같은 트랜잭션의 완료 이미지와 카테고리를 확인한다', async () => {
     expect(await service.validate(1, 1, basic, new Date(), tx)).toEqual([]);
     expect(files.getSavedCollection).toHaveBeenCalledWith(1, 'main', tx);
+    expect(sectors.getSectors).toHaveBeenCalledWith(tx);
   });
   it('없는 카테고리를 거부한다', async () => {
     expect(
