@@ -1,10 +1,13 @@
 import {
   Body,
   Controller,
+  Get,
   Headers,
   HttpCode,
   HttpStatus,
   Post,
+  Query,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -13,9 +16,12 @@ import {
   ApiExtraModels,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
+  ApiQuery,
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { Public } from '../../common/auth/public.decorator.js';
 import { AuthService } from './auth.service.js';
 import { ConfirmLoginIdVerificationReqDto } from './dto/req/confirm-login-id-verification-req.dto.js';
@@ -175,6 +181,29 @@ export class AuthController {
   ): Promise<null> {
     await this.authService.requestPasswordReset(dto.loginId, dto.email);
     return null;
+  }
+
+  @Get('password-reset/open')
+  @ApiOperation({
+    summary: '재설정 메일 링크 열기 (앱으로 이동)',
+    description:
+      '비밀번호 재설정 메일의 링크가 가리키는 주소다. 앱 딥링크(PASSWORD_RESET_APP_URL, 기본 motu://new-password)에 token을 붙여 바로 이동하고, 자동 이동이 막히면 [앱에서 열기] 버튼을 보여주는 HTML을 내려준다. 토큰 형식이 맞지 않으면 400 HTML. 토큰 유효 여부는 앱에서 password-reset/verify로 확인한다.',
+  })
+  @ApiQuery({ name: 'token', description: '재설정 메일 링크의 token 값' })
+  @ApiProduces('text/html')
+  openPasswordReset(
+    @Query('token') token: unknown,
+    @Res() res: Response,
+  ): void {
+    const { status, html } = this.authService.passwordResetOpenPage(token);
+    res
+      .status(status)
+      .set({
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+      })
+      .type('html')
+      .send(html);
   }
 
   @Post('password-reset/verify')

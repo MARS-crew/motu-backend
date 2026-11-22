@@ -116,7 +116,8 @@
 | 단계 | API | 요청 | 응답 |
 |------|------|------|------|
 | 재설정 링크 발송 | `POST /api/auth/password-reset` | `loginId`, `email` | `null` |
-| 링크 확인 (새 비밀번호 화면 진입 시) | `POST /api/auth/password-reset/verify` | `token` (링크의 `?token=` 값) | `valid: true` |
+| 메일 링크 열기 | `GET /api/auth/password-reset/open?token=` | 메일의 링크 그대로 | 앱 딥링크 `motu://new-password?token=...`로 이동하는 HTML |
+| 링크 확인 (새 비밀번호 화면 진입 시) | `POST /api/auth/password-reset/verify` | `token` (딥링크의 `?token=` 값) | `valid: true` |
 | 새 비밀번호 설정 | `POST /api/auth/password-reset/confirm` | `token`, `newPassword` | `null` |
 
 | 에러 | 상황 | 화면 처리 |
@@ -127,6 +128,7 @@
 
 - **링크 발송은 항상 성공 응답입니다.** 아이디·이메일이 맞지 않거나, 잠긴 계정이거나, 1분 안에 다시 요청했거나, 메일 발송에 실패해도 같은 응답입니다. 가입 여부를 드러내지 않기 위해서입니다. 화면은 항상 "이메일을 확인해 주세요" 안내를 보여 주면 됩니다.
 - 새 링크를 보내면 이전 링크는 쓸 수 없습니다.
+- **메일 링크와 앱 딥링크:** 메일에는 `PASSWORD_RESET_URL`(배포: `https://<백엔드 도메인>/api/auth/password-reset/open?token=...`)이 들어갑니다. 메일 앱은 `motu://` 같은 커스텀 스킴을 링크로 만들어 주지 않는 경우가 많아 https 주소를 거칩니다. 이 주소가 `PASSWORD_RESET_APP_URL`(기본 `motu://new-password`)에 같은 `token`을 붙여 앱으로 바로 넘기고, 브라우저가 자동 이동을 막으면 [앱에서 열기] 버튼을 보여 줍니다. 앱은 딥링크 `motu://new-password?token=...`을 받아 `verify` → `confirm` 순서로 호출하면 됩니다.
 - 비밀번호를 바꾸면 모든 기기에서 로그아웃됩니다. 완료 후 로그인 화면으로 보내 주세요.
 - 새 비밀번호 확인값 일치 여부는 프론트에서 확인합니다. (서버는 `newPassword` 하나만 받음)
 
