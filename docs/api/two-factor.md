@@ -14,7 +14,7 @@
 | 인증번호 | 6자리, 5분 유효, 재발송 30초 후 ([인증번호 공통 규칙](auth.md#인증번호-공통-규칙)과 같음) |
 | 연속 실패 제한 | **5회 연속** 틀리면 30분 동안 SMS 인증만 제한 (`429 TWO_FACTOR_LOCKED`). 계정은 잠기지 않습니다. 인증번호를 바꿔 받아도 횟수는 이어집니다. 성공하면 0회로 돌아갑니다 |
 | 재인증 유효시간 | SMS 인증 성공 후 **10분** 동안 중요 기능을 다시 묻지 않습니다 |
-| 재인증이 필요한 기능 | 주문 기능 최초 활성화(2차 보안 설정 계정만), 등록 휴대폰 변경, 상장 신청 최종 제출(구현 예정) |
+| 재인증이 필요한 기능 | 주문 기능 최초 활성화(2차 보안 설정 계정만), 등록 휴대폰 변경, [상장 신청 최종 제출](listing-applications.md#최초-최종-제출-usr-lst-0607) |
 | 설정 상태 | `NOT_SET` 미설정 / `ENABLED` 설정 완료 / `DISABLED` 해제 |
 
 ## 2차 보안 상태
@@ -98,7 +98,7 @@
 
 ### 다른 기능에서 쓰기 (백엔드)
 
-`TwoFactorModule`을 import하고 `TwoFactorService.requireVerification(userId, TwoFactorAction.LISTING_SUBMIT)`을 호출합니다. 미설정이면 409 `TWO_FACTOR_NOT_ENABLED`, 10분 안에 재인증하지 않았으면 403 `TWO_FACTOR_REQUIRED`를 던집니다.
+`TwoFactorModule`을 import하고 `TwoFactorService.requireVerification(userId, TwoFactorAction.LISTING_SUBMIT, tx?)`을 호출합니다. 최종 제출은 회원 잠금을 획득한 같은 트랜잭션을 전달해 최신 설정과 인증을 읽고, 첨부·번호 잠금 대기 후에도 다시 검사합니다. 미설정 또는 등록 번호가 없으면 409 `TWO_FACTOR_NOT_ENABLED`, 10분 안에 재인증하지 않았으면 403 `TWO_FACTOR_REQUIRED`를 던집니다. 인증 성공 후 프론트가 최초 submit 요청을 다시 전송하며, 이 API에서 SMS를 추가 발송하지 않습니다.
 
 ## 프론트 연동 체크리스트
 
