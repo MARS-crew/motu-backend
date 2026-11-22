@@ -26,6 +26,7 @@ import { MAX_LOGIN_FAIL_COUNT } from '../users/users.constants.js';
 import { UsersService } from '../users/users.service.js';
 import { VerificationsService } from '../verifications/verifications.service.js';
 import { AuthErrors } from './auth.errors.js';
+import { passwordResetOpenPage } from './password-reset-open-page.js';
 import {
   LOGIN_TOKEN_TTL,
   PASSWORD_RESET_COOLDOWN_MS,
@@ -309,6 +310,14 @@ export class AuthService {
       }
       throw error;
     }
+  }
+
+  /** 재설정 메일 링크를 열었을 때 앱 딥링크(PASSWORD_RESET_APP_URL)로 넘겨주는 페이지 */
+  passwordResetOpenPage(token: unknown): { status: number; html: string } {
+    return passwordResetOpenPage(
+      this.config.get('PASSWORD_RESET_APP_URL', { infer: true }),
+      token,
+    );
   }
 
   /** 재설정 링크를 열었을 때 사용할 수 있는 링크인지 확인한다. */
