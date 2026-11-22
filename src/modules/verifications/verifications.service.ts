@@ -7,13 +7,16 @@ import {
   randomInt,
   timingSafeEqual,
 } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
 import { SmsSender } from '../../common/sms/sms-sender.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { EnvironmentVariables } from '../../config/env.validation.js';
+import {
+  EnvironmentVariables,
+  VerificationCodeExposure,
+} from '../../config/env.validation.js';
 import {
   Prisma,
   Verification,
@@ -45,6 +48,8 @@ const PURPOSE_LABELS: Record<VerificationPurpose, string> = {
 export interface SentVerification {
   expiresAt: Date;
   resendAvailableAt: Date;
+  /** VERIFICATION_CODE_EXPOSURE로 켰을 때만 있는 인증번호 (프론트 연동 테스트용) */
+  devCode?: string;
 }
 
 /**
@@ -54,6 +59,7 @@ export interface SentVerification {
 @Injectable()
 export class VerificationsService {
   private readonly cipherKey: Buffer;
+  private readonly codeExposure: VerificationCodeExposure;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -70,6 +76,17 @@ export class VerificationsService {
         32,
       ),
     );
+    const exposure = config.get('VERIFICATION_CODE_EXPOSURE', { infer: true });
+    this.codeExposure = Object.values(VerificationCodeExposure).includes(
+      exposure,
+    )
+      ? exposure
+      : VerificationCodeExposure.Off;
+    if (this.codeExposure !== VerificationCodeExposure.Off) {
+      new Logger(VerificationsService.name).warn(
+        `VERIFICATION_CODE_EXPOSURE=${this.codeExposure}: 인증번호 발송 응답에 인증번호(devCode)를 내려줍니다. 테스트가 끝나면 off로 바꾸세요.`,
+      );
+    }
   }
 
   /**
@@ -206,7 +223,17 @@ export class VerificationsService {
     return {
       expiresAt,
       resendAvailableAt: new Date(sentAt.getTime() + RESEND_COOLDOWN_MS),
+      ...(this.exposes(channel) && { devCode: code }),
     };
+  }
+
+  /** 이 채널의 인증번호를 발송 응답에 내려줄지 */
+  private exposes(channel: VerificationChannel): boolean {
+    return (
+      this.codeExposure === VerificationCodeExposure.All ||
+      (this.codeExposure === VerificationCodeExposure.Sms &&
+        channel === VerificationChannel.SMS)
+    );
   }
 
   private async confirmCode(

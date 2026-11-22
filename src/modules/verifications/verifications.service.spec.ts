@@ -319,4 +319,64 @@ describe('VerificationsService', () => {
       });
     });
   });
+  describe('인증번호 응답 노출 (VERIFICATION_CODE_EXPOSURE)', () => {
+    const serviceWith = (exposure: string) =>
+      new VerificationsService(prisma, mailSender, smsSender, {
+        get: (key: string) =>
+          key === 'VERIFICATION_CODE_EXPOSURE'
+            ? exposure
+            : 'test-jwt-access-secret-at-least-32-chars',
+      } as unknown as ConfigService<never, true>);
+    const smsCode = () =>
+      /\[(\d{6})\]/.exec(
+        (sendSms.mock.calls.at(-1)![0] as { text: string }).text,
+      )?.[1];
+
+    beforeEach(() => {
+      verification.findFirst.mockResolvedValue(null);
+    });
+
+    it('기본(off)에서는 인증번호를 내려주지 않는다', async () => {
+      const sent = await service.sendSmsCode(
+        VerificationPurpose.TWO_FACTOR,
+        '01012344821',
+      );
+
+      expect(sent).not.toHaveProperty('devCode');
+    });
+
+    it('sms면 SMS 인증번호만 내려준다', async () => {
+      const exposing = serviceWith('sms');
+
+      const sms = await exposing.sendSmsCode(
+        VerificationPurpose.TWO_FACTOR,
+        '01012344821',
+      );
+      const email = await exposing.sendEmailCode(
+        VerificationPurpose.SIGNUP,
+        EMAIL,
+      );
+
+      expect(sms.devCode).toBe(smsCode());
+      expect(email).not.toHaveProperty('devCode');
+    });
+
+    it('all이면 이메일 인증번호도 내려준다', async () => {
+      const email = await serviceWith('all').sendEmailCode(
+        VerificationPurpose.SIGNUP,
+        EMAIL,
+      );
+
+      expect(email.devCode).toBe(sentCode());
+    });
+
+    it('알 수 없는 값이면 내려주지 않는다', async () => {
+      const sent = await serviceWith('yes').sendSmsCode(
+        VerificationPurpose.TWO_FACTOR,
+        '01012344821',
+      );
+
+      expect(sent).not.toHaveProperty('devCode');
+    });
+  });
 });

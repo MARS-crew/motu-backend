@@ -21,6 +21,16 @@ export enum NodeEnv {
   Test = 'test',
 }
 
+/** 인증번호 발송 응답에 인증번호를 함께 내려줄 범위. 테스트 배포에서만 켠다. */
+export enum VerificationCodeExposure {
+  /** 내려주지 않는다 (기본) */
+  Off = 'off',
+  /** SMS 인증번호만 내려준다 */
+  Sms = 'sms',
+  /** SMS·이메일 인증번호를 모두 내려준다 */
+  All = 'all',
+}
+
 export enum LogLevel {
   Fatal = 'fatal',
   Error = 'error',
@@ -118,6 +128,14 @@ export class EnvironmentVariables {
   @ValidateIf((env: EnvironmentVariables) => !!env.SMS_SENDER)
   @Matches(/^[A-Za-z0-9]{1,11}$/)
   SMS_SENDER?: string;
+
+  /**
+   * 프론트 연동 테스트용. 켜면 인증번호 발송 응답의 `devCode`에 인증번호를 내려준다.
+   * 2차 보안·이메일 인증이 의미가 없어지므로 실제 사용자가 있는 환경에서는 반드시 off로 둔다.
+   */
+  @IsEnum(VerificationCodeExposure)
+  VERIFICATION_CODE_EXPOSURE: VerificationCodeExposure =
+    VerificationCodeExposure.Off;
 }
 
 /** 운영 환경이거나 BREVO_API_KEY가 있으면 Brevo로 메일을 보낸다. */
