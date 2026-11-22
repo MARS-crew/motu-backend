@@ -6,6 +6,10 @@ import { ListingReviewService } from './listing-review.service.js';
 import { ListingActivationService } from './listing-activation.service.js';
 import { ListingStockImagesController } from './listing-stock-images.controller.js';
 import { Module } from '@nestjs/common';
+import { TwoFactorModule } from '../two-factor/two-factor.module.js';
+import { ListingSubmissionController } from './listing-submission.controller.js';
+import { ListingSubmissionService } from './listing-submission.service.js';
+import { ListingApplicationNumbersService } from './listing-application-numbers.service.js';
 import { FilesModule } from '../files/files.module.js';
 import { SectorsModule } from '../sectors/sectors.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
@@ -22,6 +26,7 @@ import { ListingRevisionsService } from './listing-revisions.service.js';
 
 @Module({
   imports: [
+    TwoFactorModule,
     FilesModule,
     SectorsModule,
     NotificationsModule,
@@ -30,6 +35,7 @@ import { ListingRevisionsService } from './listing-revisions.service.js';
     StocksModule,
   ],
   controllers: [
+    ListingSubmissionController,
     ListingReviewController,
     ListingStockImagesController,
     ListingApplicationsController,
@@ -38,6 +44,8 @@ import { ListingRevisionsService } from './listing-revisions.service.js';
     ListingRevisionsController,
   ],
   providers: [
+    ListingSubmissionService,
+    ListingApplicationNumbersService,
     ListingReviewService,
     ListingActivationService,
     ListingApplicationsService,
