@@ -16,6 +16,7 @@ import {
 import { INITIAL_CASH } from '../src/modules/accounts/accounts.constants.js';
 import { LISTING_DRAFT_LIFETIME_MS } from '../src/modules/listing-applications/listing-applications.constants.js';
 import { normalizeListingUrl } from '../src/modules/listing-applications/listing-applications.validation.js';
+import { ListingApplicationNumbersService } from '../src/modules/listing-applications/listing-application-numbers.service.js';
 import { seedCases } from './seed-cases.js';
 import { seedDashboard } from './seed-dashboard.js';
 import { marketSeedSql } from './seed-market.js';
@@ -412,19 +413,23 @@ async function createNotices(): Promise<void> {
   });
   const stockIds = new Map(stocks.map(({ stockCode, id }) => [stockCode, id]));
   await prisma.notice.createMany({
-    data: seedNotices.map(({ daysAgo, postDays, targetStockCode, ...notice }) => {
-      const postStartDate = new Date(now - daysAgo * DAY);
-      const stockId = targetStockCode ? (stockIds.get(targetStockCode) ?? null) : null;
-      return {
-        ...notice,
-        stockId,
-        status: targetStockCode && stockId === null ? 'DRAFT' : 'POSTED',
-        postStartDate,
-        postEndDate: postDays
-          ? new Date(postStartDate.getTime() + postDays * DAY)
-          : null,
-      };
-    }),
+    data: seedNotices.map(
+      ({ daysAgo, postDays, targetStockCode, ...notice }) => {
+        const postStartDate = new Date(now - daysAgo * DAY);
+        const stockId = targetStockCode
+          ? (stockIds.get(targetStockCode) ?? null)
+          : null;
+        return {
+          ...notice,
+          stockId,
+          status: targetStockCode && stockId === null ? 'DRAFT' : 'POSTED',
+          postStartDate,
+          postEndDate: postDays
+            ? new Date(postStartDate.getTime() + postDays * DAY)
+            : null,
+        };
+      },
+    ),
   });
   console.log(`공지: ${seedNotices.length}개`);
 }
@@ -726,8 +731,8 @@ async function createLedgerHistory(
 }
 
 /**
- * 신청서 목록·상세·상태 화면용. 접수 이후 상태는 제출·심사 API가 아직 없어 seed로만 만든다.
- * 신청번호 형식은 제출 API에서 정해지면 맞춘다.
+ * 신청서 목록·상세·상태 화면용. 심사 상태별 자료를 생성하고 기존 신청서는 보존한다.
+ * 접수 번호는 실제 제출과 같은 발급기로 당시 한국 날짜의 LST-YYMMDD-NNN을 사용한다.
  */
 async function createListingApplications(userId: number): Promise<void> {
   if ((await prisma.listingApplication.count({ where: { userId } })) > 0) {
@@ -782,9 +787,17 @@ async function createListingApplications(userId: number): Promise<void> {
       reviewComment: '서비스 운영 기간이 상장 기준(6개월)에 미달합니다.',
     },
   ];
+  const numbers = new ListingApplicationNumbersService();
   for (const seed of seeds) {
-    const item = await prisma.listingApplication.create({
-      data: listingApplicationOf(userId, seed),
+    const data = listingApplicationOf(userId, seed);
+    const item = await prisma.$transaction(async (tx) => {
+      if (data.submittedAt) {
+        data.applicationNumber = await numbers.next(
+          tx,
+          new Date(data.submittedAt),
+        );
+      }
+      return tx.listingApplication.create({ data });
     });
     console.log(`상장 신청서: ${item.id} ${seed.name} (${seed.status})`);
   }
@@ -858,9 +871,7 @@ function listingApplicationOf(
   return {
     userId,
     status: seed.status,
-    applicationNumber: isSubmitted
-      ? `MOTU-${savedAt.toISOString().slice(0, 10).replaceAll('-', '')}-${seed.name.toUpperCase()}`
-      : null,
+    applicationNumber: null,
     submittedAt: isSubmitted ? savedAt : null,
     reviewComment: seed.reviewComment ?? null,
     revisionDeadline:
