@@ -18,12 +18,15 @@ export function listingNumberDate(now: Date): string {
 @Injectable()
 export class ListingApplicationNumbersService {
   /** 같은 접수 트랜잭션에서 호출한다. 기존 정식 번호(삭제 포함)를 보존하며 일별로 직렬화한다. */
-  async next(tx: Prisma.TransactionClient): Promise<string> {
+  async next(
+    tx: Prisma.TransactionClient,
+    submittedAt?: Date,
+  ): Promise<string> {
     for (;;) {
-      const day = listingNumberDate(new Date());
+      const day = listingNumberDate(submittedAt ?? new Date());
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`motu:listing-application-number:${day}`}))`;
       // 잠금을 기다리다 KST 날짜가 바뀌면 새 날짜의 잠금을 얻는다.
-      if (listingNumberDate(new Date()) !== day) {
+      if (!submittedAt && listingNumberDate(new Date()) !== day) {
         continue;
       }
       const pattern = `^LST-${day}-[0-9]{3}$`;
