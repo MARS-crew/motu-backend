@@ -75,6 +75,21 @@ describe('최종 제출 요청', () => {
 describe('신청번호 발급', () => {
   const numbers = new ListingApplicationNumbersService();
   afterEach(() => vi.useRealTimers());
+  it('seed의 과거 접수일도 같은 발급기로 번호를 생성한다', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-23T00:00:00Z'));
+    const tx = {
+      $executeRaw: vi.fn(),
+      $queryRaw: vi.fn().mockResolvedValue([{ next: 8 }]),
+    };
+    await expect(
+      numbers.next(
+        tx as unknown as Prisma.TransactionClient,
+        new Date('2026-11-19T15:00:00Z'),
+      ),
+    ).resolves.toBe('LST-261120-008');
+    expect(tx.$executeRaw).toHaveBeenCalledOnce();
+  });
   it('UTC 날짜가 아닌 한국 날짜를 사용한다', () => {
     expect(listingNumberDate(new Date('2026-11-22T14:59:59.999Z'))).toBe(
       '261122',
