@@ -52,7 +52,7 @@ export class ListingSubmissionService {
         return await this.prisma.$transaction(
           async (tx) => {
             // 임시저장 생성·수정·삭제와 같은 회원 행 잠금이다. 제출과 자동 저장을 직렬화한다.
-            await tx.$queryRaw`SELECT user_id FROM users WHERE user_id=${userId} FOR UPDATE`;
+            await tx.$queryRaw`SELECT user_id FROM users WHERE user_id=${userId} FOR NO KEY UPDATE`;
             await this.assertActive(tx, userId);
             let app = await tx.listingApplication.findFirst({
               where: { id, userId, deletedDate: null },
@@ -119,16 +119,37 @@ export class ListingSubmissionService {
                 ).map((issue) => ({ step, ...issue })),
               );
             }
-            if (fields.length) {
-              throw new BusinessException(Errors.VALIDATION, undefined, {
-                fields,
-              });
-            }
             const attachments = await this.steps.getAttachments(
               userId,
               data,
               tx,
             );
+            const evidence = attachments.evidence;
+            if (!evidence || evidence.attachments.length < 1) {
+              fields.push({
+                step: 4,
+                field: 'evidenceCollectionId',
+                message:
+                  '본인의 증빙 묶음에 저장 완료된 파일·링크를 1~10개 등록해 주세요.',
+              });
+            }
+            // 승인은 묶음의 설명을 사용하므로 초안의 설명만 채운 채 접수되지 않도록 검사한다.
+            const description = evidence?.description?.trim() ?? '';
+            if (
+              evidence &&
+              (description.length < 10 || description.length > 500)
+            ) {
+              fields.push({
+                step: 4,
+                field: 'evidenceDescription',
+                message: '증빙 묶음에 10~500자의 설명을 저장해 주세요.',
+              });
+            }
+            if (fields.length) {
+              throw new BusinessException(Errors.VALIDATION, undefined, {
+                fields,
+              });
+            }
             for (const collection of Object.values(attachments)) {
               if (collection) {
                 await this.files.freezeSavedCollection(
