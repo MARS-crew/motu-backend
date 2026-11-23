@@ -187,6 +187,50 @@ try {
   }
   const main = await image();
   const logo = await image(owner, 'LOGO');
+  async function evidence(
+    user = owner,
+    count = 1,
+    saved = true,
+    description = '서비스 운영과 지표를 확인할 수 있는 증빙자료입니다.',
+  ) {
+    const { id } = await json(collections, user.token, {
+      method: 'POST',
+      status: 201,
+      body: { purpose: 'EVIDENCE' },
+    });
+    const ids = [];
+    for (let i = 0; i < count; i++) {
+      if (i === 0) {
+        const form = new FormData();
+        form.append(
+          'files',
+          new Blob([png], { type: 'image/png' }),
+          'evidence.png',
+        );
+        const [file] = await json(`${collections}/${id}/uploads`, user.token, {
+          method: 'POST',
+          status: 201,
+          body: form,
+        });
+        ids.push(file.id);
+        continue;
+      }
+      const item = await json(`${collections}/${id}/links`, user.token, {
+        method: 'POST',
+        status: 201,
+        body: { url: `https://example.com/evidence/${i}` },
+      });
+      ids.push(item.id);
+    }
+    if (saved) {
+      await json(`${collections}/${id}`, user.token, {
+        method: 'PUT',
+        body: { attachmentIds: ids, description },
+      });
+    }
+    return id;
+  }
+  const initialEvidence = await evidence();
   const valid = {
     serviceName: '제출 테스트',
     summary: '최종 제출 통합 검증용 서비스입니다.',
@@ -200,7 +244,8 @@ try {
     desiredPrice: '1000',
     totalIssuedQuantity: '10000',
     priceCalculationBasis: '서비스 가치와 시장 비교를 반영했습니다.',
-    evidenceDescription: '선택 증빙자료에 대한 설명입니다.',
+    evidenceCollectionId: initialEvidence,
+    evidenceDescription: '서비스 운영과 지표를 확인할 수 있는 증빙자료입니다.',
   };
   const draft = (data = valid, user = owner) =>
     json(drafts, user.token, {
@@ -283,6 +328,39 @@ try {
     status: 404,
     code: 'VERIFICATION_NOT_FOUND',
   });
+  // 작성 중에는 증빙 없이도 저장할 수 있지만, 최초 접수에서는 단계·필드를 안내한다.
+  const noEvidenceImage = await image();
+  const noEvidence = await draft({
+    ...valid,
+    mainImageCollectionId: noEvidenceImage.id,
+    evidenceCollectionId: null,
+  });
+  const incomplete = await json(
+    `${drafts}/${noEvidence.id}/steps/4`,
+    owner.token,
+    { method: 'PUT', body: { data: {} } },
+  );
+  const refused = await request(submitPath(incomplete), owner.token, {
+    method: 'POST',
+    body: { expectedLastSavedAt: incomplete.lastSavedAt },
+    status: 400,
+    code: 'LISTING_SUBMISSION_VALIDATION_FAILED',
+  });
+  assert(
+    refused.error.details.fields.some(
+      (item) => item.step === 4 && item.field === 'evidenceCollectionId',
+    ),
+  );
+  await assertUnsubmitted(noEvidence.id);
+  assert.equal(
+    (
+      await prisma.attachmentCollection.findUniqueOrThrow({
+        where: { id: noEvidenceImage.id },
+      })
+    ).frozenAt,
+    null,
+  );
+  await dispose(noEvidence.id);
   // 3단계 지표는 전부 생략할 수 있다. 저장 후 받은 최신 시각을 최종 제출에 사용한다.
   await json(`${drafts}/${first.id}/steps/3`, owner.token, {
     method: 'PUT',
@@ -306,7 +384,7 @@ try {
   });
   assert.deepEqual(original.draftData, valid);
   assert.equal(original.lastSavedAt.toISOString(), saved.lastSavedAt);
-  for (const id of [main.id, logo.id]) {
+  for (const id of [main.id, logo.id, initialEvidence]) {
     await json(`${collections}/${id}`, owner.token, {
       method: 'PUT',
       body: { attachmentIds: [] },
@@ -400,6 +478,20 @@ try {
   // 미입력, 과거 일시, 잘못된 지표, 타인/미저장 첨부, 잘못된 용도와 legacy 입력을 재검증한다.
   const foreignImage = await image(other);
   const unsavedImage = await image(owner, 'MAIN_IMAGE', false);
+  const emptyEvidence = await evidence(owner, 0);
+  const unsavedEvidence = await evidence(owner, 1, false);
+  const foreignEvidence = await evidence(other);
+  const missingDescription = await evidence(owner, 1, true, null);
+  const shortDescription = await evidence(owner, 1, true, '짧음');
+  const tooManyEvidence = await evidence(owner, 10);
+  await prisma.attachment.create({
+    data: {
+      collectionId: tooManyEvidence,
+      kind: 'LINK',
+      url: 'https://example.com/legacy-extra',
+      saved: true,
+    },
+  });
   const invalidCases = [
     { ...valid, serviceName: '' },
     { ...valid, desiredPrice: '0' },
@@ -410,6 +502,12 @@ try {
     { ...valid, mainImageCollectionId: unsavedImage.id },
     { ...valid, mainImageCollectionId: logo.id },
     { ...valid, evidenceCollectionId: randomUUID() },
+    { ...valid, evidenceCollectionId: emptyEvidence },
+    { ...valid, evidenceCollectionId: unsavedEvidence },
+    { ...valid, evidenceCollectionId: foreignEvidence },
+    { ...valid, evidenceCollectionId: missingDescription },
+    { ...valid, evidenceCollectionId: shortDescription },
+    { ...valid, evidenceCollectionId: tooManyEvidence },
     { ...valid, unexpectedLegacyField: 'invalid' },
   ];
   for (const data of invalidCases) {
@@ -450,6 +548,38 @@ try {
   });
   await dispose(broken.id);
 
+  // 증빙 1개·10개로 실제 최초 접수한 건을 관리자 승인까지 연결한다.
+  await prisma.account.create({ data: { userId: owner.id, cash: 0n } });
+  for (const count of [1, 10]) {
+    const id = await evidence(owner, count);
+    const ready = await draft({ ...valid, evidenceCollectionId: id });
+    const submitted = await submit(ready, owner);
+    await json(
+      `/admin/listing-applications/${ready.id}/start-review`,
+      admin.token,
+      { method: 'POST', body: {} },
+    );
+    const day = listingNumberDate(new Date());
+    const approval = await json(
+      `/admin/listing-applications/${ready.id}/approve`,
+      admin.token,
+      {
+        method: 'POST',
+        body: {
+          finalPrice: '1000',
+          totalIssuedQuantity: '10000',
+          listingDate: `20${day.slice(0, 2)}-${day.slice(2, 4)}-${day.slice(4)}`,
+          tradingStartAt: new Date(Date.now() + 86400000).toISOString(),
+          reason: '증빙을 포함한 최초 접수 승인 검증',
+        },
+      },
+    );
+    assert.equal(approval.status, 'APPROVED');
+    assert(approval.stockId);
+    assert.equal(approval.applicationNumber, submitted.applicationNumber);
+    checks++;
+  }
+
   // 다른 서버 인스턴스에서 같은 신청서를 동시에 제출해도 한 번만 접수한다.
   const concurrent = await draft();
   const repeated = await Promise.all([
@@ -474,6 +604,7 @@ try {
         ...valid,
         mainImageCollectionId: foreignImage.id,
         logoCollectionId: undefined,
+        evidenceCollectionId: foreignEvidence,
       },
       other,
     ),
@@ -593,6 +724,27 @@ try {
     return value;
   };
   const submitting = submit(racing, owner);
+  const insertAuthReferences = async () => {
+    // 제출·저장 잠금은 직렬화하지만 회원 FK의 KEY SHARE와 충돌하지 않아야 한다.
+    await apps[1].get(PrismaService).$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '1500ms'");
+      await tx.refreshToken.create({
+        data: {
+          userId: owner.id,
+          tokenHash: randomUUID().replaceAll('-', '').repeat(2),
+          expiresAt: new Date(Date.now() + 86400000),
+        },
+      });
+      await tx.trustedDevice.create({
+        data: {
+          userId: owner.id,
+          deviceIdHash: randomUUID().replaceAll('-', '').repeat(2),
+          lastUsedDate: new Date(),
+        },
+      });
+    });
+    checks++;
+  };
   try {
     await Promise.race([
       atNumber,
@@ -600,6 +752,7 @@ try {
         throw new Error('경합 테스트의 발급 대기 지점에 도달하지 않았습니다.');
       }),
     ]);
+    await insertAuthReferences();
     const saving = json(`${drafts}/${racing.id}`, owner.token, {
       method: 'PATCH',
       body: { data: { serviceName: '동시 저장' } },
@@ -621,6 +774,45 @@ try {
     release();
     numbers.next = next;
   }
+
+  const { ListingStepValidationService } =
+    await import('../dist/modules/listing-applications/listing-step-validation.service.js');
+  const validator = apps[0].get(ListingStepValidationService);
+  const validate = validator.validate.bind(validator);
+  const savingDraft = await draft();
+  let atSave;
+  let releaseSave;
+  const savingStarted = new Promise((done) => {
+    atSave = done;
+  });
+  const saveGate = new Promise((done) => {
+    releaseSave = done;
+  });
+  validator.validate = async (...args) => {
+    const issues = await validate(...args);
+    atSave();
+    await saveGate;
+    return issues;
+  };
+  const saveRequest = json(`${drafts}/${savingDraft.id}/steps/4`, owner.token, {
+    method: 'PUT',
+    body: { data: {} },
+  });
+  try {
+    await Promise.race([
+      savingStarted,
+      saveRequest.then(() => {
+        throw new Error('저장 잠금 검증 지점 미도달');
+      }),
+    ]);
+    await insertAuthReferences();
+    releaseSave();
+    await saveRequest;
+  } finally {
+    releaseSave();
+    validator.validate = validate;
+  }
+  await dispose(savingDraft.id);
 
   // JWT 검증 직후 계정 정지가 확정돼도 트랜잭션 내부 재검증으로 제출을 차단한다.
   const blocked = await draft();
@@ -662,6 +854,9 @@ try {
         'real-2fa-setup-and-reauthentication',
         'ownership-and-input-validation',
         'optional-step3',
+        'required-saved-evidence-and-description',
+        'initial-evidence-1-and-10-approval',
+        'submission-and-draft-auth-fk-compatibility',
         'initial-submit-and-idempotency',
         'attachment-freeze-and-rollback',
         'admin-review-and-existing-resubmit',
