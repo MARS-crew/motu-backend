@@ -335,7 +335,7 @@ export class ListingApplicationsService {
             // 같은 계정의 생성·수정·삭제를 직렬화해 5건 초과를 방지한다.
             const users = await tx.$queryRaw<
               { user_id: number }[]
-            >`SELECT user_id FROM users WHERE user_id = ${userId} FOR UPDATE`;
+            >`SELECT user_id FROM users WHERE user_id = ${userId} FOR NO KEY UPDATE`;
             if (!users.length) throw new BusinessException(Errors.NOT_FOUND);
             const now = new Date();
             await tx.listingApplication.updateMany({

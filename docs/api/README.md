@@ -24,7 +24,7 @@
 | [지정가 알림](price-alerts.md) | 지정가 알림 설정·수정·해제·목록, 도달 감지 | `modules/price-alerts` |
 | [알림](notifications.md) | 내 알림 목록·읽음·미확인 수, 체결·목표가 생성 서비스, 임시저장 만료 안내 | `modules/notifications`, `modules/listing-applications` |
 | [계정·인증 문의](inquiries.md) | 공개 접수 단일화·과거 본인 조회, 관리자 목록·담당자·답변 초안·이메일 발송·완료 | `modules/inquiries` |
-| [상장 신청](listing-applications.md) | 임시저장·단계 저장·본인 조회, 관리자 신청 검색·상세·서류, 검토 시작·승인·반려·보완·상품 생성 | `modules/listing-applications` |
+| [상장 신청](listing-applications.md) | 임시저장·단계 저장·2차 보안 최종 제출·접수번호·본인 조회, 관리자 검색·상세·서류·심사·상품 생성 | `modules/listing-applications` |
 | [보완 요청·재제출](listing-revisions.md) | 본인 보완 요청 조회·기한 검사·증빙 재제출 | `modules/listing-applications` |
 | [거래 모니터링](anomalies.md) | 이상 거래 탐지 기준, 목록·상세, 조치(상품 거래 중지·회원 정지·이상 없음) | `modules/anomalies` |
 | [대시보드](dashboard.md) | 운영 대시보드 지표 카드, 거래량·거래대금 추이, 일별 통계 배치 | `modules/dashboard` |

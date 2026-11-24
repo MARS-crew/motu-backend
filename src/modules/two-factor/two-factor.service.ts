@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 import type { ClientInfo } from '../../common/utils/client-info.js';
 import { maskEmail, maskPhoneNumber } from '../../common/utils/masking.js';
 import {
@@ -264,9 +265,13 @@ export class TwoFactorService {
   async requireVerification(
     userId: number,
     action: TwoFactorAction,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const user = await this.findUser(userId);
-    if (user.twoFactorStatus !== TwoFactorStatus.ENABLED) {
+    const user = await this.findUser(userId, tx);
+    if (
+      user.twoFactorStatus !== TwoFactorStatus.ENABLED ||
+      !user.twoFactorPhoneNumber
+    ) {
       throw new BusinessException(TwoFactorErrors.NOT_ENABLED, undefined, {
         action,
       });
@@ -563,8 +568,13 @@ export class TwoFactorService {
     return MAX_TWO_FACTOR_FAIL_COUNT - user.twoFactorFailCount;
   }
 
-  private async findUser(userId: number): Promise<User> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  private async findUser(
+    userId: number,
+    tx?: Prisma.TransactionClient,
+  ): Promise<User> {
+    const user = await (tx ?? this.prisma).user.findUnique({
+      where: { id: userId },
+    });
     if (!user || user.userStatus === UserStatus.WITHDRAWN) {
       throw new BusinessException(UserErrors.NOT_FOUND);
     }

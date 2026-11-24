@@ -84,6 +84,30 @@ try {
     ['node_modules/prisma/build/index.js', 'migrate', 'deploy'],
     { env: environment, timeout: 60000 },
   );
+  // 기존 정식 번호(삭제 포함)가 있어도 seed가 동일 번호를 재사용하지 않아야 한다.
+  const dateKey = (date) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: '2-digit',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .formatToParts(date)
+      .filter((part) => ['year', 'month', 'day'].includes(part.type));
+  const key = (date) => {
+    const parts = dateKey(date);
+    return ['year', 'month', 'day']
+      .map((type) => parts.find((part) => part.type === type).value)
+      .join('');
+  };
+  const fixtureAt = new Date(Date.now() - 3 * DAY);
+  const fixtureUser = await client.query(
+    "INSERT INTO users (login_id,password,nickname,email,birth_date,terms_agreed,privacy_agreed,marketing_agreed,modified_date) VALUES ('numberfixture','unused-hash','번호검증','numberfixture@motu.test','2000-01-01',true,true,false,NOW()) RETURNING user_id",
+  );
+  await client.query(
+    "INSERT INTO listing_applications (user_id,application_number,submitted_at,status,expires_at,deleted_date,modified_date) VALUES ($1,$2,$3,'SUBMITTED',NOW(),NOW(),NOW())",
+    [fixtureUser.rows[0].user_id, `LST-${key(fixtureAt)}-007`, fixtureAt],
+  );
   const seedStartedAt = Date.now();
   await seed();
   const seedFinishedAt = Date.now();
@@ -104,10 +128,32 @@ try {
     await client.query(`
       SELECT a.* FROM listing_applications a
       JOIN users u ON u.user_id=a.user_id WHERE u.login_id='motuuser'
+      AND a.service_name IN ('TaskFlow','MealKit','TripNote','PetCare','CodeMate','BookClub','GameHub')
       ORDER BY a.application_id
     `)
   ).rows;
   check(applications.length === 7, 'motuuser 신청서 7건 생성');
+  const submitted = applications.filter((row) => row.status !== 'DRAFT');
+  check(
+    new Set(submitted.map((row) => row.application_number)).size ===
+      submitted.length,
+    'seed 정식 번호 중복 없음',
+  );
+  for (const row of submitted) {
+    check(
+      new RegExp(`^LST-${key(row.submitted_at)}-[0-9]{3}$`).test(
+        row.application_number,
+      ),
+      'seed 번호가 한국 접수 날짜·3자리 순번과 일치',
+    );
+  }
+  const trip = submitted.find((row) => row.service_name === 'TripNote');
+  if (key(trip.submitted_at) === key(fixtureAt)) {
+    check(
+      trip.application_number.endsWith('-008'),
+      'seed가 삭제된 정식 번호 다음 순번을 사용',
+    );
+  }
   const task = applications.find((row) => row.service_name === 'TaskFlow');
   const meal = applications.find((row) => row.service_name === 'MealKit');
   check(
@@ -266,6 +312,14 @@ try {
         desiredListingDate: '2026-12-01',
         transactionVolumeBasis: '결제 완료 금액 합계',
       }),
+    ],
+  );
+  const legacyNumber = 'MOTU-LEGACY-GAMEHUB';
+  await client.query(
+    'UPDATE listing_applications SET application_number=$1 WHERE application_id=$2',
+    [
+      legacyNumber,
+      applications.find((row) => row.service_name === 'GameHub').application_id,
     ],
   );
   const legacySnapshot = await applicationSnapshot();

@@ -32,7 +32,7 @@ export class ListingStepValidationService {
       Number.isSafeInteger(data.sectorCode)
     ) {
       if (
-        !(await this.sectors.getSectors()).items.some(
+        !(await this.sectors.getSectors(tx)).items.some(
           (item) => item.sectorCode === data.sectorCode,
         )
       )
