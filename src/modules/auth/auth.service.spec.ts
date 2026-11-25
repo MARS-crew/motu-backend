@@ -28,7 +28,7 @@ describe('AuthService', () => {
     updateMany: vi.fn(),
     create: vi.fn(),
   };
-  const adminProfile = { findUnique: vi.fn() };
+  const adminProfile = { findUnique: vi.fn(), updateMany: vi.fn() };
   const prisma = {
     refreshToken,
     passwordResetToken,
@@ -48,6 +48,7 @@ describe('AuthService', () => {
         JWT_ACCESS_EXPIRES_IN: 900,
         JWT_REFRESH_EXPIRES_IN_DAYS: 14,
         PASSWORD_RESET_URL: 'http://localhost:5173/password-reset',
+        ADMIN_PASSWORD_RESET_URL: 'http://localhost:5173/admin/password-reset',
       })[key],
   } as unknown as ConfigService<never, true>;
   const findByLoginId = vi.fn();
@@ -549,6 +550,7 @@ describe('AuthService', () => {
     it.each([
       ['이메일이 다르면', { email: 'other@motu.test' }],
       ['잠긴 계정이면', { userStatus: 'LOCKED' }],
+      ['관리자 계정이면', { role: 'ADMIN' }],
     ])('%s 에러 없이 메일을 보내지 않는다', async (_case, overrides) => {
       findByLoginId.mockResolvedValue({ ...user, ...overrides });
 
@@ -641,6 +643,124 @@ describe('AuthService', () => {
         response: { code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN' },
       });
       expect(changePassword).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('관리자 비밀번호 재설정', () => {
+    const admin = () => ({ ...user, role: 'ADMIN', email: 'admin@motu.test' });
+    const savedToken = () => ({
+      id: 30,
+      userId: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+    });
+
+    it('정상 관리자 이메일이면 관리자 웹 링크(10분)를 보낸다', async () => {
+      findByEmail.mockResolvedValue(admin());
+      const before = Date.now();
+
+      await service.requestAdminPasswordReset('admin@motu.test');
+
+      expect(findByEmail).toHaveBeenCalledWith('admin@motu.test');
+      const { to, text } = sendMail.mock.calls[0][0] as {
+        to: string;
+        text: string;
+      };
+      expect(to).toBe('admin@motu.test');
+      expect(text).toContain(
+        'http://localhost:5173/admin/password-reset?token=',
+      );
+      expect(text).toContain('10분');
+      const { data } = passwordResetToken.create.mock.calls[0][0] as {
+        data: { expiresAt: Date };
+      };
+      const ttl = data.expiresAt.getTime() - before;
+      expect(ttl).toBeGreaterThan(9 * 60_000);
+      expect(ttl).toBeLessThanOrEqual(10 * 60_000 + 1_000);
+    });
+
+    it.each([
+      ['등록되지 않은 이메일', null],
+      ['회원 이메일', { ...user }],
+      ['정지된 관리자', { ...user, role: 'ADMIN', userStatus: 'BLOCKED' }],
+      ['잠긴 관리자', { ...user, role: 'ADMIN', userStatus: 'LOCKED' }],
+    ])('%s은 에러 없이 메일을 보내지 않는다', async (_case, found) => {
+      findByEmail.mockResolvedValue(found);
+
+      await expect(
+        service.requestAdminPasswordReset('admin@motu.test'),
+      ).resolves.toBeUndefined();
+      expect(sendMail).not.toHaveBeenCalled();
+      expect(passwordResetToken.create).not.toHaveBeenCalled();
+    });
+
+    it('새 비밀번호를 설정하면 임시 비밀번호 상태를 풀고 세션을 모두 만료한다', async () => {
+      findById.mockResolvedValue(admin());
+      passwordResetToken.findUnique.mockResolvedValue(savedToken());
+
+      await service.resetAdminPassword('reset-token', 'motuadmin9!');
+
+      expect(changePassword).toHaveBeenCalledWith(1, 'motuadmin9!');
+      expect(adminProfile.updateMany).toHaveBeenCalledWith({
+        where: { userId: 1, passwordChangeRequired: true },
+        data: { passwordChangeRequired: false },
+      });
+      expect(refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 1, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(twoFactorService.forgetDevices).toHaveBeenCalledWith(1);
+    });
+
+    it('정지된 관리자는 링크가 있어도 재설정할 수 없다', async () => {
+      findById.mockResolvedValue({ ...admin(), userStatus: 'BLOCKED' });
+      passwordResetToken.findUnique.mockResolvedValue(savedToken());
+
+      await expect(
+        service.resetAdminPassword('reset-token', 'motuadmin9!'),
+      ).rejects.toMatchObject({ response: { code: 'AUTH_ACCOUNT_BLOCKED' } });
+      expect(changePassword).not.toHaveBeenCalled();
+    });
+
+    it('회원 링크는 관리자 API에서 쓸 수 없다', async () => {
+      passwordResetToken.findUnique.mockResolvedValue(savedToken());
+
+      await expect(
+        service.verifyAdminPasswordResetToken('reset-token'),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN' },
+      });
+      await expect(
+        service.resetAdminPassword('reset-token', 'motuadmin9!'),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN' },
+      });
+      expect(changePassword).not.toHaveBeenCalled();
+    });
+
+    it('관리자 링크는 회원 API에서 쓸 수 없다', async () => {
+      findById.mockResolvedValue(admin());
+      passwordResetToken.findUnique.mockResolvedValue(savedToken());
+
+      await expect(
+        service.verifyPasswordResetToken('reset-token'),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN' },
+      });
+      await expect(
+        service.resetPassword('reset-token', 'motunew1!'),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN' },
+      });
+      expect(changePassword).not.toHaveBeenCalled();
+    });
+
+    it('회원 재설정은 임시 비밀번호 상태를 건드리지 않는다', async () => {
+      passwordResetToken.findUnique.mockResolvedValue(savedToken());
+
+      await service.resetPassword('reset-token', 'motunew1!');
+
+      expect(adminProfile.updateMany).not.toHaveBeenCalled();
     });
   });
 });
