@@ -23,6 +23,7 @@
 | [차트·시세](charts.md) | 당일 거래 요약, 기간별 차트, 실시간 시세(SSE) | `modules/charts` |
 | [지정가 알림](price-alerts.md) | 지정가 알림 설정·수정·해제·목록, 도달 감지 | `modules/price-alerts` |
 | [알림](notifications.md) | 내 알림 목록·읽음·미확인 수, 체결·목표가 생성 서비스, 임시저장 만료 안내 | `modules/notifications`, `modules/listing-applications` |
+| [푸시 수신 설정](notification-settings.md) | 본인 푸시·야간 수신 설정 조회·변경, 야간 동의 보존·발송 판단 계약 | `modules/notifications` |
 | [계정·인증 문의](inquiries.md) | 공개 접수 단일화·과거 본인 조회, 관리자 목록·담당자·답변 초안·이메일 발송·완료 | `modules/inquiries` |
 | [상장 신청](listing-applications.md) | 임시저장·단계 저장·2차 보안 최종 제출·접수번호·본인 조회, 관리자 검색·상세·서류·심사·상품 생성 | `modules/listing-applications` |
 | [보완 요청·재제출](listing-revisions.md) | 본인 보완 요청 조회·기한 검사·증빙 재제출 | `modules/listing-applications` |
