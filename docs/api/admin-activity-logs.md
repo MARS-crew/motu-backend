@@ -13,6 +13,7 @@
 
 | 작업 대상 `targetType` | 수행 작업 `action` | 대상 ID `targetId` |
 |---|---|---|
+| `POINT_SETTING` 초기 지급 설정 | `INITIAL_GRANT_UPDATE` 신규 가입 초기 지급액 변경 | 고정 설정 ID 1 |
 | `LISTING_APPLICATION` 상장 신청 | `LISTING_REVIEW_START` 검토 시작, `LISTING_APPROVE` 상장 승인, `LISTING_REVISION_REQUEST` 보완 요청, `LISTING_REVISION_DEADLINE_UPDATE` 보완 기한 연장, `LISTING_REJECT` 반려 | 상장 신청 ID |
 | `STOCK` 상품 | `STOCK_UPDATE` 상품 정보 수정, `STOCK_PAUSE` 상품 거래 중지, `STOCK_RESUME` 상품 거래 재개, `STOCK_CLOSE` 상품 거래 종료 | 상품 ID |
 | `USER` 회원 | `USER_STATUS_CHANGE` 회원 상태 변경, `USER_UNLOCK` 계정 잠금 해제, `POINT_GRANT` 포인트 지급, `POINT_RECALL` 포인트 회수 | 회원 user_id |
