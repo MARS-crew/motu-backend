@@ -29,6 +29,7 @@ import { ConfirmLoginVerificationReqDto } from './dto/req/confirm-login-verifica
 import { LoginReqDto } from './dto/req/login-req.dto.js';
 import { LogoutReqDto } from './dto/req/logout-req.dto.js';
 import { RefreshTokenReqDto } from './dto/req/refresh-token-req.dto.js';
+import { RequestAdminPasswordResetReqDto } from './dto/req/request-admin-password-reset-req.dto.js';
 import { RequestPasswordResetReqDto } from './dto/req/request-password-reset-req.dto.js';
 import { ResetPasswordReqDto } from './dto/req/reset-password-req.dto.js';
 import { SendLoginIdVerificationReqDto } from './dto/req/send-login-id-verification-req.dto.js';
@@ -234,6 +235,51 @@ export class AuthController {
   })
   async resetPassword(@Body() dto: ResetPasswordReqDto): Promise<null> {
     await this.authService.resetPassword(dto.token, dto.newPassword);
+    return null;
+  }
+
+  @Post('admin/password-reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '관리자 비밀번호 재설정 링크 발송',
+    description:
+      '등록 이메일이 정상 관리자 계정이면 관리자 웹 재설정 화면 링크(ADMIN_PASSWORD_RESET_URL, 10분·일회용)를 메일로 보낸다. 관리자 이메일을 노출하지 않도록 결과와 관계없이 같은 응답을 내려준다. 같은 계정은 1분에 한 번만 보낸다.',
+  })
+  async requestAdminPasswordReset(
+    @Body() dto: RequestAdminPasswordResetReqDto,
+  ): Promise<null> {
+    await this.authService.requestAdminPasswordReset(dto.email);
+    return null;
+  }
+
+  @Post('admin/password-reset/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '관리자 재설정 링크 확인',
+    description:
+      '관리자 새 비밀번호 설정 화면을 열 때 호출한다. 만료·사용한 링크이거나 회원 재설정 링크면 400 AUTH_INVALID_PASSWORD_RESET_TOKEN.',
+  })
+  @ApiOkResponse({ type: VerifyPasswordResetResDto })
+  async verifyAdminPasswordReset(
+    @Body() dto: VerifyPasswordResetReqDto,
+  ): Promise<VerifyPasswordResetResDto> {
+    await this.authService.verifyAdminPasswordResetToken(dto.token);
+    return { valid: true };
+  }
+
+  @Post('admin/password-reset/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '관리자 새 비밀번호 설정',
+    description:
+      '비밀번호를 바꾸고 기존 로그인 세션을 모두 만료한다. 임시 비밀번호 상태도 풀린다. 링크는 한 번만 사용할 수 있고, 정지·탈퇴 상태는 해제하지 않는다. 현재 비밀번호와 같으면 400 AUTH_SAME_AS_CURRENT_PASSWORD이며 같은 링크로 다시 시도할 수 있다.',
+  })
+  @ApiBadRequestResponse({
+    description:
+      'AUTH_INVALID_PASSWORD_RESET_TOKEN / AUTH_SAME_AS_CURRENT_PASSWORD',
+  })
+  async resetAdminPassword(@Body() dto: ResetPasswordReqDto): Promise<null> {
+    await this.authService.resetAdminPassword(dto.token, dto.newPassword);
     return null;
   }
 }
