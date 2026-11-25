@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { EnvironmentVariables } from '../../config/env.validation.js';
 import { AdminPasswordChangeGuard } from '../admin-accounts/admin-password-change.guard.js';
+import { AdminLoginHistoriesModule } from '../admin-login-histories/admin-login-histories.module.js';
 import { TwoFactorModule } from '../two-factor/two-factor.module.js';
 import { UsersModule } from '../users/users.module.js';
 import { VerificationsModule } from '../verifications/verifications.module.js';
@@ -14,6 +15,7 @@ import { RolesGuard } from './guards/roles.guard.js';
 
 @Module({
   imports: [
+    AdminLoginHistoriesModule,
     UsersModule,
     VerificationsModule,
     TwoFactorModule,
