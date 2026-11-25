@@ -97,6 +97,7 @@ model User {
   inquiryRepliesSent      InquiryReplyAttempt[]        @relation("InquiryReplyActor")
   inquiryAccessAttempt    InquiryAccessAttempt?
   adminActivityLogs       AdminActivityLog[]
+  adminLoginHistories     AdminLoginHistory[]
   anomalies               Anomaly[]                    @relation("AnomalyUser")
   anomaliesHandled        Anomaly[]                    @relation("AnomalyHandler")
   adminProfile            AdminProfile?
@@ -1095,6 +1096,47 @@ model AdminActivityLog {
   @@index([adminId, createDate])
   @@index([targetType, targetId, createDate])
   @@map("admin_activity_logs")
+}
+
+/// 관리자 로그인 결과
+enum AdminLoginResult {
+  SUCCESS
+  FAILURE
+
+  @@map("admin_login_result")
+}
+
+/// 관리자 로그인 실패 사유
+enum AdminLoginFailureReason {
+  /// 비밀번호 오류 (5회째 오류로 잠긴 경우 포함)
+  INVALID_PASSWORD
+  /// 잠긴 계정
+  ACCOUNT_LOCKED
+  /// 정지 계정
+  ACCOUNT_BLOCKED
+  /// 탈퇴 계정
+  ACCOUNT_WITHDRAWN
+
+  @@map("admin_login_failure_reason")
+}
+
+/// 관리자 접속 이력 (ADM-AUTH-01). 관리자 계정 아이디로 들어온 로그인 시도를 남긴다. 수정·삭제하지 않는다.
+model AdminLoginHistory {
+  id            BigInt                   @id @default(autoincrement()) @map("login_history_id")
+  adminId       Int                      @map("admin_id")
+  result        AdminLoginResult
+  /// 실패일 때만 값이 있다.
+  failureReason AdminLoginFailureReason? @map("failure_reason")
+  ipAddress     String?                  @map("ip_address") @db.VarChar(45)
+  /// 접속 기기 (User-Agent)
+  userAgent     String?                  @map("user_agent") @db.VarChar(255)
+  createDate    DateTime                 @default(now()) @map("create_date") @db.Timestamptz(3)
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  @@index([createDate])
+  @@index([adminId, createDate])
+  @@map("admin_login_histories")
 }
 
 /// 이상 거래 탐지 유형 (ADM-MON-01)
