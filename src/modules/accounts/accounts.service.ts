@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PointSettingsService } from '../point-settings/point-settings.service.js';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import type { ClientInfo } from '../../common/utils/client-info.js';
@@ -54,24 +55,26 @@ export class AccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly adminActivityLogs: AdminActivityLogsService,
+    private readonly pointSettings: PointSettingsService,
   ) {}
 
   /**
    * 계좌를 만들고 초기 포인트를 지급한다. 회원가입과 같은 트랜잭션에서 호출한다.
    */
-  createInitialAccount(
+  async createInitialAccount(
     tx: Prisma.TransactionClient,
     userId: number,
   ): Promise<Account> {
+    const initialGrant = await this.pointSettings.getSignupGrant(tx);
     return tx.account.create({
       data: {
         userId,
-        cash: INITIAL_CASH,
+        cash: initialGrant,
         ledgers: {
           create: {
             type: CashLedgerType.DEPOSIT,
-            amount: INITIAL_CASH,
-            balanceAfter: INITIAL_CASH,
+            amount: initialGrant,
+            balanceAfter: initialGrant,
           },
         },
       },

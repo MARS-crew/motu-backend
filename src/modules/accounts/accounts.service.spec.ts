@@ -1,4 +1,5 @@
 import { PrismaService } from '../../common/prisma/prisma.service.js';
+import { PointSettingsService } from '../point-settings/point-settings.service.js';
 import {
   AdminActivityAction,
   AdminActivityTarget,
@@ -17,6 +18,7 @@ const DAY = 24 * HOUR;
 
 describe('AccountsService', () => {
   const account = {
+    create: vi.fn(),
     findUnique: vi.fn(),
     updateMany: vi.fn(),
     update: vi.fn(),
@@ -40,9 +42,11 @@ describe('AccountsService', () => {
     $transaction: transaction,
   } as unknown as PrismaService;
   const adminActivityLogs = { record: vi.fn() };
+  const pointSettings = { getSignupGrant: vi.fn() };
   const service = new AccountsService(
     prisma,
     adminActivityLogs as unknown as AdminActivityLogsService,
+    pointSettings as unknown as PointSettingsService,
   );
 
   const accountOf = (overrides: Record<string, unknown> = {}) => ({
@@ -78,6 +82,29 @@ describe('AccountsService', () => {
       userStatus: UserStatus.ACTIVE,
     });
     user.findFirst.mockResolvedValue(null);
+  });
+
+  it('회원가입 계좌·원장에 설정 지급액을 동일하게 저장한다', async () => {
+    pointSettings.getSignupGrant.mockResolvedValueOnce(5_000_000n);
+    account.create.mockResolvedValueOnce({ id: 20, cash: 5_000_000n });
+    await service.createInitialAccount(
+      tx as unknown as Prisma.TransactionClient,
+      12,
+    );
+    expect(pointSettings.getSignupGrant).toHaveBeenCalledWith(tx);
+    expect(account.create).toHaveBeenCalledWith({
+      data: {
+        userId: 12,
+        cash: 5_000_000n,
+        ledgers: {
+          create: {
+            type: CashLedgerType.DEPOSIT,
+            amount: 5_000_000n,
+            balanceAfter: 5_000_000n,
+          },
+        },
+      },
+    });
   });
 
   describe('grantPoint', () => {

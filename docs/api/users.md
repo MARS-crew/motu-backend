@@ -46,7 +46,7 @@
 | API | `POST /api/users` |
 | 로그인 | 불필요 |
 | 요청 | `loginId`, `password`, `nickname`, `email`(인증 완료한 이메일), `phoneNumber`(선택, 하이픈 유무 무관), `birthDate`(`YYYY-MM-DD`), `termsAgreed`(true 필수), `privacyAgreed`(true 필수), `marketingAgreed` |
-| 응답 | `userId`, `loginId`, `nickname`, `userStatus`(`ACTIVE`), `role`(`USER`), `cash`(3,000,000) |
+| 응답 | `userId`, `loginId`, `nickname`, `userStatus`(`ACTIVE`), `role`(`USER`), `cash`(가입 시 실제 지급액) |
 
 | 에러 | 상황 |
 |------|------|
@@ -56,7 +56,7 @@
 | 400 `BAD_REQUEST` | 형식 오류. 생년월일이 오늘(한국 시간) 이후면 "생년월일은 오늘 이후 날짜로 입력할 수 없습니다." |
 
 - 비밀번호 확인값 일치 여부는 프론트에서 확인합니다.
-- 가입하면 계좌가 만들어지고 초기 포인트 3,000,000P가 지급됩니다. 가입 후 로그인 화면으로 보냅니다. (자동 로그인 없음)
+- 가입하면 계좌가 만들어지고 [초기 지급 설정](point-settings.md)의 현재 금액(최초 기본값 3,000,000P)이 지급됩니다. 계좌·DEPOSIT 원장·응답 cash는 같은 금액입니다. 설정 변경은 기존 회원에게 소급하지 않으며 리셋 금액은 변경하지 않습니다. 가입 후 로그인 화면으로 보냅니다. (자동 로그인 없음)
 
 ## 내 정보
 

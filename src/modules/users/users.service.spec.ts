@@ -103,6 +103,11 @@ describe('UsersService', () => {
     });
   });
 
+  it('가입 완료 cash는 고정 상수 대신 실제 계좌 지급액이다', async () => {
+    createInitialAccount.mockResolvedValueOnce({ cash: 5_000_000n });
+    expect((await service.create(dto)).cash).toBe(5_000_000);
+  });
+
   it('이미 사용 중인 아이디면 가입하지 않는다', async () => {
     countUsers.mockResolvedValueOnce(1);
 

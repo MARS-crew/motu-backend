@@ -8,6 +8,9 @@ export const ACTIONS_BY_TARGET: Record<
   AdminActivityTarget,
   readonly AdminActivityAction[]
 > = {
+  [AdminActivityTarget.POINT_SETTING]: [
+    AdminActivityAction.INITIAL_GRANT_UPDATE,
+  ],
   [AdminActivityTarget.LISTING_APPLICATION]: [
     AdminActivityAction.LISTING_REVIEW_START,
     AdminActivityAction.LISTING_REVISION_DEADLINE_UPDATE,
