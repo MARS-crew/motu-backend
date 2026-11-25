@@ -22,6 +22,22 @@
 - 관리자에게 의미 없는 회원 정보는 비워 둔다. 닉네임·생년월일은 null, 약관 동의는 모두 false다.
 - seed로 만든 관리자처럼 `admin_profiles` 행이 없는 관리자는 임시 비밀번호 상태가 아닌 것으로 본다.
 
+## 관리자 접속 이력
+
+화면 ADM-AUTH-01, 01-01, 01-E01. 로그인 API(`POST /api/auth/login`, 새 기기 확인 `.../login/verifications/confirm`)가 저장합니다. 조회 API는 아직 없습니다.
+
+- 아이디가 관리자 계정일 때만 남깁니다. 없는 아이디는 관리자 시도인지 알 수 없어 남기지 않습니다. 회원 로그인도 남기지 않습니다.
+- 성공은 토큰을 발급할 때 남깁니다. 새 기기 확인이 필요하면 비밀번호 확인 단계가 아니라 확인을 마칠 때 남깁니다.
+
+| `admin_login_histories` 컬럼 | 값 |
+|---|---|
+| `admin_id` | 관리자 user_id |
+| `result` | `SUCCESS` / `FAILURE` |
+| `failure_reason` | 실패일 때만. `INVALID_PASSWORD`(5회째 오류로 잠긴 경우 포함) / `ACCOUNT_LOCKED` / `ACCOUNT_BLOCKED` / `ACCOUNT_WITHDRAWN` |
+| `ip_address` | 접속 IP. 프록시를 거치면 `X-Forwarded-For` 맨 앞 값 |
+| `user_agent` | 접속 기기 (User-Agent, 255자까지) |
+| `create_date` | 시도 일시 |
+
 ## 관리자 계정 생성
 
 `POST /admin/admin-accounts` — `{ loginId, name, email, duty? }`
