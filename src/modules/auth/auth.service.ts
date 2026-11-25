@@ -13,6 +13,7 @@ import { MailSender } from '../../common/mail/mail-sender.js';
 import { MailErrors } from '../../common/mail/mail.errors.js';
 import {
   AdminLoginFailureReason,
+  Prisma,
   Role,
   User,
   UserStatus,
@@ -85,25 +86,22 @@ export class AuthService {
     }
     const blockedReason = STATUS_FAILURE_REASONS[user.userStatus];
     if (user.role === Role.ADMIN && blockedReason) {
-      await this.adminLoginHistories.recordFailure(
-        user.id,
-        blockedReason,
-        client,
-      );
+      await this.recordAdminLoginFailure(user.id, blockedReason, client);
     }
     this.assertLoginAllowed(user);
 
     if (!(await verify(user.password, dto.password))) {
+      // 실패 횟수·잠금 처리를 먼저 끝낸 뒤 접속 이력을 남긴다.
+      const { failCount, locked } = await this.usersService.recordLoginFailure(
+        user.id,
+      );
       if (user.role === Role.ADMIN) {
-        await this.adminLoginHistories.recordFailure(
+        await this.recordAdminLoginFailure(
           user.id,
           AdminLoginFailureReason.INVALID_PASSWORD,
           client,
         );
       }
-      const { failCount, locked } = await this.usersService.recordLoginFailure(
-        user.id,
-      );
       if (locked) {
         throw new BusinessException(AuthErrors.ACCOUNT_LOCKED);
       }
@@ -159,11 +157,14 @@ export class AuthService {
     client: ClientInfo,
   ): Promise<LoginResDto> {
     await this.usersService.recordLoginSuccess(user.id);
-    if (user.role === Role.ADMIN) {
-      await this.adminLoginHistories.recordSuccess(user.id, client);
-    }
+    // 관리자 성공 이력은 세션 저장과 같은 트랜잭션에 남겨, 토큰 발급이 실패하면 함께 취소한다.
     const { accessToken, accessTokenExpiresIn, refreshToken } =
-      await this.issueTokens({ userId: user.id, role: user.role });
+      await this.issueTokens(
+        { userId: user.id, role: user.role },
+        user.role === Role.ADMIN
+          ? (tx) => this.adminLoginHistories.recordSuccess(user.id, client, tx)
+          : undefined,
+      );
     const adminProfile =
       user.role === Role.ADMIN ? await this.findAdminProfile(user.id) : null;
 
@@ -185,6 +186,24 @@ export class AuthService {
         role: user.role,
       },
     };
+  }
+
+  /**
+   * 관리자 로그인 실패 이력을 남긴다. 이력 저장에 실패해도 원래 인증 오류 응답이 바뀌지 않도록 로그만 남긴다.
+   */
+  private async recordAdminLoginFailure(
+    adminId: number,
+    reason: AdminLoginFailureReason,
+    client: ClientInfo,
+  ): Promise<void> {
+    try {
+      await this.adminLoginHistories.recordFailure(adminId, reason, client);
+    } catch (error) {
+      this.logger.error(
+        `관리자 접속 이력 저장 실패: adminId=${adminId}, reason=${reason}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   /** 관리자명과 임시 비밀번호 상태. 관리자 정보가 없는 계정(seed 관리자)은 null이다. */
@@ -430,7 +449,11 @@ export class AuthService {
     }
   }
 
-  private async issueTokens(user: AuthUser): Promise<RefreshTokenResDto> {
+  /** @param onIssued 세션 저장과 같은 트랜잭션에서 함께 처리할 작업 (관리자 로그인 성공 이력) */
+  private async issueTokens(
+    user: AuthUser,
+    onIssued?: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): Promise<RefreshTokenResDto> {
     const accessToken = await this.jwtService.signAsync({
       sub: user.userId,
       role: user.role,
@@ -460,6 +483,7 @@ export class AuthService {
           expiresAt: new Date(Date.now() + refreshDays * DAY_MS),
         },
       });
+      await onIssued?.(tx);
     });
 
     return {
