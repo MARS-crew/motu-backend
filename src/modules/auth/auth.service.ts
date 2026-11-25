@@ -32,6 +32,7 @@ import { VerificationsService } from '../verifications/verifications.service.js'
 import { AuthErrors } from './auth.errors.js';
 import { passwordResetOpenPage } from './password-reset-open-page.js';
 import {
+  ADMIN_PASSWORD_RESET_TTL_MS,
   LOGIN_TOKEN_TTL,
   PASSWORD_RESET_COOLDOWN_MS,
   PASSWORD_RESET_TTL_MS,
@@ -308,19 +309,52 @@ export class AuthService {
   }
 
   /**
-   * 아이디·이메일이 맞는 정상 계정이면 재설정 링크를 메일로 보낸다.
-   * 가입 여부를 노출하지 않도록 조건이 맞지 않아도 에러 없이 끝낸다.
+   * 아이디·이메일이 맞는 정상 회원이면 재설정 링크(앱으로 이동)를 메일로 보낸다.
+   * 가입 여부를 노출하지 않도록 조건이 맞지 않아도 에러 없이 끝낸다. 관리자 계정은 관리자 재설정을 쓴다.
    */
   async requestPasswordReset(loginId: string, email: string): Promise<void> {
     const user = await this.usersService.findByLoginId(loginId);
     if (
       !user ||
+      user.role !== Role.USER ||
       user.email !== email ||
       user.userStatus !== UserStatus.ACTIVE
     ) {
       return;
     }
 
+    await this.sendPasswordResetLink(user, email, {
+      baseUrl: this.config.get('PASSWORD_RESET_URL', { infer: true }),
+      ttlMs: PASSWORD_RESET_TTL_MS,
+    });
+  }
+
+  /**
+   * 등록 이메일이 정상 관리자 계정이면 관리자 웹 재설정 링크(10분)를 메일로 보낸다 (ADM-AUTH-02).
+   * 관리자 이메일을 노출하지 않도록 조건이 맞지 않아도 에러 없이 끝낸다.
+   */
+  async requestAdminPasswordReset(email: string): Promise<void> {
+    const user = await this.usersService.findByEmail(email);
+    if (
+      !user ||
+      user.role !== Role.ADMIN ||
+      user.userStatus !== UserStatus.ACTIVE
+    ) {
+      return;
+    }
+
+    await this.sendPasswordResetLink(user, email, {
+      baseUrl: this.config.get('ADMIN_PASSWORD_RESET_URL', { infer: true }),
+      ttlMs: ADMIN_PASSWORD_RESET_TTL_MS,
+    });
+  }
+
+  /** 일회용 재설정 토큰을 만들고 링크를 메일로 보낸다. 같은 계정은 1분에 한 번만 보낸다. */
+  private async sendPasswordResetLink(
+    user: User,
+    email: string,
+    link: { baseUrl: string; ttlMs: number },
+  ): Promise<void> {
     const latest = await this.prisma.passwordResetToken.findFirst({
       where: { userId: user.id },
       orderBy: { createDate: 'desc' },
@@ -344,19 +378,20 @@ export class AuthService {
         data: {
           userId: user.id,
           tokenHash: this.hashToken(token),
-          expiresAt: new Date(now.getTime() + PASSWORD_RESET_TTL_MS),
+          expiresAt: new Date(now.getTime() + link.ttlMs),
           createDate: now,
         },
       }),
     ]);
 
-    const url = new URL(this.config.get('PASSWORD_RESET_URL', { infer: true }));
+    const url = new URL(link.baseUrl);
     url.searchParams.set('token', token);
+    const minutes = link.ttlMs / 60_000;
     try {
       await this.mailSender.send({
         to: email,
         subject: '[MOTU] 비밀번호 재설정 안내',
-        text: `아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 30분 동안 한 번만 사용할 수 있습니다.\n${url.toString()}`,
+        text: `아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 ${minutes}분 동안 한 번만 사용할 수 있습니다.\n${url.toString()}`,
       });
     } catch (error) {
       // 발송 실패를 알리면 정보가 맞는 계정이라는 사실이 드러나므로 다른 경우와 같은 응답을 준다.
@@ -381,7 +416,12 @@ export class AuthService {
 
   /** 재설정 링크를 열었을 때 사용할 수 있는 링크인지 확인한다. */
   async verifyPasswordResetToken(token: string): Promise<void> {
-    await this.findUsableResetToken(token);
+    await this.findUsableResetToken(token, Role.USER);
+  }
+
+  /** 관리자 재설정 링크를 열었을 때 사용할 수 있는 링크인지 확인한다. */
+  async verifyAdminPasswordResetToken(token: string): Promise<void> {
+    await this.findUsableResetToken(token, Role.ADMIN);
   }
 
   /**
@@ -389,12 +429,23 @@ export class AuthService {
    * 현재 비밀번호와 같으면 거부하며, 이때 링크는 사용 처리하지 않아 다시 시도할 수 있다.
    */
   async resetPassword(token: string, newPassword: string): Promise<void> {
-    const saved = await this.findUsableResetToken(token);
+    await this.applyPasswordReset(token, newPassword, Role.USER);
+  }
 
-    const user = await this.usersService.findById(saved.userId);
-    if (!user) {
-      throw new BusinessException(AuthErrors.INVALID_PASSWORD_RESET_TOKEN);
-    }
+  /**
+   * 관리자 비밀번호를 바꾸고 모든 로그인 세션을 만료한다 (ADM-AUTH-02-01).
+   * 본인이 정한 비밀번호이므로 임시 비밀번호 상태도 푼다. 정지·탈퇴 상태는 해제하지 않는다.
+   */
+  async resetAdminPassword(token: string, newPassword: string): Promise<void> {
+    await this.applyPasswordReset(token, newPassword, Role.ADMIN);
+  }
+
+  private async applyPasswordReset(
+    token: string,
+    newPassword: string,
+    role: Role,
+  ): Promise<void> {
+    const { saved, user } = await this.findUsableResetToken(token, role);
     this.assertLoginAllowed(user);
     if (await verify(user.password, newPassword)) {
       throw new BusinessException(AuthErrors.SAME_AS_CURRENT_PASSWORD);
@@ -410,19 +461,30 @@ export class AuthService {
     }
 
     await this.usersService.changePassword(user.id, newPassword);
+    if (role === Role.ADMIN) {
+      await this.prisma.adminProfile.updateMany({
+        where: { userId: user.id, passwordChangeRequired: true },
+        data: { passwordChangeRequired: false },
+      });
+    }
     await this.revokeAllSessions(user.id);
     // 비밀번호를 바꾸면 모든 기기에서 다시 새 기기 확인을 받는다.
     await this.twoFactorService.forgetDevices(user.id);
   }
 
-  private async findUsableResetToken(token: string) {
+  /** 회원 링크는 회원 API에서만, 관리자 링크는 관리자 API에서만 쓸 수 있다. */
+  private async findUsableResetToken(token: string, role: Role) {
     const saved = await this.prisma.passwordResetToken.findUnique({
       where: { tokenHash: this.hashToken(token) },
     });
     if (!saved || saved.usedAt || saved.expiresAt.getTime() <= Date.now()) {
       throw new BusinessException(AuthErrors.INVALID_PASSWORD_RESET_TOKEN);
     }
-    return saved;
+    const user = await this.usersService.findById(saved.userId);
+    if (!user || user.role !== role) {
+      throw new BusinessException(AuthErrors.INVALID_PASSWORD_RESET_TOKEN);
+    }
+    return { saved, user };
   }
 
   /**

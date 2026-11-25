@@ -89,6 +89,11 @@ export class EnvironmentVariables {
   @Matches(/^[a-z][a-z0-9+.-]*:\/\/\S+$/i)
   PASSWORD_RESET_APP_URL: string = 'motu://new-password';
 
+  /** 관리자 비밀번호 재설정 메일에 넣을 관리자 웹 재설정 화면 주소. 뒤에 `?token=...`이 붙는다. */
+  @IsUrl({ require_tld: false })
+  ADMIN_PASSWORD_RESET_URL: string =
+    'http://localhost:5173/admin/password-reset';
+
   /** Brevo API 키. 비우면 메일을 보내지 않고 서버 로그에 출력한다. 운영 환경에서는 필수. */
   @ValidateIf(usesBrevo)
   @IsString()
