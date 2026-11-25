@@ -21,6 +21,9 @@ export class CreateUserResDto {
   @ApiProperty({ description: '역할', enum: Role, example: Role.USER })
   role: Role;
 
-  @ApiProperty({ description: '지급된 초기 포인트', example: 3000000 })
+  @ApiProperty({
+    description: '가입 시 실제 지급된 초기 포인트 (관리자 설정값)',
+    example: 3000000,
+  })
   cash: number;
 }
