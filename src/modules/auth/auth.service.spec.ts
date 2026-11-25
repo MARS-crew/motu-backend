@@ -6,6 +6,7 @@ import { BusinessException } from '../../common/exceptions/business.exception.js
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
 import { MailErrors } from '../../common/mail/mail.errors.js';
+import { AdminLoginHistoriesService } from '../admin-login-histories/admin-login-histories.service.js';
 import { TwoFactorService } from '../two-factor/two-factor.service.js';
 import { UsersService } from '../users/users.service.js';
 import { VerificationsService } from '../verifications/verifications.service.js';
@@ -82,6 +83,10 @@ describe('AuthService', () => {
     trustDevice: vi.fn(),
     forgetDevices: vi.fn(),
   };
+  const adminLoginHistories = {
+    recordSuccess: vi.fn(),
+    recordFailure: vi.fn(),
+  };
   const service = new AuthService(
     prisma,
     jwtService,
@@ -90,6 +95,7 @@ describe('AuthService', () => {
     verificationsService,
     mailSender,
     twoFactorService as unknown as TwoFactorService,
+    adminLoginHistories as unknown as AdminLoginHistoriesService,
   );
 
   let user: Record<string, unknown>;
@@ -248,6 +254,84 @@ describe('AuthService', () => {
       ).rejects.toMatchObject({
         response: { code: 'AUTH_INVALID_CREDENTIALS' },
       });
+      expect(adminLoginHistories.recordFailure).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('관리자 접속 이력', () => {
+    const client = { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' };
+    const admin = () => ({ ...user, role: 'ADMIN' });
+
+    beforeEach(() => {
+      adminProfile.findUnique.mockResolvedValue(null);
+    });
+
+    it('관리자 로그인에 성공하면 성공 이력을 남긴다', async () => {
+      findByLoginId.mockResolvedValue(admin());
+
+      await service.login(
+        { loginId: 'motuuser', password: 'motuuser1!' },
+        client,
+      );
+
+      expect(adminLoginHistories.recordSuccess).toHaveBeenCalledWith(1, client);
+      expect(adminLoginHistories.recordFailure).not.toHaveBeenCalled();
+    });
+
+    it('관리자 비밀번호가 틀리면 실패 이력을 남긴다', async () => {
+      findByLoginId.mockResolvedValue(admin());
+      recordLoginFailure.mockResolvedValue({ failCount: 1, locked: false });
+
+      await expect(
+        service.login({ loginId: 'motuuser', password: 'wrong' }, client),
+      ).rejects.toMatchObject({
+        response: { code: 'AUTH_INVALID_CREDENTIALS' },
+      });
+      expect(adminLoginHistories.recordFailure).toHaveBeenCalledWith(
+        1,
+        'INVALID_PASSWORD',
+        client,
+      );
+      expect(adminLoginHistories.recordSuccess).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['LOCKED', 'ACCOUNT_LOCKED', 'AUTH_ACCOUNT_LOCKED'],
+      ['BLOCKED', 'ACCOUNT_BLOCKED', 'AUTH_ACCOUNT_BLOCKED'],
+      ['WITHDRAWN', 'ACCOUNT_WITHDRAWN', 'AUTH_UNAUTHORIZED'],
+    ])(
+      '%s 관리자는 로그인을 막고 실패 사유를 남긴다',
+      async (userStatus, reason, code) => {
+        findByLoginId.mockResolvedValue({ ...admin(), userStatus });
+
+        await expect(
+          service.login(
+            { loginId: 'motuuser', password: 'motuuser1!' },
+            client,
+          ),
+        ).rejects.toMatchObject({ response: { code } });
+        expect(adminLoginHistories.recordFailure).toHaveBeenCalledWith(
+          1,
+          reason,
+          client,
+        );
+      },
+    );
+
+    it('회원 로그인은 관리자 접속 이력에 남기지 않는다', async () => {
+      recordLoginFailure.mockResolvedValue({ failCount: 1, locked: false });
+
+      await service.login({ loginId: 'motuuser', password: 'motuuser1!' });
+      await expect(
+        service.login({ loginId: 'motuuser', password: 'wrong' }),
+      ).rejects.toBeInstanceOf(BusinessException);
+      findByLoginId.mockResolvedValue({ ...user, userStatus: 'BLOCKED' });
+      await expect(
+        service.login({ loginId: 'motuuser', password: 'motuuser1!' }),
+      ).rejects.toBeInstanceOf(BusinessException);
+
+      expect(adminLoginHistories.recordSuccess).not.toHaveBeenCalled();
+      expect(adminLoginHistories.recordFailure).not.toHaveBeenCalled();
     });
   });
 
@@ -272,6 +356,7 @@ describe('AuthService', () => {
       verificationsService,
       mailSender,
       twoFactorService as unknown as TwoFactorService,
+      adminLoginHistories as unknown as AdminLoginHistoriesService,
     );
     const DEVICE_ID = '3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a12';
     const login = () =>
@@ -332,7 +417,7 @@ describe('AuthService', () => {
       const result = await deviceService.confirmLoginVerification(
         loginToken,
         '123456',
-        'Mozilla/5.0',
+        { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' },
       );
 
       expect(twoFactorService.confirmLoginVerification).toHaveBeenCalledWith(
@@ -349,6 +434,29 @@ describe('AuthService', () => {
         verificationRequired: false,
         user: { userId: 1 },
       });
+    });
+
+    it('관리자는 새 기기 확인을 마칠 때 성공 이력을 남긴다', async () => {
+      const admin = { ...user, role: 'ADMIN' };
+      findByLoginId.mockResolvedValue(admin);
+      findById.mockResolvedValue(admin);
+      adminProfile.findUnique.mockResolvedValue(null);
+      twoFactorService.useTrustedDevice.mockResolvedValue(false);
+      const client = { ipAddress: '203.0.113.7', userAgent: 'Mozilla/5.0' };
+      const { loginToken } = (await deviceService.login(
+        { loginId: 'motuuser', password: 'motuuser1!', deviceId: DEVICE_ID },
+        client,
+      )) as { loginToken: string };
+      // 비밀번호 확인만으로는 로그인을 마친 것이 아니다.
+      expect(adminLoginHistories.recordSuccess).not.toHaveBeenCalled();
+
+      await deviceService.confirmLoginVerification(
+        loginToken,
+        '123456',
+        client,
+      );
+
+      expect(adminLoginHistories.recordSuccess).toHaveBeenCalledWith(1, client);
     });
 
     it('인증번호가 틀리면 기기를 신뢰하지 않는다', async () => {
