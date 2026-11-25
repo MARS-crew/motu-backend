@@ -274,8 +274,66 @@ describe('AuthService', () => {
         client,
       );
 
-      expect(adminLoginHistories.recordSuccess).toHaveBeenCalledWith(1, client);
+      expect(adminLoginHistories.recordSuccess).toHaveBeenCalledWith(
+        1,
+        client,
+        authTx,
+      );
       expect(adminLoginHistories.recordFailure).not.toHaveBeenCalled();
+    });
+
+    it('세션 발급 직전 상태 확인에서 막히면 성공 이력을 남기지 않는다', async () => {
+      findByLoginId.mockResolvedValue(admin());
+      authTx.$queryRaw.mockResolvedValue([{ userStatus: UserStatus.BLOCKED }]);
+
+      await expect(
+        service.login({ loginId: 'motuuser', password: 'motuuser1!' }, client),
+      ).rejects.toMatchObject({ response: { code: 'AUTH_ACCOUNT_BLOCKED' } });
+      expect(refreshToken.create).not.toHaveBeenCalled();
+      expect(adminLoginHistories.recordSuccess).not.toHaveBeenCalled();
+    });
+
+    it('비밀번호 오류는 실패 횟수를 먼저 올린 뒤 이력을 남긴다', async () => {
+      findByLoginId.mockResolvedValue(admin());
+      recordLoginFailure.mockResolvedValue({ failCount: 1, locked: false });
+
+      await expect(
+        service.login({ loginId: 'motuuser', password: 'wrong' }, client),
+      ).rejects.toBeInstanceOf(BusinessException);
+
+      expect(recordLoginFailure.mock.invocationCallOrder[0]).toBeLessThan(
+        adminLoginHistories.recordFailure.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('실패 이력 저장이 실패해도 잠금 처리와 원래 인증 오류는 그대로다', async () => {
+      findByLoginId.mockResolvedValue(admin());
+      recordLoginFailure.mockResolvedValue({ failCount: 5, locked: true });
+      adminLoginHistories.recordFailure.mockRejectedValueOnce(
+        new Error('db down'),
+      );
+
+      await expect(
+        service.login({ loginId: 'motuuser', password: 'wrong' }, client),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'AUTH_ACCOUNT_LOCKED' },
+      });
+      expect(recordLoginFailure).toHaveBeenCalledWith(1);
+    });
+
+    it('정지 관리자의 실패 이력 저장이 실패해도 정지 응답을 준다', async () => {
+      findByLoginId.mockResolvedValue({ ...admin(), userStatus: 'BLOCKED' });
+      adminLoginHistories.recordFailure.mockRejectedValueOnce(
+        new Error('db down'),
+      );
+
+      await expect(
+        service.login({ loginId: 'motuuser', password: 'motuuser1!' }, client),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'AUTH_ACCOUNT_BLOCKED' },
+      });
     });
 
     it('관리자 비밀번호가 틀리면 실패 이력을 남긴다', async () => {
@@ -456,7 +514,11 @@ describe('AuthService', () => {
         client,
       );
 
-      expect(adminLoginHistories.recordSuccess).toHaveBeenCalledWith(1, client);
+      expect(adminLoginHistories.recordSuccess).toHaveBeenCalledWith(
+        1,
+        client,
+        authTx,
+      );
     });
 
     it('인증번호가 틀리면 기기를 신뢰하지 않는다', async () => {
