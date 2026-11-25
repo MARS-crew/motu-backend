@@ -7,16 +7,19 @@ import { AuthUser } from '../../common/auth/auth-user.type.js';
 import { BusinessException } from '../../common/exceptions/business.exception.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { adminDisplayName } from '../../common/utils/admin-display-name.js';
+import { ClientInfo } from '../../common/utils/client-info.js';
 import { EnvironmentVariables } from '../../config/env.validation.js';
 import { MailSender } from '../../common/mail/mail-sender.js';
 import { MailErrors } from '../../common/mail/mail.errors.js';
 import {
+  AdminLoginFailureReason,
   Role,
   User,
   UserStatus,
   VerificationChannel,
   VerificationPurpose,
 } from '../../generated/prisma/client.js';
+import { AdminLoginHistoriesService } from '../admin-login-histories/admin-login-histories.service.js';
 import {
   hashDeviceId,
   SentLoginVerification,
@@ -43,6 +46,15 @@ import { SendLoginIdVerificationResDto } from './dto/res/send-login-id-verificat
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LOGIN_TOKEN_PURPOSE = 'LOGIN_VERIFICATION';
 
+/** 로그인할 수 없는 계정 상태별 관리자 접속 이력 실패 사유 */
+const STATUS_FAILURE_REASONS: Partial<
+  Record<UserStatus, AdminLoginFailureReason>
+> = {
+  [UserStatus.LOCKED]: AdminLoginFailureReason.ACCOUNT_LOCKED,
+  [UserStatus.BLOCKED]: AdminLoginFailureReason.ACCOUNT_BLOCKED,
+  [UserStatus.WITHDRAWN]: AdminLoginFailureReason.ACCOUNT_WITHDRAWN,
+};
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -55,22 +67,40 @@ export class AuthService {
     private readonly verificationsService: VerificationsService,
     private readonly mailSender: MailSender,
     private readonly twoFactorService: TwoFactorService,
+    private readonly adminLoginHistories: AdminLoginHistoriesService,
   ) {}
 
   /**
    * 비밀번호가 맞아도 신뢰하지 않은 기기(deviceId)면 토큰 대신 새 기기 확인용 로그인 토큰을 내려준다.
    * 실패 횟수 초기화와 최근 접속일 갱신은 로그인을 마칠 때 한다.
+   * 관리자 계정이면 시도 결과를 관리자 접속 이력에 남긴다. 없는 아이디는 관리자 시도인지 알 수 없어 남기지 않는다.
    */
   async login(
     dto: LoginReqDto,
+    client: ClientInfo = {},
   ): Promise<LoginResDto | LoginVerificationRequiredResDto> {
     const user = await this.usersService.findByLoginId(dto.loginId);
     if (!user) {
       throw new BusinessException(AuthErrors.INVALID_CREDENTIALS);
     }
+    const blockedReason = STATUS_FAILURE_REASONS[user.userStatus];
+    if (user.role === Role.ADMIN && blockedReason) {
+      await this.adminLoginHistories.recordFailure(
+        user.id,
+        blockedReason,
+        client,
+      );
+    }
     this.assertLoginAllowed(user);
 
     if (!(await verify(user.password, dto.password))) {
+      if (user.role === Role.ADMIN) {
+        await this.adminLoginHistories.recordFailure(
+          user.id,
+          AdminLoginFailureReason.INVALID_PASSWORD,
+          client,
+        );
+      }
       const { failCount, locked } = await this.usersService.recordLoginFailure(
         user.id,
       );
@@ -97,7 +127,7 @@ export class AuthService {
       }
     }
 
-    return this.completeLogin(user);
+    return this.completeLogin(user, client);
   }
 
   /** 새 기기 확인 인증번호를 보낸다. 2차 보안 설정 계정은 SMS, 미설정 계정은 가입 이메일이다. */
@@ -112,16 +142,26 @@ export class AuthService {
   async confirmLoginVerification(
     loginToken: string,
     code: string,
-    userAgent?: string,
+    client: ClientInfo = {},
   ): Promise<LoginResDto> {
     const { user, deviceIdHash } = await this.verifyLoginToken(loginToken);
     await this.twoFactorService.confirmLoginVerification(user, code);
-    await this.twoFactorService.trustDevice(user.id, deviceIdHash, userAgent);
-    return this.completeLogin(user);
+    await this.twoFactorService.trustDevice(
+      user.id,
+      deviceIdHash,
+      client.userAgent,
+    );
+    return this.completeLogin(user, client);
   }
 
-  private async completeLogin(user: User): Promise<LoginResDto> {
+  private async completeLogin(
+    user: User,
+    client: ClientInfo,
+  ): Promise<LoginResDto> {
     await this.usersService.recordLoginSuccess(user.id);
+    if (user.role === Role.ADMIN) {
+      await this.adminLoginHistories.recordSuccess(user.id, client);
+    }
     const { accessToken, accessTokenExpiresIn, refreshToken } =
       await this.issueTokens({ userId: user.id, role: user.role });
     const adminProfile =
