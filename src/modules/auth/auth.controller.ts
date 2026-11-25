@@ -2,11 +2,11 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Post,
   Query,
+  Req,
   Res,
 } from '@nestjs/common';
 import {
@@ -21,8 +21,9 @@ import {
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../../common/auth/public.decorator.js';
+import { clientInfo } from '../../common/utils/client-info.js';
 import { AuthService } from './auth.service.js';
 import { ConfirmLoginIdVerificationReqDto } from './dto/req/confirm-login-id-verification-req.dto.js';
 import { ConfirmLoginVerificationReqDto } from './dto/req/confirm-login-verification-req.dto.js';
@@ -84,8 +85,9 @@ export class AuthController {
   })
   login(
     @Body() dto: LoginReqDto,
+    @Req() request: Request,
   ): Promise<LoginResDto | LoginVerificationRequiredResDto> {
-    return this.authService.login(dto);
+    return this.authService.login(dto, clientInfo(request));
   }
 
   @Post('login/verifications')
@@ -111,12 +113,12 @@ export class AuthController {
   @ApiOkResponse({ type: LoginResDto })
   confirmLoginVerification(
     @Body() dto: ConfirmLoginVerificationReqDto,
-    @Headers('user-agent') userAgent?: string,
+    @Req() request: Request,
   ): Promise<LoginResDto> {
     return this.authService.confirmLoginVerification(
       dto.loginToken,
       dto.code,
-      userAgent,
+      clientInfo(request),
     );
   }
 
