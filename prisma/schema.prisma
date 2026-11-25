@@ -419,7 +419,7 @@ enum PointResetCondition {
   NO_HOLDINGS
   /// 주문에 예약된 포인트가 0P
   NO_LOCKED_CASH
-  /// 보유 포인트가 초기 포인트의 10% 미만
+  /// 보유 포인트가 고정 리셋 금액(3,000,000P)의 10% 미만. 신규 가입 지급 설정과 별개다.
   CASH_BELOW_LIMIT
   /// 마지막 리셋 후 7일 경과 (리셋한 적이 없으면 충족)
   RESET_INTERVAL_PASSED
@@ -1011,8 +1011,21 @@ model ListingApplicationRevision {
   @@map("listing_application_revisions")
 }
 
+/// 신규 가입 초기 지급 설정. id=1 단일 행, 양의 안전한 정수 금액·버전은 migration CHECK로 보장한다.
+/// 기존 회원 잔액·원장·포인트 리셋에는 소급하지 않는다.
+model InitialPointSetting {
+  id           Int      @id @default(1) @map("setting_id")
+  amount       BigInt   @default(3000000)
+  version      Int      @default(1)
+  modifiedDate DateTime @default(now()) @map("modified_date") @db.Timestamptz(3)
+
+  @@map("initial_point_settings")
+}
+
 /// 관리자 활동 이력의 작업 대상
 enum AdminActivityTarget {
+  /// 신규 가입 지급액 설정 (개별 회원 지급과 구분)
+  POINT_SETTING
   /// 상장 신청
   LISTING_APPLICATION
   /// 상품
@@ -1033,6 +1046,7 @@ enum AdminActivityTarget {
 
 /// 관리자 활동 이력의 수행 작업. 작업 대상별로 쓸 수 있는 작업이 정해져 있다(admin-activity-logs.constants.ts).
 enum AdminActivityAction {
+  INITIAL_GRANT_UPDATE
   INQUIRY_START
   INQUIRY_REPLY_DRAFT_SAVE
   INQUIRY_REPLY_SEND
@@ -1072,7 +1086,7 @@ model AdminActivityLog {
   id          BigInt              @id @default(autoincrement()) @map("activity_log_id")
   adminId     Int                 @map("admin_id")
   targetType  AdminActivityTarget @map("target_type")
-  /// 대상의 PK (상장 신청 ID, 상품 ID, 회원·관리자 user_id, 공지 ID, 이상 거래 ID)
+  /// 대상의 PK (상장 신청·상품·회원·관리자·공지·문의·이상 거래 ID, 포인트 설정은 1)
   targetId    BigInt              @map("target_id")
   /// 처리 당시 대상 이름 (상품명, 아이디, 공지 제목 등). 이름이 바뀌어도 당시 값을 남긴다.
   targetLabel String?             @map("target_label") @db.VarChar(100)
