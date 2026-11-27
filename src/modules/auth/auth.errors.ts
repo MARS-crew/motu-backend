@@ -40,6 +40,12 @@ export const AuthErrors = {
       '가입된 계정이 없습니다. 이메일을 확인하거나 회원가입을 진행해 주세요.',
     status: HttpStatus.NOT_FOUND,
   },
+  /** 관리자 비밀번호 재설정: 회원 이메일·미등록·탈퇴 관리자 (ADM-AUTH-02) */
+  ADMIN_EMAIL_NOT_REGISTERED: {
+    code: 'AUTH_ADMIN_EMAIL_NOT_REGISTERED',
+    message: '등록된 관리자 이메일이 아닙니다.',
+    status: HttpStatus.NOT_FOUND,
+  },
   INVALID_PASSWORD_RESET_TOKEN: {
     code: 'AUTH_INVALID_PASSWORD_RESET_TOKEN',
     message:
