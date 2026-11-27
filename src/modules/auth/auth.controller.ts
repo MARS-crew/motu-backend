@@ -14,6 +14,8 @@ import {
   ApiBody,
   ApiCreatedResponse,
   ApiExtraModels,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiProduces,
@@ -245,7 +247,11 @@ export class AuthController {
   @ApiOperation({
     summary: '관리자 비밀번호 재설정 링크 발송',
     description:
-      '등록 이메일이 정상 관리자 계정이면 관리자 웹 재설정 화면 링크(ADMIN_PASSWORD_RESET_URL, 10분·일회용)를 메일로 보낸다. 관리자 이메일을 노출하지 않도록 결과와 관계없이 같은 응답을 내려준다. 같은 계정은 1분에 한 번만 보낸다.',
+      '등록 이메일이 정상 관리자 계정이면 관리자 웹 재설정 화면 링크(ADMIN_PASSWORD_RESET_URL, 10분·일회용)를 메일로 보낸다. 관리자 이메일이 아니면(회원·미등록·탈퇴) 404 AUTH_ADMIN_EMAIL_NOT_REGISTERED, 잠금·정지 관리자는 403 AUTH_ACCOUNT_LOCKED / AUTH_ACCOUNT_BLOCKED. 같은 계정은 1분에 한 번만 보내며, 그 안의 재요청과 메일 발송 실패는 같은 성공 응답이다.',
+  })
+  @ApiNotFoundResponse({ description: 'AUTH_ADMIN_EMAIL_NOT_REGISTERED' })
+  @ApiForbiddenResponse({
+    description: 'AUTH_ACCOUNT_LOCKED / AUTH_ACCOUNT_BLOCKED',
   })
   async requestAdminPasswordReset(
     @Body() dto: RequestAdminPasswordResetReqDto,
