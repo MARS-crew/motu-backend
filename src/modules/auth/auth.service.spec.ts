@@ -850,18 +850,65 @@ describe('AuthService', () => {
     });
 
     it.each([
-      ['등록되지 않은 이메일', null],
-      ['회원 이메일', { ...user }],
-      ['정지된 관리자', { ...user, role: 'ADMIN', userStatus: 'BLOCKED' }],
-      ['잠긴 관리자', { ...user, role: 'ADMIN', userStatus: 'LOCKED' }],
-    ])('%s은 에러 없이 메일을 보내지 않는다', async (_case, found) => {
-      findByEmail.mockResolvedValue(found);
+      [
+        '등록되지 않은 이메일',
+        () => null,
+        404,
+        'AUTH_ADMIN_EMAIL_NOT_REGISTERED',
+      ],
+      [
+        '회원 이메일',
+        () => ({ ...user }),
+        404,
+        'AUTH_ADMIN_EMAIL_NOT_REGISTERED',
+      ],
+      [
+        '탈퇴한 관리자',
+        () => ({ ...admin(), userStatus: 'WITHDRAWN' }),
+        404,
+        'AUTH_ADMIN_EMAIL_NOT_REGISTERED',
+      ],
+      [
+        '정지된 관리자',
+        () => ({ ...admin(), userStatus: 'BLOCKED' }),
+        403,
+        'AUTH_ACCOUNT_BLOCKED',
+      ],
+      [
+        '잠긴 관리자',
+        () => ({ ...admin(), userStatus: 'LOCKED' }),
+        403,
+        'AUTH_ACCOUNT_LOCKED',
+      ],
+    ])(
+      '%s은 메일을 보내지 않고 에러로 알려준다',
+      async (_case, found, status, code) => {
+        findByEmail.mockResolvedValue(found());
 
+        await expect(
+          service.requestAdminPasswordReset('admin@motu.test'),
+        ).rejects.toMatchObject({ status, response: { code } });
+        expect(sendMail).not.toHaveBeenCalled();
+        expect(passwordResetToken.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it('1분 안의 재요청과 메일 발송 실패는 성공 응답이다', async () => {
+      findByEmail.mockResolvedValue(admin());
+      passwordResetToken.findFirst.mockResolvedValueOnce({
+        createDate: new Date(Date.now() - 10_000),
+      });
       await expect(
         service.requestAdminPasswordReset('admin@motu.test'),
       ).resolves.toBeUndefined();
       expect(sendMail).not.toHaveBeenCalled();
-      expect(passwordResetToken.create).not.toHaveBeenCalled();
+
+      sendMail.mockRejectedValueOnce(
+        new BusinessException(MailErrors.SEND_FAILED),
+      );
+      await expect(
+        service.requestAdminPasswordReset('admin@motu.test'),
+      ).resolves.toBeUndefined();
     });
 
     it('새 비밀번호를 설정하면 임시 비밀번호 상태를 풀고 세션을 모두 만료한다', async () => {
