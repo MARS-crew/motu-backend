@@ -331,17 +331,18 @@ export class AuthService {
 
   /**
    * 등록 이메일이 정상 관리자 계정이면 관리자 웹 재설정 링크(10분)를 메일로 보낸다 (ADM-AUTH-02).
-   * 관리자 이메일을 노출하지 않도록 조건이 맞지 않아도 에러 없이 끝낸다.
+   * 화면설계서대로 관리자 이메일이 아니면 404, 잠금·정지 관리자는 로그인과 같은 403으로 알려준다.
    */
   async requestAdminPasswordReset(email: string): Promise<void> {
     const user = await this.usersService.findByEmail(email);
     if (
       !user ||
       user.role !== Role.ADMIN ||
-      user.userStatus !== UserStatus.ACTIVE
+      user.userStatus === UserStatus.WITHDRAWN
     ) {
-      return;
+      throw new BusinessException(AuthErrors.ADMIN_EMAIL_NOT_REGISTERED);
     }
+    this.assertLoginAllowed(user);
 
     await this.sendPasswordResetLink(user, email, {
       baseUrl: this.config.get('ADMIN_PASSWORD_RESET_URL', { infer: true }),
@@ -394,7 +395,8 @@ export class AuthService {
         text: `아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 ${minutes}분 동안 한 번만 사용할 수 있습니다.\n${url.toString()}`,
       });
     } catch (error) {
-      // 발송 실패를 알리면 정보가 맞는 계정이라는 사실이 드러나므로 다른 경우와 같은 응답을 준다.
+      // 회원은 발송 실패를 알리면 정보가 맞는 계정이라는 사실이 드러나므로 다른 경우와 같은 응답을 준다.
+      // 관리자도 실패 직전에 새 링크를 만들어 1분 재요청 제한이 걸리므로 같은 응답을 주고 로그만 남긴다.
       if (
         error instanceof BusinessException &&
         error.error === MailErrors.SEND_FAILED
